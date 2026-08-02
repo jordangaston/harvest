@@ -1,12 +1,30 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type preHandlerAsyncHookHandler } from 'fastify';
 import { sql } from 'drizzle-orm';
 import type { Container } from '../container.js';
 import { dbosHealthy } from '../pipeline/bootstrap.js';
+import type { OtpService } from '../services/otp-service.js';
+import type { UserService } from '../services/user-service.js';
+import { registerOtpRoutes } from './routes/otp-routes.js';
+import { registerUserRoutes } from './routes/user-routes.js';
+import { toErrorReply } from './errors.js';
+
+/**
+ * The auth surface's dependencies. When present, `buildApp` registers the OTP
+ * and user routes; when absent (e.g. the health-only tests), only `/healthz`
+ * is mounted. Assembled in the composition root (container.ts).
+ */
+export interface AuthDeps {
+  otpService: OtpService;
+  userService: UserService;
+  authGuard: preHandlerAsyncHookHandler;
+}
 
 export interface BuildAppOptions {
   logger?: boolean;
   /** Overrides the DBOS liveness probe in tests. Defaults to dbosHealthy(). */
   checkDbos?: () => boolean;
+  /** Phone-auth dependencies; when set, the auth routes are registered. */
+  auth?: AuthDeps;
 }
 
 type ComponentStatus = 'ok' | 'error';
@@ -29,6 +47,13 @@ export function buildApp(container: Container, options: BuildAppOptions = {}): F
   const checkDbos = options.checkDbos ?? dbosHealthy;
   const app = Fastify({ logger: options.logger ?? false });
 
+  // Translate thrown domain errors (and Zod failures) into the API's
+  // { error: { code, message } } shape; never leak internals on a 500.
+  app.setErrorHandler((error, _request, reply) => {
+    const { status, body } = toErrorReply(error);
+    reply.code(status).send(body);
+  });
+
   app.get('/healthz', async (_request, reply) => {
     const db = await probeDb(container);
     const dbos: ComponentStatus = checkDbos() ? 'ok' : 'error';
@@ -36,6 +61,11 @@ export function buildApp(container: Container, options: BuildAppOptions = {}): F
     reply.code(status === 'ok' ? 200 : 503);
     return { status, db, dbos };
   });
+
+  if (options.auth) {
+    registerOtpRoutes(app, options.auth.otpService);
+    registerUserRoutes(app, options.auth.userService, options.auth.authGuard);
+  }
 
   return app;
 }
