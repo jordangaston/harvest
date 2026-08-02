@@ -15,10 +15,12 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@dbos-inc/dbos-sdk": "^4.25.14",
+    "@dbos-inc/drizzle-datasource": "^4.25.14",
+    "@neondatabase/serverless": "^1.0.2",
     "drizzle-orm": "^0.44.6",
     "fastify": "^5.6.1",
     "pg": "^8.16.3",
-    "@neondatabase/serverless": "^1.0.2",
     "ws": "^8.18.3",
     "zod": "^4.1.12"
   },
