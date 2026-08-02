@@ -18,9 +18,16 @@ export interface Container {
  * Fields callers may override — tests pass a `db`/pool built against an
  * ephemeral Postgres (or stub services in later tickets). Anything omitted is
  * constructed from real config.
+ *
+ * `otpProvider`/`userRepository` let tests inject a StubOtpProvider or a
+ * failing repository without touching the network or spending on SMS. Their
+ * concrete types land with the provider/repository in later tasks; the real
+ * container wiring that consumes them is deferred to task 11.
  */
 export interface ContainerOverrides {
   db?: Db;
+  otpProvider?: unknown;
+  userRepository?: unknown;
 }
 
 /**

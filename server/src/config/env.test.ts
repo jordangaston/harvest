@@ -36,4 +36,23 @@ describe('parseEnv (TC-5)', () => {
       /DBOS_SYSTEM_DATABASE_URL/,
     );
   });
+
+  it('leaves the TWILIO_* vars undefined when absent (optional)', () => {
+    const env = parseEnv(valid);
+    expect(env.TWILIO_ACCOUNT_SID).toBeUndefined();
+    expect(env.TWILIO_AUTH_TOKEN).toBeUndefined();
+    expect(env.TWILIO_VERIFY_SERVICE_SID).toBeUndefined();
+  });
+
+  it('parses the TWILIO_* vars when present', () => {
+    const env = parseEnv({
+      ...valid,
+      TWILIO_ACCOUNT_SID: 'AC123',
+      TWILIO_AUTH_TOKEN: 'token',
+      TWILIO_VERIFY_SERVICE_SID: 'VA123',
+    });
+    expect(env.TWILIO_ACCOUNT_SID).toBe('AC123');
+    expect(env.TWILIO_AUTH_TOKEN).toBe('token');
+    expect(env.TWILIO_VERIFY_SERVICE_SID).toBe('VA123');
+  });
 });

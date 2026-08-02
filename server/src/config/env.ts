@@ -11,6 +11,12 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: requiredUrl('DATABASE_URL'),
   DBOS_SYSTEM_DATABASE_URL: requiredUrl('DBOS_SYSTEM_DATABASE_URL'),
+  // Twilio Verify credentials. Optional at the schema level so dev/test can boot
+  // without them (the container selects the StubOtpProvider); production wiring
+  // validates that all three are present before selecting TwilioVerifyOtpProvider.
+  TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+  TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+  TWILIO_VERIFY_SERVICE_SID: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
