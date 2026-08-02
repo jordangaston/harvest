@@ -62,9 +62,10 @@ export function buildApp(container: Container, options: BuildAppOptions = {}): F
     return { status, db, dbos };
   });
 
-  if (options.auth) {
-    registerOtpRoutes(app, options.auth.otpService);
-    registerUserRoutes(app, options.auth.userService, options.auth.authGuard);
+  const auth = options.auth ?? container.auth;
+  if (auth) {
+    registerOtpRoutes(app, auth.otpService);
+    registerUserRoutes(app, auth.userService, auth.authGuard);
   }
 
   return app;
