@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { runMigrations } from '../../src/db/migrate.js';
-import { TEST_DATABASE_URL, TEST_DBOS_SYSTEM_URL, PG_ADMIN_URL } from './integration-env.js';
+import { ensureDatabases } from '../../scripts/create-databases.js';
+import { TEST_DATABASE_URL, PG_ADMIN_URL } from './integration-env.js';
 
 /**
  * Vitest global setup for the integration project. Ensures the local test
@@ -8,25 +9,9 @@ import { TEST_DATABASE_URL, TEST_DBOS_SYSTEM_URL, PG_ADMIN_URL } from './integra
  * and applies all Drizzle migrations. Runs once before any integration spec.
  */
 export async function setup(): Promise<void> {
-  await ensureDatabases();
+  await ensureDatabases(PG_ADMIN_URL);
   await resetPublicSchema(TEST_DATABASE_URL);
   await runMigrations(TEST_DATABASE_URL);
-}
-
-async function ensureDatabases(): Promise<void> {
-  const admin = new Client({ connectionString: PG_ADMIN_URL });
-  await admin.connect();
-  try {
-    for (const name of ['harvest', 'harvest_dbos']) {
-      try {
-        await admin.query(`CREATE DATABASE "${name}"`);
-      } catch (err) {
-        if (!(err instanceof Error && 'code' in err && err.code === '42P04')) throw err;
-      }
-    }
-  } finally {
-    await admin.end();
-  }
 }
 
 async function resetPublicSchema(url: string): Promise<void> {
@@ -43,5 +28,3 @@ async function resetPublicSchema(url: string): Promise<void> {
     await client.end();
   }
 }
-
-void TEST_DBOS_SYSTEM_URL;

@@ -4,8 +4,9 @@
  * these also sets process.env so app modules (env.ts, the DBOS data source)
  * see the same values when imported inside the test process.
  */
-export const PG_ADMIN_URL =
-  process.env.PG_ADMIN_URL ?? 'postgresql://postgres:postgres@localhost:5432/postgres';
+import { LOCAL_ADMIN_URL } from '../../scripts/create-databases.js';
+
+export const PG_ADMIN_URL = process.env.PG_ADMIN_URL ?? LOCAL_ADMIN_URL;
 
 export const TEST_DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/harvest';

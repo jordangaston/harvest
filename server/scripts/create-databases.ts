@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
 
 /**
@@ -7,37 +8,38 @@ import { Client } from 'pg';
  * already exist (Postgres error code 42P04). Prod/staging use Neon and never
  * run this script.
  */
-const ADMIN_URL =
-  process.env.PG_ADMIN_URL ?? 'postgresql://postgres:postgres@localhost:5432/postgres';
+export const LOCAL_ADMIN_URL = 'postgresql://postgres:postgres@localhost:5432/postgres';
+export const LOCAL_DATABASES = ['harvest', 'harvest_dbos'];
 
-const DATABASES = ['harvest', 'harvest_dbos'];
-
-async function createDatabase(client: Client, name: string): Promise<void> {
-  try {
-    await client.query(`CREATE DATABASE "${name}"`);
-    process.stdout.write(`created database ${name}\n`);
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && err.code === '42P04') {
-      process.stdout.write(`database ${name} already exists\n`);
-      return;
-    }
-    throw err;
-  }
-}
-
-async function main(): Promise<void> {
-  const client = new Client({ connectionString: ADMIN_URL });
+/** Creates each database, tolerating any that already exist (42P04). */
+export async function ensureDatabases(
+  adminUrl: string,
+  names: readonly string[] = LOCAL_DATABASES,
+): Promise<void> {
+  const client = new Client({ connectionString: adminUrl });
   await client.connect();
   try {
-    for (const name of DATABASES) {
-      await createDatabase(client, name);
+    for (const name of names) {
+      try {
+        await client.query(`CREATE DATABASE "${name}"`);
+        process.stdout.write(`created database ${name}\n`);
+      } catch (err) {
+        if (err instanceof Error && 'code' in err && err.code === '42P04') {
+          process.stdout.write(`database ${name} already exists\n`);
+          continue;
+        }
+        throw err;
+      }
     }
   } finally {
     await client.end();
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  ensureDatabases(process.env.PG_ADMIN_URL ?? LOCAL_ADMIN_URL).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
