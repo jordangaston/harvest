@@ -19,11 +19,13 @@
     "fastify": "^5.6.1",
     "pg": "^8.16.3",
     "@neondatabase/serverless": "^1.0.2",
+    "ws": "^8.18.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^24.9.2",
     "@types/pg": "^8.15.6",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.2.4",
     "drizzle-kit": "^0.31.6",
     "tsx": "^4.20.6",
