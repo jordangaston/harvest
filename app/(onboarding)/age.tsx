@@ -15,7 +15,7 @@ export default function Age() {
       progress={0.78}
       ctaLabel="Continue"
       ctaDisabled={selected === null}
-      onCta={() => router.push("/(onboarding)/referral")}
+      onCta={() => router.push("/(onboarding)/setting-up")}
     >
       <View>
         <Heading className="text-2xl">How old are you?</Heading>
