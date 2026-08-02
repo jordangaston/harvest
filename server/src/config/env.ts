@@ -1,10 +1,16 @@
 import { z } from 'zod';
 
+/** A required connection string. Reports the same "is required" message whether
+ * the variable is missing or empty, so a missing var reads clearly rather than
+ * as Zod's default "expected string, received undefined". */
+const requiredUrl = (name: string) =>
+  z.string({ error: `${name} is required` }).min(1, `${name} is required`);
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  DBOS_SYSTEM_DATABASE_URL: z.string().min(1, 'DBOS_SYSTEM_DATABASE_URL is required'),
+  DATABASE_URL: requiredUrl('DATABASE_URL'),
+  DBOS_SYSTEM_DATABASE_URL: requiredUrl('DBOS_SYSTEM_DATABASE_URL'),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnv } from './env.js';
+import { parseEnv, envSchema } from './env.js';
 
 describe('parseEnv (TC-5)', () => {
   const valid = {
@@ -20,8 +20,15 @@ describe('parseEnv (TC-5)', () => {
 
   it('throws naming DATABASE_URL when it is missing', () => {
     expect(() => parseEnv({ DBOS_SYSTEM_DATABASE_URL: valid.DBOS_SYSTEM_DATABASE_URL })).toThrow(
-      /DATABASE_URL/,
+      /DATABASE_URL is required/,
     );
+  });
+
+  it('reports a clear "required" message for a missing var, not Zod default', () => {
+    const result = envSchema.safeParse({ DBOS_SYSTEM_DATABASE_URL: valid.DBOS_SYSTEM_DATABASE_URL });
+    expect(result.success).toBe(false);
+    const message = result.success ? '' : result.error.issues[0].message;
+    expect(message).toBe('DATABASE_URL is required');
   });
 
   it('throws naming DBOS_SYSTEM_DATABASE_URL when it is missing', () => {

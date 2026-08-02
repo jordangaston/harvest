@@ -8,10 +8,11 @@ import { users } from '../db/schema/index.js';
 
 /**
  * The DBOS Drizzle transactional data source. It manages its OWN interactive
- * `pg` pool (built from the app DATABASE_URL) so that `import_jobs` writes and
- * the workflow checkpoint commit in a single atomic transaction. Constructed at
- * module load, which self-registers it with DBOS. `neon-http` is unsupported —
- * it needs an interactive connection, so pass Neon's pooled/TCP URL in prod.
+ * `pg` pool (built from the app DATABASE_URL) so that a domain write (later
+ * tickets: `import_jobs`) and the workflow checkpoint commit in a single atomic
+ * transaction. Constructed at module load, which self-registers it with DBOS.
+ * `neon-http` is unsupported — it needs an interactive connection, so pass
+ * Neon's pooled/TCP URL in prod.
  */
 export const appDataSource = new DrizzleDataSource<NodePgDatabase<typeof schema>>(
   'harvest-app',
@@ -36,6 +37,13 @@ async function ping(): Promise<'pong'> {
   return 'pong';
 }
 
+/** Generates the throwaway phone. Runs in a step so the value is checkpointed
+ * and replays reuse it — nondeterministic input must never sit in a bare
+ * workflow body. */
+async function newSmokePhone(): Promise<string> {
+  return `+1999${randomUUID().replace(/\D/g, '').slice(0, 7)}`;
+}
+
 /**
  * Smoke transaction: inserts a throwaway user row and reads it back within the
  * same DBOS transaction, proving the data source writes and the checkpoint
@@ -52,7 +60,7 @@ async function insertAndReadBack(phone: string): Promise<string> {
 
 async function pingWorkflowFn(): Promise<{ step: 'pong'; insertedId: string }> {
   const step = await DBOS.runStep(() => ping(), { name: 'ping' });
-  const phone = `+1999${randomUUID().replace(/\D/g, '').slice(0, 7)}`;
+  const phone = await DBOS.runStep(() => newSmokePhone(), { name: 'newSmokePhone' });
   const insertedId = await appDataSource.runTransaction(() => insertAndReadBack(phone), {
     name: 'insertAndReadBack',
   });

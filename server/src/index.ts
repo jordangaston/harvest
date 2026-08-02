@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { env } from './config/env.js';
 import { buildContainer, type Container } from './container.js';
+import { runMigrations } from './db/migrate.js';
 import { initDbos, shutdownDbos } from './pipeline/bootstrap.js';
 import { buildApp } from './api/app.js';
 import type { FastifyInstance } from 'fastify';
@@ -10,6 +11,9 @@ async function main(): Promise<void> {
 
   await container.db.execute(sql`select 1`);
   console.log('db connected');
+
+  await runMigrations(env.DATABASE_URL);
+  console.log('migrations applied');
 
   await initDbos();
   console.log('dbos launched');
@@ -27,8 +31,10 @@ async function main(): Promise<void> {
       await app.close();
       await shutdownDbos();
       await container.close();
-    } finally {
       process.exit(0);
+    } catch (err) {
+      console.error('shutdown failed', err);
+      process.exit(1);
     }
   };
 
