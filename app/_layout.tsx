@@ -1,10 +1,10 @@
 import "../global.css";
 import React from "react";
-import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
+import { LoadingScreen } from "../components/recime/LoadingScreen";
 import {
   useFonts,
   Karla_400Regular,
@@ -26,8 +26,22 @@ export default function RootLayout() {
     Lora_700Bold,
   });
 
-  if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: "#F1E6D2" }} />;
+  // hold the splash a minimum time so it reads as intentional, not a flicker
+  const [minElapsed, setMinElapsed] = React.useState(false);
+  React.useEffect(() => {
+    const t = setTimeout(() => setMinElapsed(true), 1400);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!fontsLoaded || !minElapsed) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <LoadingScreen />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
   }
 
   return (

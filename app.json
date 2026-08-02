@@ -7,6 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "harvest",
+    "splash": {
+      "image": "./assets/welcome-hero.jpg",
+      "resizeMode": "cover",
+      "backgroundColor": "#2E2419"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.harvest.app"

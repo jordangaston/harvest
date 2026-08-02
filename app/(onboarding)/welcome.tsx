@@ -38,7 +38,7 @@ export default function Welcome() {
               style={{ color: "#F3E9DA", fontSize: 19, lineHeight: 26, fontFamily: "Karla_700Bold" }}
               className="mt-4 text-center"
             >
-              Import recipes, create shopping lists and meal plan like a pro
+              Import recipes, shop for groceries, and meal plan like a pro
             </Text>
           </View>
 
