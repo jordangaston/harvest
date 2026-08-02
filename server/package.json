@@ -12,7 +12,7 @@
     "migrate": "tsx src/db/migrate.ts",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --project unit --coverage"
   },
   "dependencies": {
     "@dbos-inc/dbos-sdk": "^4.25.14",
