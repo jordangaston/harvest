@@ -71,6 +71,29 @@ describe('AuthService crypto (AC-7 / AC-10 / TC-8)', () => {
     expect(auth.verifyToken(access_token.jwt, publicKey).type).not.toBe('refresh');
   });
 
+  it('rejects an alg:none token (no signature) against the public key', () => {
+    const auth = svc();
+    const { publicKey } = auth.generateKeyPair();
+    const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(
+      JSON.stringify({ sub: USER_ID, type: 'access', nonce: 0 }),
+    ).toString('base64url');
+    const unsigned = `${header}.${payload}.`;
+    expect(() => auth.verifyToken(unsigned, publicKey)).toThrow(jwt.JsonWebTokenError);
+  });
+
+  it('rejects an HS256 token forged with the public key as the HMAC secret (algorithm confusion)', () => {
+    const auth = svc();
+    const { publicKey } = auth.generateKeyPair();
+    // Classic RS/ES->HS confusion: sign HS256 using the PEM public key as the
+    // shared secret. Pinning verify to ES256 must reject it, never treat the
+    // public key as an HMAC key.
+    const forged = jwt.sign({ sub: USER_ID, type: 'access', nonce: 0 }, publicKey, {
+      algorithm: 'HS256',
+    });
+    expect(() => auth.verifyToken(forged, publicKey)).toThrow(jwt.JsonWebTokenError);
+  });
+
   it('throws TokenExpiredError for an expired token', () => {
     const auth = svc();
     const { privateKey, publicKey } = auth.generateKeyPair();
