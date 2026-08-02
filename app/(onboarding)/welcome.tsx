@@ -31,11 +31,29 @@ export default function Welcome() {
         <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
           {/* wordmark near the top */}
           <View className="items-center px-6 pt-16">
-            <Text style={{ color: "#FBF6EC", fontFamily: "Lora_700Bold", fontSize: 54, lineHeight: 60 }}>
+            <Text
+              style={{
+                color: "#FBF6EC",
+                fontFamily: "Lora_700Bold",
+                fontSize: 54,
+                lineHeight: 60,
+                textShadowColor: "rgba(38,28,18,0.35)",
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 12,
+              }}
+            >
               Harvest
             </Text>
             <Text
-              style={{ color: "#F3E9DA", fontSize: 19, lineHeight: 26, fontFamily: "Karla_700Bold" }}
+              style={{
+                color: "#F3E9DA",
+                fontSize: 19,
+                lineHeight: 26,
+                fontFamily: "Karla_600SemiBold",
+                textShadowColor: "rgba(38,28,18,0.55)",
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 10,
+              }}
               className="mt-4 text-center"
             >
               Import recipes, shop for groceries, and meal plan like a pro
@@ -44,7 +62,7 @@ export default function Welcome() {
 
           {/* CTA pinned to the bottom */}
           <VStack className="mt-auto px-6 pb-3" space={16}>
-            <Button className="w-full" onPress={() => router.push("/(onboarding)/testimonials")}>
+            <Button className="w-full" onPress={() => router.push("/(onboarding)/goals")}>
               <ButtonText>Get started</ButtonText>
             </Button>
             <Pressable

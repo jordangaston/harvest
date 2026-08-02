@@ -109,7 +109,7 @@ const button = tv({
       brand: "bg-brand",
       plus: "bg-plus",
       dark: "bg-ink",
-      light: "bg-white border border-hairline",
+      light: "bg-card border border-hairline",
     },
     size: {
       lg: "h-14 px-6",
@@ -187,7 +187,7 @@ export function Checkbox({
     <RNPressable onPress={onToggle} className={className}>
       <View
         className={`h-6 w-6 items-center justify-center rounded-md border ${
-          checked ? "border-brand bg-brand" : "border-hairline bg-white"
+          checked ? "border-brand bg-brand" : "border-hairline bg-card"
         }`}
       >
         {checked ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}

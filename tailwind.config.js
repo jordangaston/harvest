@@ -12,6 +12,8 @@ module.exports = {
         // Harvest — vintage golden hour (WCAG 2.1 AA verified)
         cream: "#F1E6D2", // app canvas (honey cream)
         "cream-card": "#FBF6EC",
+        // Cards / tiles / rows / sheets: ALWAYS use `card`, NEVER `bg-white`.
+        // (Only exception: mocks of native OS UI that are truly white on-device.)
         card: "#FBF6EC", // warm-white surface
         sand: "#EBDCC0", // secondary fill
         brand: {

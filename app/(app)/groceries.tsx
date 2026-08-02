@@ -44,7 +44,7 @@ export default function Groceries() {
         <Pressable className="absolute inset-0 bg-black/30" onPress={() => setAddOpen(false)}>
           <View className="absolute inset-x-0 bottom-0">
             <Pressable onPress={() => {}}>
-              <Box className="rounded-t-3xl bg-white px-5 pb-10 pt-6">
+              <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={16}>
                   <Text className="text-center text-base font-semibold text-ink">Add to Groceries</Text>
                   <Input placeholder="Type or paste multiple ingredients" />
@@ -62,7 +62,7 @@ export default function Groceries() {
         <Pressable className="absolute inset-0 bg-black/30" onPress={() => setStoreOpen(false)}>
           <View className="absolute inset-x-0 bottom-0">
             <Pressable onPress={() => {}}>
-              <Box className="rounded-t-3xl bg-white px-5 pb-10 pt-6">
+              <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={12}>
                   <Text className="text-center text-base font-semibold text-ink">Choose store</Text>
 

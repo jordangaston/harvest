@@ -5,12 +5,13 @@ import { OptionRow } from "../../components/recime/OptionRow";
 import { VStack, Center, Text, Heading } from "../../components/ui";
 
 const GOALS = [
-  { emoji: "🥗", label: "Eat healthier" },
-  { emoji: "💰", label: "Save money" },
-  { emoji: "🔪", label: "Improve cooking skills" },
-  { emoji: "📁", label: "Organize recipes" },
-  { emoji: "📅", label: "Plan out meals" },
-  { emoji: "🌮", label: "Try new cuisines" },
+  { image: require("../../assets/goal-healthier.png"), label: "Eat healthier" },
+  { image: require("../../assets/goal-money.png"), label: "Save money" },
+  { image: require("../../assets/goal-skills.png"), label: "Improve cooking skills" },
+  { image: require("../../assets/goal-organize.png"), label: "Organize recipes" },
+  { image: require("../../assets/goal-plan.png"), label: "Plan out meals" },
+  { image: require("../../assets/goal-prep.png"), label: "Meal prepping" },
+  { image: require("../../assets/goal-cuisines.png"), label: "Try new cuisines" },
 ];
 
 export default function Goals() {
@@ -27,7 +28,7 @@ export default function Goals() {
       progress={0.15}
       ctaLabel="Continue"
       ctaDisabled={selected.length === 0}
-      onCta={() => router.push("/(onboarding)/thats-great")}
+      onCta={() => router.push("/(onboarding)/goals-happen")}
     >
       <VStack space={8}>
         <Center>
@@ -40,7 +41,7 @@ export default function Goals() {
             <OptionRow
               key={g.label}
               label={g.label}
-              emoji={g.emoji}
+              image={g.image}
               variant="check"
               selected={selected.includes(g.label)}
               onPress={() => toggle(g.label)}

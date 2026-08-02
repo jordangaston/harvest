@@ -17,16 +17,14 @@ export default function ImportDemo() {
       onCta={next}
     >
       <VStack space={12}>
-        <Heading className="text-center">Smart social media imports</Heading>
+        <Heading>Smart social media imports</Heading>
 
         <HStack className="items-center justify-center" space={16}>
           <Ionicons name="logo-instagram" size={28} color="#E4405F" />
           <Ionicons name="logo-facebook" size={28} color="#1877F2" />
           <Ionicons name="logo-tiktok" size={28} color="#2E2419" />
           <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-          <View className="h-7 w-7 items-center justify-center rounded-full bg-[#E60023]">
-            <Text className="text-sm font-bold text-white">P</Text>
-          </View>
+          <Ionicons name="logo-pinterest" size={28} color="#E60023" />
         </HStack>
 
         <View className="mt-6 rounded-2xl bg-gray-100 p-4">
@@ -75,7 +73,7 @@ export default function ImportDemo() {
             </View>
           </Center>
 
-          <View className="mt-4 rounded-xl bg-white">
+          <View className="mt-4 rounded-xl bg-card">
             <HStack className="items-center justify-between px-4 py-3">
               <Text className="text-base text-ink">Copy</Text>
               <Ionicons name="copy-outline" size={20} color="#2E2419" />

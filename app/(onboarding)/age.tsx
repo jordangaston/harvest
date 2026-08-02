@@ -17,9 +17,9 @@ export default function Age() {
       ctaDisabled={selected === null}
       onCta={() => router.push("/(onboarding)/referral")}
     >
-      <View className="items-center">
+      <View>
         <Heading className="text-2xl">How old are you?</Heading>
-        <Text className="mt-2 text-center text-muted">
+        <Text className="mt-2 text-muted">
           We only use this information to personalize your experience
         </Text>
       </View>
@@ -31,7 +31,7 @@ export default function Age() {
             <Pressable
               key={option}
               onPress={() => setSelected(option)}
-              className={`items-center rounded-2xl border bg-white px-4 py-4 ${
+              className={`items-center rounded-2xl border bg-card px-4 py-4 ${
                 isSelected ? "border-brand" : "border-hairline"
               }`}
             >

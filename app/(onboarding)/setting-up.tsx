@@ -30,7 +30,7 @@ export default function SettingUp() {
       setCaptionIndex((i) => (i + 1) % CAPTIONS.length);
     }, 1200);
     const timeout = setTimeout(() => {
-      router.replace("/(onboarding)/better-cook");
+      router.replace("/(app)/recipes");
     }, 2500);
     return () => {
       clearInterval(interval);

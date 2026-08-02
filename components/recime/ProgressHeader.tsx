@@ -15,10 +15,16 @@ export function ProgressHeader({
   showBack?: boolean;
 }) {
   const router = useRouter();
+  // router.back() throws "GO_BACK was not handled" when there's no history
+  // (e.g. a screen reached without a stack); fall back to the flow start.
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(onboarding)/welcome");
+  };
   return (
     <HStack className="items-center px-4 pt-2" space={12}>
       {showBack ? (
-        <Pressable onPress={() => router.back()} className="p-1">
+        <Pressable onPress={goBack} className="p-1">
           <Ionicons name="chevron-back" size={24} color="#2E2419" />
         </Pressable>
       ) : (

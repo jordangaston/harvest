@@ -1,5 +1,5 @@
 import React from "react";
-import { View } from "react-native";
+import { View, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
@@ -11,9 +11,7 @@ function SocialCluster() {
       <Ionicons name="logo-instagram" size={20} color="#E4405F" />
       <Ionicons name="logo-facebook" size={20} color="#1877F2" />
       <Ionicons name="logo-tiktok" size={20} color="#2E2419" />
-      <View className="h-5 w-5 items-center justify-center rounded-full bg-[#E60023]">
-        <Text className="text-xs font-bold text-white">P</Text>
-      </View>
+      <Ionicons name="logo-pinterest" size={20} color="#E60023" />
     </HStack>
   );
 }
@@ -23,15 +21,22 @@ const OPTIONS = [
   {
     label: "Recipe websites",
     right: (
-      <HStack className="items-center" space={6}>
-        <Ionicons name="logo-google" size={20} color="#2E2419" />
-        <Ionicons name="globe-outline" size={20} color="#2E2419" />
-      </HStack>
+      <Image
+        source={require("../../assets/src-websites.png")}
+        resizeMode="contain"
+        style={{ width: 40, height: 40 }}
+      />
     ),
   },
   {
     label: "Printed/handwritten recipes",
-    right: <Text className="text-lg">📖 ✍️</Text>,
+    right: (
+      <Image
+        source={require("../../assets/src-printed.png")}
+        resizeMode="contain"
+        style={{ width: 40, height: 40 }}
+      />
+    ),
   },
 ];
 
@@ -61,7 +66,7 @@ export default function RecipeSources() {
               <Pressable
                 key={o.label}
                 onPress={() => toggle(o.label)}
-                className={`mb-3 flex-row items-center rounded-2xl border bg-white px-4 py-4 ${
+                className={`mb-3 flex-row items-center rounded-2xl border bg-card px-4 py-4 ${
                   isSelected ? "border-brand" : "border-hairline"
                 }`}
               >

@@ -34,12 +34,12 @@ export default function RecipeImported() {
       onCta={() => router.push("/(onboarding)/website-import")}
     >
       <VStack space={4}>
-        <View className="items-center">
+        <View>
           <Heading className="text-2xl">Recipe imported successfully!</Heading>
-          <Text className="mt-2 text-center text-muted">✨ Just like magic ✨</Text>
+          <Text className="mt-2 text-muted">✨ Just like magic ✨</Text>
         </View>
 
-        <Box className="mt-4 rounded-2xl border border-hairline bg-white p-4">
+        <Box className="mt-4 rounded-2xl border border-hairline bg-card p-4">
           <HStack className="items-center" space={12}>
             <Center className="h-16 w-16 rounded-xl bg-gray-200">
               <Text className="text-2xl">🍲</Text>
@@ -50,7 +50,7 @@ export default function RecipeImported() {
           <View className="my-4 h-px w-full bg-hairline" />
 
           <HStack className="items-center justify-between">
-            <HStack className="items-center rounded-full border border-hairline bg-white px-1 py-1" space={8}>
+            <HStack className="items-center rounded-full border border-hairline bg-card px-1 py-1" space={8}>
               <Pressable
                 className="h-8 w-8 items-center justify-center rounded-full bg-cream"
                 onPress={() => setServings((s) => Math.max(1, s - 1))}
@@ -67,7 +67,7 @@ export default function RecipeImported() {
               <Text className="pl-1 pr-2 text-base text-muted">servings</Text>
             </HStack>
 
-            <Pressable className="flex-row items-center rounded-full border border-hairline bg-white px-4 py-2.5">
+            <Pressable className="flex-row items-center rounded-full border border-hairline bg-card px-4 py-2.5">
               <Ionicons name="swap-horizontal" size={18} color="#2E2419" />
               <Text className="ml-2 text-base font-medium text-ink">Convert</Text>
             </Pressable>

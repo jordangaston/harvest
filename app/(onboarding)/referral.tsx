@@ -14,9 +14,9 @@ export default function Referral() {
       ctaLabel="Continue"
       onCta={() => router.push("/(onboarding)/setting-up")}
     >
-      <View className="items-center">
-        <Heading className="text-center text-2xl">Enter referral code (optional)</Heading>
-        <Text className="mt-2 text-center text-muted">You can skip this step</Text>
+      <View>
+        <Heading className="text-2xl">Enter referral code (optional)</Heading>
+        <Text className="mt-2 text-muted">You can skip this step</Text>
       </View>
 
       <VStack className="mt-6" space={12}>

@@ -21,7 +21,7 @@ export default function WebsiteImport() {
           <Heading className="text-2xl">Import from websites</Heading>
         </View>
 
-        <Box className="mt-4 overflow-hidden rounded-2xl border border-hairline bg-white">
+        <Box className="mt-4 overflow-hidden rounded-2xl border border-hairline bg-card">
           <View className="p-5">
             <HStack className="items-center justify-between pb-3">
               <Ionicons name="menu" size={18} color="#6E5B48" />
@@ -62,7 +62,7 @@ export default function WebsiteImport() {
               <Text className="mt-1 text-lg">👇</Text>
             </View>
 
-            <Center className="absolute bottom-3 right-4 h-10 w-10 rounded-full border border-hairline bg-white">
+            <Center className="absolute bottom-3 right-4 h-10 w-10 rounded-full border border-hairline bg-card">
               <Ionicons name="share-outline" size={18} color="#A85E2B" />
             </Center>
           </View>

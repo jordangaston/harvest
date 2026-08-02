@@ -1,16 +1,18 @@
 import React from "react";
+import { Image, ImageSourcePropType } from "react-native";
 import { HStack, Pressable, Text, Checkbox } from "../ui";
 import { Ionicons } from "@expo/vector-icons";
 
 /**
  * A single selectable list row used on Goals / How-did-you-hear / Recipe-sources.
- * `emoji` renders a leading glyph; `variant` switches between a right-side checkbox
- * (multi-select) and a bordered highlight (single-select pill).
+ * `image` renders a painterly icon, `emoji` a glyph, `icon` an Ionicon; `variant`
+ * switches between a right-side checkbox (multi) and a bordered highlight (single).
  */
 export function OptionRow({
   label,
   emoji,
   icon,
+  image,
   selected,
   onPress,
   variant = "check",
@@ -18,6 +20,7 @@ export function OptionRow({
   label: string;
   emoji?: string;
   icon?: React.ComponentProps<typeof Ionicons>["name"];
+  image?: ImageSourcePropType;
   selected: boolean;
   onPress?: () => void;
   variant?: "check" | "pill";
@@ -30,6 +33,9 @@ export function OptionRow({
       }`}
     >
       <HStack className="flex-1 items-center" space={12}>
+        {image ? (
+          <Image source={image} resizeMode="contain" style={{ width: 40, height: 40 }} />
+        ) : null}
         {emoji ? <Text className="text-lg">{emoji}</Text> : null}
         {icon ? <Ionicons name={icon} size={20} color="#2E2419" /> : null}
         <Text className="flex-1 text-base text-ink">{label}</Text>
