@@ -8,6 +8,7 @@ import { registerErrorHandler, OtpRequestFailedError, InvalidOtpError } from './
 import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema } from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
+import { registerImportRoutes } from './routes/import-routes.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -67,6 +68,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const me = await users.getMe(request.authUserId!);
     return { user: me };
   });
+
+  registerImportRoutes(app);
 
   registerErrorHandler(app);
   return app;

@@ -31,6 +31,18 @@ export class OtpRequestFailedError extends AppError {
   }
 }
 
+export class UnsupportedSourceError extends AppError {
+  constructor() {
+    super('UNSUPPORTED', 422, 'this source cannot be imported');
+  }
+}
+
+export class NotFoundError extends AppError {
+  constructor() {
+    super('NOT_FOUND', 404, 'not found');
+  }
+}
+
 function toAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
   if (error instanceof InvalidPhoneError) return new AppError('INVALID_PHONE', 400, 'phone_number is invalid');
