@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { db, pool } from '../../src/db/index.js';
 import { importJobs, users, recipes } from '../../src/db/schema/index.js';
@@ -9,6 +12,23 @@ import { setParseProvider, resetParseProvider } from '../../src/pipeline/parse-s
 
 const TIKTOK_URL = 'https://www.tiktok.com/@caitlynskitchen/video/7663645567339334943';
 const CODE = '123456';
+
+const CRASH_WORKER = fileURLToPath(new URL('../helpers/crash-worker.ts', import.meta.url));
+
+/** Runs crash-worker.ts (which starts a workflow whose parse step hangs) until it
+ * prints RUNNING, then SIGKILLs it — a true mid-step crash that leaves the
+ * workflow un-terminal with no recorded step result. */
+async function crashWorkerAfterRunning(jobId: string, userId: string): Promise<void> {
+  const child = spawn('node', ['--import', 'tsx', CRASH_WORKER, jobId, userId, TIKTOK_URL], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  await new Promise<void>((resolve, reject) => {
+    child.stdout.on('data', (d: Buffer) => d.toString().includes('RUNNING') && resolve());
+    child.on('exit', (code) => reject(new Error(`crash worker exited early (${code})`)));
+  });
+  child.kill('SIGKILL');
+  await new Promise((r) => setTimeout(r, 300));
+}
 
 let app: FastifyInstance;
 let phoneSeq = 0;
@@ -164,4 +184,30 @@ describe('TC-5: ownership + auth (AC-8)', () => {
     const unauth = await app.inject({ method: 'GET', url: `/v1/imports/${id}` });
     expect(unauth.statusCode).toBe(401);
   });
+});
+
+describe('TC-6: crash-resume idempotency (AC-5)', () => {
+  it('reaches its terminal state exactly once after a worker crashes mid-run', async () => {
+    const { token, userId } = await mintBearer();
+    const recipeId = await seedRecipe();
+    const jobId = randomUUID();
+
+    // A separate worker process starts the workflow, commits markRunning, then
+    // hangs in the parse step; we SIGKILL it — a true mid-step crash.
+    await crashWorkerAfterRunning(jobId, userId);
+    expect((await getJob(token, jobId)).json().job.status).toBe('running');
+
+    // Restarting this process's DBOS triggers recovery of the crashed run. The
+    // parse step (no recorded result) re-runs here and returns ready; OAOO replay
+    // skips the already-committed markRunning, so the terminal write lands once.
+    setParseProvider(async () => ({ outcome: 'ready', recipeId }));
+    await stopDbos();
+    await startDbos();
+
+    const { final } = await pollUntilTerminal(token, jobId);
+    expect(final).toMatchObject({ status: 'ready', recipe_id: recipeId, progress: 100 });
+
+    const rows = await db.select({ status: importJobs.status }).from(importJobs).where(sql`id = ${jobId}`);
+    expect(rows).toEqual([{ status: 'ready' }]);
+  }, 60000);
 });
