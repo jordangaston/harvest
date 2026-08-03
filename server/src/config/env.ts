@@ -13,6 +13,8 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
+  // Apify API token (optional). Present → real ApifyFetcher; absent → stub.
+  APIFY_TOKEN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
