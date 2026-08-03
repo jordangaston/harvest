@@ -1,25 +1,16 @@
 import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
 
-/**
- * Creates the local databases used for development and tests: `harvest`
- * (DATABASE_URL) and `harvest_dbos` (DBOS_SYSTEM_DATABASE_URL). Connects to the
- * server's default `postgres` maintenance database. Tolerates databases that
- * already exist (Postgres error code 42P04). Prod/staging use Neon and never
- * run this script.
- */
+// Creates the local dev/test databases on the admin URL. Prod uses Neon and
+// never runs this. Tolerates already-exists (Postgres 42P04).
 export const LOCAL_ADMIN_URL = 'postgresql://postgres:postgres@localhost:5432/postgres';
 export const LOCAL_DATABASES = ['harvest', 'harvest_dbos'];
 
-/** Creates each database, tolerating any that already exist (42P04). */
-export async function ensureDatabases(
-  adminUrl: string,
-  names: readonly string[] = LOCAL_DATABASES,
-): Promise<void> {
+export async function ensureDatabases(adminUrl: string): Promise<void> {
   const client = new Client({ connectionString: adminUrl });
   await client.connect();
   try {
-    for (const name of names) {
+    for (const name of LOCAL_DATABASES) {
       try {
         await client.query(`CREATE DATABASE "${name}"`);
         process.stdout.write(`created database ${name}\n`);
