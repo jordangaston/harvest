@@ -7,6 +7,7 @@ export default defineConfig({
     hookTimeout: 30000,
     env: {
       DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/harvest',
+      DBOS_SYSTEM_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/harvest_dbos',
     },
   },
 });
