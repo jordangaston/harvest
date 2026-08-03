@@ -3,6 +3,9 @@
 Backend coding standards for `server/`. Distilled from review feedback (see `../docs/postmortem.md`)
 and `~/workspace/trimbox/trimbox-server` + `~/workspace/phonetastic/phonetastic-server`.
 
+> **The bar: another engineer reads our code and thinks "wow — that's it?". They should be UNDERWHELMED.**
+> If it feels clever, heavy, or impressive, delete until it's boring. Boring is the goal.
+
 ## Before writing code
 - Read `/quality-software-manifesto` and `/ponytail:ponytail`. Understand the change, then take the
   laziest rung that works. **Don't build infrastructure before something uses it.** **Don't add runtime
