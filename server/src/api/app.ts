@@ -1,36 +1,29 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
-import type { Container } from '../container.js';
-import { dbosHealthy } from '../pipeline/bootstrap.js';
+import { db } from '../db/index.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
-  checkDbos?: () => boolean; // test seam for the DBOS liveness probe
 }
 
-type ComponentStatus = 'ok' | 'error';
-
-async function probeDb(container: Container): Promise<ComponentStatus> {
+async function dbReachable(): Promise<boolean> {
   try {
-    await container.db.execute(sql`select 1`);
-    return 'ok';
+    await db.execute(sql`select 1`);
+    return true;
   } catch {
-    return 'error';
+    return false;
   }
 }
 
-// GET /healthz → 200 when db + dbos are both ok, else 503 naming the failure.
-// Business routes register here in later tickets.
-export function buildApp(container: Container, options: BuildAppOptions = {}): FastifyInstance {
-  const checkDbos = options.checkDbos ?? dbosHealthy;
+// GET /healthz → 200 when the DB is reachable, else 503. Business routes
+// register here in later tickets.
+export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
 
   app.get('/healthz', async (_request, reply) => {
-    const db = await probeDb(container);
-    const dbos: ComponentStatus = checkDbos() ? 'ok' : 'error';
-    const status: ComponentStatus = db === 'ok' && dbos === 'ok' ? 'ok' : 'error';
+    const status = (await dbReachable()) ? 'ok' : 'error';
     reply.code(status === 'ok' ? 200 : 503);
-    return { status, db, dbos };
+    return { status, db: status };
   });
 
   return app;

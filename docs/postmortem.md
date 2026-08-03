@@ -30,6 +30,9 @@ launch — not by shipping self-diagnosing code. Build the straight line; catch 
 2. **`/ponytail:ponytail`** — the lazy-senior ladder, run *after* understanding the problem: does this
    need to exist at all (YAGNI) → is it already in the codebase → stdlib → native/platform → an
    installed dep → one line → only then, minimum code. Deletion over addition. Shortest working diff.
+3. **`server/CLAUDE.md`** — the actionable backend conventions (db singleton, classes + `static create()`,
+   Zod domain models, migrations-only, cursor pagination, ≤10-line methods). Auto-loaded when working in
+   `server/`; keep it current as standards evolve.
 
 ## Anti-patterns to avoid (each cost a review comment this pass)
 
@@ -45,6 +48,9 @@ launch — not by shipping self-diagnosing code. Build the straight line; catch 
 | **Encoding outcomes as extra states** (`no_recipe` + `failed` statuses) | Type-driven: model the domain, don't sprawl states | One `failed` state + an `error_code` the client branches on. |
 | **Denormalizing a shared entity to one owner** (`recipes.user_id`) | Model the domain | Canonical `recipes` + a `saved_recipes` join (many users, one recipe). |
 | **Config/params for a value that never varies** (`ensureDatabases(names = …)` only ever called with the default) | YAGNI; no unrequested flexibility | Inline the constant; add the param when a second caller needs it. |
+| **DI container / composition root** (`buildContainer`, `Container`, threading `db` through params) | Over-abstraction; not our style | **Singletons** — create `db` once, export it, import it directly. No container, no DI. |
+| **Free functions where a class fits** | Weaker cohesion/design | **Classes** with a **`static create()`** factory wiring singletons. Less functions, more classes. |
+| **Casting DB rows to the domain** (`$inferSelect` straight out of the repo) | Type-driven: validate where DB meets domain | **Zod domain models** — repositories `parse` rows into a `Zod` schema at the boundary. |
 
 ## Distilled checklist (apply before committing)
 
@@ -59,4 +65,5 @@ launch — not by shipping self-diagnosing code. Build the straight line; catch 
 
 | Date | Ticket | Feedback | Resolution |
 |---|---|---|---|
-| 2026-08-02 | WI-01 | PR #1 review: Neon WebSocket driver, ping-workflow/DBOS-too-early, boot migrations + custom migrate script, trivial tests, verbose comments, `no_recipe`/`failed` split, `recipes.user_id`, `icon_key`, unused param | Simplified to plain `pg`; `drizzle-kit migrate`; deleted trivial tests; trimmed comments; `failed` + `error_code`; `saved_recipes` join; `recipe_steps`; dropped `icon_key`; (pending) move DBOS bootstrap out of the scaffold into WI-03. |
+| 2026-08-02 | WI-01 | PR #1 review: Neon WebSocket driver, ping-workflow/DBOS-too-early, boot migrations + custom migrate script, trivial tests, verbose comments, `no_recipe`/`failed` split, `recipes.user_id`, `icon_key`, unused param | Simplified to plain `pg`; `drizzle-kit migrate`; deleted trivial tests; trimmed comments; `failed` + `error_code`; `saved_recipes` join; `recipe_steps`; dropped `icon_key`. |
+| 2026-08-02 | WI-01 | Follow-up: DBOS pulled into the scaffold before use; DI container; free functions over classes; no Zod domain models | **Removed DBOS from WI-01** (→ WI-03, where the first workflow uses it). **Deleted the container** → `db` singleton. Established: classes + `static create()`, Zod domain models parsed at the repo boundary — in `server/CLAUDE.md`. |
