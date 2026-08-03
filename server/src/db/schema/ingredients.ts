@@ -12,7 +12,6 @@ export const ingredients = pgTable('ingredients', {
   quantityText: text('quantity_text'),
   amount: numeric('amount'),
   unit: text('unit'),
-  iconKey: text('icon_key').notNull().default('generic'),
 });
 
 export type Ingredient = typeof ingredients.$inferSelect;

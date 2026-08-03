@@ -1,5 +1,5 @@
 {
-  "id": "83a095d0-63aa-462c-913e-b3fe018dbc1a",
+  "id": "fa01fc4c-5eb0-41ce-853e-35d892d29665",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -96,12 +96,6 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "title": {
           "name": "title",
           "type": "text",
@@ -153,9 +147,69 @@
           "default": "now()"
         }
       },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.saved_recipes": {
+      "name": "saved_recipes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
       "indexes": {
-        "recipes_user_idx": {
-          "name": "recipes_user_idx",
+        "saved_recipes_user_recipe_uidx": {
+          "name": "saved_recipes_user_recipe_uidx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "recipe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "saved_recipes_user_idx": {
+          "name": "saved_recipes_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -177,9 +231,9 @@
         }
       },
       "foreignKeys": {
-        "recipes_user_id_users_id_fk": {
-          "name": "recipes_user_id_users_id_fk",
-          "tableFrom": "recipes",
+        "saved_recipes_user_id_users_id_fk": {
+          "name": "saved_recipes_user_id_users_id_fk",
+          "tableFrom": "saved_recipes",
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
@@ -188,6 +242,19 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "saved_recipes_recipe_id_recipes_id_fk": {
+          "name": "saved_recipes_recipe_id_recipes_id_fk",
+          "tableFrom": "saved_recipes",
+          "tableTo": "recipes",
+          "columnsFrom": [
+            "recipe_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -243,13 +310,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "icon_key": {
-          "name": "icon_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'generic'"
         }
       },
       "indexes": {},
@@ -274,8 +334,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.steps": {
-      "name": "steps",
+    "public.recipe_steps": {
+      "name": "recipe_steps",
       "schema": "",
       "columns": {
         "id": {
@@ -306,9 +366,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "steps_recipe_id_recipes_id_fk": {
-          "name": "steps_recipe_id_recipes_id_fk",
-          "tableFrom": "steps",
+        "recipe_steps_recipe_id_recipes_id_fk": {
+          "name": "recipe_steps_recipe_id_recipes_id_fk",
+          "tableFrom": "recipe_steps",
           "tableTo": "recipes",
           "columnsFrom": [
             "recipe_id"
@@ -376,8 +436,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reason": {
-          "name": "reason",
+        "error_code": {
+          "name": "error_code",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -463,7 +523,6 @@
         "queued",
         "running",
         "ready",
-        "no_recipe",
         "failed"
       ]
     },

@@ -30,7 +30,14 @@ describe('TC-1: migrations create the exact schema', () => {
       );
       const names = rows.map((r) => r.tablename);
       expect(names).toEqual(
-        expect.arrayContaining(['import_jobs', 'ingredients', 'recipes', 'steps', 'users']),
+        expect.arrayContaining([
+          'import_jobs',
+          'ingredients',
+          'recipe_steps',
+          'recipes',
+          'saved_recipes',
+          'users',
+        ]),
       );
     } finally {
       await client.end();
@@ -43,7 +50,7 @@ describe('TC-1: migrations create the exact schema', () => {
     try {
       const idx = await client.query(
         `select indexname from pg_indexes where schemaname='public'
-         and indexname in ('users_phone_uidx','recipes_user_idx','import_jobs_user_idx')`,
+         and indexname in ('users_phone_uidx','saved_recipes_user_idx','import_jobs_user_idx')`,
       );
       expect(idx.rowCount).toBe(3);
 
@@ -59,14 +66,14 @@ describe('TC-1: migrations create the exact schema', () => {
     }
   });
 
-  it('cascades deletes from recipes to ingredients and steps', async () => {
+  it('cascades deletes from recipes to ingredients and recipe_steps', async () => {
     const client = new Client({ connectionString: TEST_DATABASE_URL });
     await client.connect();
     try {
       const { rows } = await client.query<{ conname: string; confdeltype: string }>(
         `select conname, confdeltype from pg_constraint
          where contype='f' and conname in
-           ('ingredients_recipe_id_recipes_id_fk','steps_recipe_id_recipes_id_fk')`,
+           ('ingredients_recipe_id_recipes_id_fk','recipe_steps_recipe_id_recipes_id_fk')`,
       );
       expect(rows).toHaveLength(2);
       for (const row of rows) expect(row.confdeltype).toBe('c');

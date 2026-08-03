@@ -14,9 +14,12 @@ export const importJobs = pgTable(
     status: importJobStatusEnum('status').notNull(),
     progress: integer('progress').notNull().default(0),
     sourceType: sourceTypeEnum('source_type').notNull(),
+    // The normalized thing being imported: a source URL (social/website) or the
+    // object-storage key of an uploaded photo.
     sourceRef: text('source_ref').notNull(),
     recipeId: uuid('recipe_id').references(() => recipes.id),
-    reason: text('reason'),
+    // Failure detail when status = 'failed' (see ImportErrorCode).
+    errorCode: text('error_code'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

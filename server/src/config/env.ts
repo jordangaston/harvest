@@ -31,14 +31,13 @@ export function parseEnv(raw: Record<string, string | undefined>): Env {
  */
 function loadEnv(): Env {
   const result = envSchema.safeParse(process.env);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-    process.stderr.write(`Invalid environment configuration:\n${issues}\n`);
-    process.exit(1);
-  }
-  return result.data;
+  if (result.success) return result.data;
+
+  const issues = result.error.issues
+    .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('\n');
+  process.stderr.write(`Invalid environment configuration:\n${issues}\n`);
+  process.exit(1);
 }
 
 export const env: Env = process.env.VITEST ? ({} as Env) : loadEnv();
