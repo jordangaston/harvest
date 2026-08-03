@@ -15,6 +15,10 @@ const envSchema = z.object({
   TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
   // Apify API token (optional). Present → real ApifyFetcher; absent → stub.
   APIFY_TOKEN: z.string().optional(),
+  // Groq API key (optional). Present → real ASR/vision/extraction; absent → stubs.
+  GROQ_API_KEY: z.string().optional(),
+  // Anthropic API key (optional). Present → Claude escalation when Groq is low-confidence.
+  ANTHROPIC_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
