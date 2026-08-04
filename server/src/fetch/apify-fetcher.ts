@@ -108,30 +108,18 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
   if (!item) return {};
   switch (platform) {
     case 'tiktok':
-      return dropEmpty({
-        caption: str(item.text),
-        thumbnailUrl: str(nested(item.videoMeta, 'coverUrl')),
-        videoUrl: str(item.webVideoUrl),
-      });
+      return { caption: str(item.text), thumbnailUrl: str(nested(item.videoMeta, 'coverUrl')), videoUrl: str(item.webVideoUrl) };
     case 'instagram':
-      return dropEmpty({
-        caption: str(item.caption),
-        thumbnailUrl: str(item.displayUrl),
-        videoUrl: str(item.videoUrl),
-      });
+      return { caption: str(item.caption), thumbnailUrl: str(item.displayUrl), videoUrl: str(item.videoUrl) };
     case 'facebook':
-      return dropEmpty({
+      return {
         caption: str(item.text ?? item.caption),
         thumbnailUrl: str(item.thumbnailUrl ?? item.previewImageUrl),
         videoUrl: str(item.videoUrl ?? item.url),
-      });
+      };
     case 'pinterest':
       // Pinterest exposes no video_url — image + outbound link → website path (Q-01).
-      return dropEmpty({
-        caption: str(item.title ?? item.description),
-        thumbnailUrl: str(item.image_url),
-        outboundLink: str(item.link),
-      });
+      return { caption: str(item.title ?? item.description), thumbnailUrl: str(item.image_url), outboundLink: str(item.link) };
   }
 }
 
@@ -141,8 +129,4 @@ function str(value: unknown): string | undefined {
 
 function nested(value: unknown, key: string): unknown {
   return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
-}
-
-function dropEmpty(post: FetchedPost): FetchedPost {
-  return Object.fromEntries(Object.entries(post).filter(([, v]) => v !== undefined)) as FetchedPost;
 }
