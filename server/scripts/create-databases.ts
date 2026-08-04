@@ -4,7 +4,7 @@ import { Client } from 'pg';
 // Creates the local dev/test databases on the admin URL. Prod uses Neon and
 // never runs this. Tolerates already-exists (Postgres 42P04).
 export const LOCAL_ADMIN_URL = 'postgresql://postgres:postgres@localhost:5432/postgres';
-export const LOCAL_DATABASES = ['harvest'];
+export const LOCAL_DATABASES = ['harvest', 'harvest_dbos'];
 
 export async function ensureDatabases(adminUrl: string): Promise<void> {
   const client = new Client({ connectionString: adminUrl });

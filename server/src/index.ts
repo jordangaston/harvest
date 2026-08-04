@@ -2,12 +2,16 @@ import { sql } from 'drizzle-orm';
 import { env } from './config/env.js';
 import { db, pool } from './db/index.js';
 import { buildApp } from './api/app.js';
+import { initDbos, shutdownDbos } from './pipeline/bootstrap.js';
 import type { FastifyInstance } from 'fastify';
 
 // Migrations run as a deploy step (npm run migrate), not on boot.
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   console.log('db connected');
+
+  await initDbos();
+  console.log('dbos launched');
 
   const app: FastifyInstance = buildApp({ logger: true });
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
@@ -20,6 +24,7 @@ async function main(): Promise<void> {
     console.log(`${signal} received, shutting down`);
     try {
       await app.close();
+      await shutdownDbos();
       await pool.end();
       process.exit(0);
     } catch (err) {

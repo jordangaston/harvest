@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { db, pool } from '../../src/db/index.js';
-import { users } from '../../src/db/schema/index.js';
+import { users, importJobs } from '../../src/db/schema/index.js';
 import { UserRepository } from '../../src/repositories/user-repository.js';
 
 const repo = UserRepository.create();
 
 beforeEach(async () => {
+  await db.delete(importJobs); // FK dependents before users
   await db.delete(users);
 });
 afterAll(async () => {

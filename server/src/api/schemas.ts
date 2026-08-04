@@ -15,6 +15,19 @@ export const createUserSchema = z.object({
   }),
 });
 
+export const createImportSchema = z.object({
+  source: z
+    .object({
+      url: z.string().optional(),
+      share_payload: z.object({ url: z.string().optional(), text: z.string().optional() }).optional(),
+      image_ref: z.string().optional(),
+    })
+    .refine(
+      (source) => [source.url, source.share_payload, source.image_ref].filter(Boolean).length === 1,
+      { message: 'provide exactly one of url, share_payload, or image_ref' },
+    ),
+});
+
 export const signInSchema = z.object({
   auth: z
     .object({
