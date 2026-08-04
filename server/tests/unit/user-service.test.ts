@@ -53,24 +53,29 @@ beforeEach(() => {
 });
 
 describe('UserService', () => {
-  it('provisions a new user on a good OTP (isNew) then reuses it (not new)', async () => {
-    const first = await service.verifyAndResolve({ phone: '+15555550123', code: '123456', onboarding: { age: '25-34' } });
+  it('creates a new user (isNew) then reuses it for the same phone (not new)', async () => {
+    const first = await service.createUser({ phoneNumber: '+15555550123', onboarding: { age: '25-34' } });
     expect(first.isNew).toBe(true);
     expect(first.user.onboarding).toEqual({ age: '25-34' });
     expect(auth.verify(first.tokens.access_token.jwt, first.user.jwtPublicKey, 'access').sub).toBe(first.user.id);
 
-    const second = await service.verifyAndResolve({ phone: '+15555550123', code: '123456' });
+    const second = await service.createUser({ phoneNumber: '+15555550123' });
     expect(second.isNew).toBe(false);
     expect(second.user.id).toBe(first.user.id);
   });
 
-  it('rejects a bad OTP without provisioning', async () => {
-    await expect(service.verifyAndResolve({ phone: '+15555550123', code: '000000' })).rejects.toBeInstanceOf(InvalidOtpError);
-    expect(await repo.findByPhone('+15555550123')).toBeNull();
+  it('signs in by OTP: good code resolves the user, bad code is rejected and provisions nothing', async () => {
+    const created = await service.createUser({ phoneNumber: '+15555550123' });
+    const signed = await service.signIn({ otp: { phone_number: '+15555550123', code: '123456' } });
+    expect(signed.isNew).toBe(false);
+    expect(signed.user.id).toBe(created.user.id);
+
+    await expect(service.signIn({ otp: { phone_number: '+15555559999', code: '000000' } })).rejects.toBeInstanceOf(InvalidOtpError);
+    expect(await repo.findByPhone('+15555559999')).toBeNull();
   });
 
   it('signs in by refresh token; rejects a stale nonce', async () => {
-    const created = await service.verifyAndResolve({ phone: '+15555550124', code: '123456' });
+    const created = await service.createUser({ phoneNumber: '+15555550124' });
     const refreshed = await service.signIn({ refresh_token: created.tokens.refresh_token.jwt });
     expect(refreshed.user.id).toBe(created.user.id);
 
@@ -79,7 +84,7 @@ describe('UserService', () => {
   });
 
   it('getMe returns only public fields', async () => {
-    const created = await service.verifyAndResolve({ phone: '+15555550125', code: '123456' });
+    const created = await service.createUser({ phoneNumber: '+15555550125' });
     expect(await service.getMe(created.user.id)).toEqual({ id: created.user.id, phone: '+15555550125' });
   });
 });

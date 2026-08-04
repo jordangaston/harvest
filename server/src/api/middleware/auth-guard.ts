@@ -1,6 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { UserRepository } from '../../repositories/user-repository.js';
-import { AuthService } from '../../services/auth-service.js';
+import { UserService } from '../../services/user-service.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -8,14 +7,13 @@ declare module 'fastify' {
   }
 }
 
-const repo = UserRepository.create();
-const authService = AuthService.create();
+const users = UserService.create();
 
-// preHandler: verifies the bearer access token against the user's own public
-// key and current nonce, then stamps request.authUserId. Any failure is a 401.
+// preHandler: authenticates the bearer access token and stamps request.authUserId.
+// A missing or invalid token is a 401.
 export async function authGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const token = bearer(request.headers.authorization);
-  const userId = token && (await authenticate(token));
+  const userId = token && (await users.authenticateAccessToken(token));
   if (!userId) {
     reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
     return;
@@ -26,16 +24,4 @@ export async function authGuard(request: FastifyRequest, reply: FastifyReply): P
 function bearer(header: string | undefined): string | null {
   const [scheme, token] = header?.split(' ') ?? [];
   return scheme === 'Bearer' && token ? token : null;
-}
-
-async function authenticate(token: string): Promise<string | null> {
-  try {
-    const sub = authService.decodeSub(token);
-    const user = sub && (await repo.findById(sub));
-    if (!user) return null;
-    const { nonce } = authService.verify(token, user.jwtPublicKey, 'access');
-    return nonce === user.accessTokenNonce ? user.id : null;
-  } catch {
-    return null;
-  }
 }

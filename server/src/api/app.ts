@@ -1,11 +1,11 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { UserService } from '../services/user-service.js';
+import { UserService, type Resolution } from '../services/user-service.js';
 import { OtpService } from '../services/otp-service.js';
 import { authGuard } from './middleware/auth-guard.js';
-import { registerErrorHandler, OtpRequestFailedError } from './errors.js';
-import { createUserSchema, requestOtpSchema, signInSchema } from './schemas.js';
+import { registerErrorHandler, OtpRequestFailedError, InvalidOtpError } from './errors.js';
+import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema } from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 
@@ -46,9 +46,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { otp: { status: 'pending' } };
   });
 
+  app.post('/v1/otps/verify', async (request) => {
+    const { otp } = verifyOtpSchema.parse(request.body);
+    if (!(await otps.verifyOtp(otp.phone_number, otp.code))) throw new InvalidOtpError();
+    return { otp: { status: 'approved' } };
+  });
+
   app.post('/v1/users', async (request) => {
     const { user } = createUserSchema.parse(request.body);
-    const resolved = await users.verifyAndResolve({ phone: user.phone_number, code: user.code, onboarding: user.onboarding });
+    const resolved = await users.createUser({ phoneNumber: user.phone_number, onboarding: user.onboarding });
     return sessionResponse(resolved);
   });
 
@@ -66,7 +72,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   return app;
 }
 
-function sessionResponse(resolved: Awaited<ReturnType<UserService['verifyAndResolve']>>) {
+function sessionResponse(resolved: Resolution) {
   return {
     user: toPublicUser(resolved.user),
     auth: { access_token: resolved.tokens.access_token, refresh_token: resolved.tokens.refresh_token },

@@ -23,7 +23,7 @@ function createAccount() {
   return app.inject({
     method: 'POST',
     url: '/v1/users',
-    payload: { user: { phone_number: PHONE, code: GOOD_CODE, onboarding: { age: '25-34' } } },
+    payload: { user: { phone_number: PHONE, onboarding: { age: '25-34' } } },
   });
 }
 
@@ -40,7 +40,27 @@ describe('phone-auth (StubOtpProvider selected)', () => {
     expect(res.json().error.message).toContain('phone_number');
   });
 
-  it('creates a new user with the good code (isNew, one row, no secrets)', async () => {
+  it('verifies a good code and rejects a bad one, creating no user either way', async () => {
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/v1/otps/verify',
+      payload: { otp: { phone_number: PHONE, code: GOOD_CODE } },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ otp: { status: 'approved' } });
+
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/v1/otps/verify',
+      payload: { otp: { phone_number: PHONE, code: BAD_CODE } },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.code).toBe('INVALID_OTP');
+
+    expect(await db.select().from(users)).toHaveLength(0);
+  });
+
+  it('creates a new user for a verified phone (isNew, one row, no secrets)', async () => {
     const res = await createAccount();
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -52,17 +72,6 @@ describe('phone-auth (StubOtpProvider selected)', () => {
     const rows = await db.select().from(users);
     expect(rows).toHaveLength(1);
     expect(rows[0].onboarding).toEqual({ age: '25-34' });
-  });
-
-  it('rejects a bad OTP with 400 INVALID_OTP and creates no user', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/users',
-      payload: { user: { phone_number: PHONE, code: BAD_CODE } },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.code).toBe('INVALID_OTP');
-    expect(await db.select().from(users)).toHaveLength(0);
   });
 
   it('signs in an existing user by OTP (isNew:false, same id)', async () => {
