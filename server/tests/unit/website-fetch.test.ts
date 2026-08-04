@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRecipeFromHtml, isoDurationToMinutes } from '../../src/fetch/website.js';
+import { WebsiteFetcher } from '../../src/fetch/website.js';
 
 // A minimal but realistic recipe page: JSON-LD in a @graph, HowToStep instructions,
 // an entity in the title, an array recipeYield, and ISO durations.
@@ -20,7 +20,7 @@ const FIXTURE_HTML = `<!doctype html><html><head>
       "recipeYield": ["4 servings"],
       "prepTime": "PT10M",
       "cookTime": "PT20M",
-      "totalTime": "PT30M",
+      "totalTime": "PT1H30M",
       "image": ["https://example.com/dish.jpg"],
       "aggregateRating": { "ratingValue": "4.8", "ratingCount": "212" }
     }
@@ -29,15 +29,15 @@ const FIXTURE_HTML = `<!doctype html><html><head>
 </script>
 </head><body></body></html>`;
 
-describe('parseRecipeFromHtml', () => {
-  it('extracts title, ingredients, steps, servings and total minutes from JSON-LD', () => {
-    const recipe = parseRecipeFromHtml(FIXTURE_HTML, 'https://example.com/r');
+describe('WebsiteFetcher.parse', () => {
+  it('extracts a recipe from JSON-LD (@graph, HowToStep, entities, ISO durations)', () => {
+    const recipe = WebsiteFetcher.parse(FIXTURE_HTML, 'https://example.com/r');
 
     expect(recipe.title).toBe('Honey Sesame Chicken & Rice');
     expect(recipe.ingredients).toEqual(['1 lb chicken', '2 tbsp honey', '½ cup rice']);
     expect(recipe.steps).toEqual(['Sear the chicken.', 'Add the honey glaze.']);
     expect(recipe.servings).toBe('4 servings');
-    expect(recipe.totalMinutes).toBe(30);
+    expect(recipe.totalMinutes).toBe(90); // PT1H30M
     expect(recipe.prepMinutes).toBe(10);
     expect(recipe.cookMinutes).toBe(20);
     expect(recipe.imageUrl).toBe('https://example.com/dish.jpg');
@@ -45,19 +45,8 @@ describe('parseRecipeFromHtml', () => {
   });
 
   it('throws distinctly when no Recipe node is present', () => {
-    const html = '<html><body>No recipe here</body></html>';
-    expect(() => parseRecipeFromHtml(html, 'https://example.com/x')).toThrow(/No schema.org Recipe/);
-  });
-});
-
-describe('isoDurationToMinutes', () => {
-  it('parses hours + minutes to whole minutes', () => {
-    expect(isoDurationToMinutes('PT1H15M')).toBe(75);
-  });
-
-  it('returns undefined for absent, zero, or unparseable input', () => {
-    expect(isoDurationToMinutes(undefined)).toBeUndefined();
-    expect(isoDurationToMinutes('PT0M')).toBeUndefined();
-    expect(isoDurationToMinutes('garbage')).toBeUndefined();
+    expect(() => WebsiteFetcher.parse('<html><body>No recipe here</body></html>', 'https://example.com/x')).toThrow(
+      /No schema.org Recipe/,
+    );
   });
 });

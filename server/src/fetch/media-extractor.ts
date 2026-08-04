@@ -1,15 +1,10 @@
 import { spawn } from 'node:child_process';
 
 /**
- * Media extract (needs the ffmpeg binary): pull the audio track and a handful of
- * sampled frames out of a post's video URL — the inputs the Tier-2 escalation
- * feeds to Whisper (ASR) and Qwen-VL (on-screen text). ffmpeg reads the remote
- * URL directly, so we never download the whole file ourselves.
- *
- * Kept boring: audio is one `ffmpeg` run to mono 16 kHz WAV on stdout (what
- * Whisper wants); frames are a scene-change + fps sample capped at `max`, written
- * to a caller-provided directory. Tests exercise the pure arg builders and the
- * stub — running ffmpeg is not required for the suite.
+ * Media extract (needs the ffmpeg binary): pull the audio track and sampled
+ * frames from a video URL for Whisper (ASR) and Qwen-VL (on-screen text). ffmpeg
+ * reads the remote URL directly — audio to mono 16 kHz WAV on stdout, frames a
+ * scene-change + fps sample capped at `max`. Tests use the arg builders + stub.
  */
 
 /** Where extracted frames land, and their count. */

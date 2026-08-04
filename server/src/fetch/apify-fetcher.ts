@@ -3,15 +3,10 @@ import { env } from '../config/env.js';
 import type { SourceType } from '../db/schema/enums.js';
 
 /**
- * Apify fetch (Tier 1/2, needs APIFY_TOKEN): scrape a social post for its
- * caption, thumbnail, video URL, and any outbound link — the inputs the parse
- * pipeline escalates to when a free Tier-0 caption is missing or incomplete.
- * Instagram/Facebook/TikTok/Pinterest each run a per-platform actor; outputs are
- * mapped onto one flat shape so callers don't branch on the provider.
- *
- * Coded to the current apify-client docs (client.actor(id).call(input) →
- * client.dataset(defaultDatasetId).listItems()); not network-verified without a
- * token. Tests drive StubApifyFetcher only — no runs, no spend.
+ * Apify fetch (Tier 1/2, needs APIFY_TOKEN): scrape a social post's caption,
+ * thumbnail, video URL, and outbound link. Each platform runs its own actor;
+ * outputs map onto one flat shape so callers don't branch on the provider.
+ * Coded to the apify-client docs; tests drive StubApifyFetcher (no runs, no spend).
  */
 
 /** A scraped post, normalized across platforms. Every field is best-effort. */

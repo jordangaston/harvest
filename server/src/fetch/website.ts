@@ -1,33 +1,12 @@
 /**
- * Website recipe extractor (Tier 0, no creds): pull a recipe's structured data
- * from a page's schema.org JSON-LD. Adapted from `heb-bot/src/recipe.ts`, kept
- * dependency-free and deterministic so the extractor is unit-testable offline.
- *
- * Why JSON-LD (no LLM, no DOM walking): virtually every recipe site embeds a
- * `<script type="application/ld+json">` `Recipe` object — it's what Google reads
- * for rich results, so sites keep it accurate. Reading it is exact and free. A
- * page with no `Recipe` block throws, distinctly.
- *
- * Two halves kept apart: `parseRecipeFromHtml` is a pure `string → ExtractedRecipe`
- * function (testable with a fixture, no network); `fetchWebsiteHtml` GETs the page
- * with a browser-ish User-Agent (some hosts 403 an unadorned client). WI-05 wires
- * them together and runs the LLM ingredient normalization.
+ * Tier-0 website fetch: read a recipe's schema.org JSON-LD from the page — exact
+ * and free (it's what Google reads for rich results), no LLM, no DOM walking.
+ * Adapted from heb-bot; the `parse` half is pure so it unit-tests offline.
  */
 
-/** The `application/ld+json` block(s), pulled from the page for `Recipe` discovery. */
-const LD_JSON_RE = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-
-/** A browser-like UA; some recipe hosts 403 an unadorned fetch client. */
-const FETCH_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
-
-/**
- * A recipe extracted from a page's JSON-LD. Only `title` and `ingredients` are
- * guaranteed (possibly empty); every other field appears when the source's
- * `Recipe` object carried it — we never invent a value. `ingredients` are the raw
- * `recipeIngredient` lines (entities decoded); structuring them is the LLM's job
- * in WI-05.
- */
+/** A recipe extracted from a page's JSON-LD. `title`/`ingredients`/`steps` are
+ * always present (possibly empty); the rest appear only when the source carried
+ * them — we never invent a value. */
 export interface ExtractedRecipe {
   title: string;
   ingredients: string[];
@@ -40,60 +19,65 @@ export interface ExtractedRecipe {
   rating?: { value: string; count?: string };
 }
 
-/**
- * Fetch a recipe page's HTML with a browser User-Agent.
- *
- * @param url - The recipe page URL
- * @returns The page HTML
- * @throws If the response is non-2xx
- */
-export async function fetchWebsiteHtml(url: string): Promise<string> {
-  const response = await fetch(url, { headers: { 'user-agent': FETCH_USER_AGENT } });
-  if (!response.ok) {
-    throw new Error(`Cannot fetch page — HTTP ${response.status} ${response.statusText} for ${url}`);
+export class WebsiteFetcher {
+  static create(): WebsiteFetcher {
+    return new WebsiteFetcher();
   }
-  return response.text();
-}
 
-/**
- * Extract an `ExtractedRecipe` from a page's HTML. Pure (no network, no LLM), so
- * it can be tested against a saved fixture. Scans every `application/ld+json`
- * block, walks each for a `Recipe` object (including inside a `@graph` or array),
- * and maps the first found.
- *
- * @param html - The full page HTML
- * @param sourceUrl - The page URL, used only in the not-found error message
- * @returns The extracted recipe
- * @throws If no block parses into a `Recipe` object
- */
-export function parseRecipeFromHtml(html: string, sourceUrl = ''): ExtractedRecipe {
-  for (const match of html.matchAll(LD_JSON_RE)) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(match[1]);
-    } catch {
-      continue;
+  /**
+   * Fetch a recipe page and extract its schema.org JSON-LD recipe.
+   *
+   * @param url - The recipe page URL
+   * @returns The extracted recipe
+   * @throws If the page is unreachable (non-2xx) or has no `Recipe` block
+   */
+  async fetch(url: string): Promise<ExtractedRecipe> {
+    // Browser-ish UA — some recipe hosts 403 an unadorned fetch client.
+    const response = await fetch(url, { headers: { 'user-agent': FETCH_USER_AGENT } });
+    if (!response.ok) throw new Error(`Cannot fetch ${url} — HTTP ${response.status} ${response.statusText}`);
+    return WebsiteFetcher.parse(await response.text(), url);
+  }
+
+  /**
+   * Extract a recipe from page HTML — pure (no network), for tests and reuse.
+   * Scans every `application/ld+json` block for a `Recipe` (incl. inside a
+   * `@graph` or array) and maps the first found.
+   *
+   * @throws If no block parses into a `Recipe` object
+   */
+  static parse(html: string, sourceUrl = ''): ExtractedRecipe {
+    for (const match of html.matchAll(LD_JSON_RE)) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(match[1]);
+      } catch {
+        continue;
+      }
+      const node = findRecipeNode(parsed);
+      if (node) return mapRecipe(node);
     }
-    const node = findRecipeNode(parsed);
-    if (node) return mapRecipe(node);
+    throw new Error(`No schema.org Recipe found${sourceUrl ? ` on ${sourceUrl}` : ''}`);
   }
-  throw new Error(`No schema.org Recipe found${sourceUrl ? ` on ${sourceUrl}` : ''}`);
 }
 
-/**
- * Convert an ISO-8601 duration (e.g. `PT1H15M`) to whole minutes.
- *
- * @param iso - The ISO-8601 duration, or undefined
- * @returns Whole minutes, or undefined when absent/unparseable/zero
- */
-export function isoDurationToMinutes(iso: string | undefined): number | undefined {
-  if (!iso) return undefined;
-  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso.trim());
-  if (!match) return undefined;
-  const [, days, hours, minutes, seconds] = match.map((part) => (part ? parseInt(part, 10) : 0));
-  const total = days * 1440 + hours * 60 + minutes + Math.round(seconds / 60);
-  return total > 0 ? total : undefined;
+/** Dev/test double: a fixed recipe, no network. */
+export class StubWebsiteFetcher {
+  static readonly FIXTURE: ExtractedRecipe = {
+    title: 'Creamy Garlic Chicken',
+    ingredients: ['2 chicken breasts', '4 cloves garlic, minced', '1 cup heavy cream'],
+    steps: ['Sear the chicken until golden.', 'Add garlic and cream.', 'Simmer until thickened.'],
+    servings: '4',
+    totalMinutes: 30,
+  };
+
+  async fetch(_url: string): Promise<ExtractedRecipe> {
+    return StubWebsiteFetcher.FIXTURE;
+  }
 }
+
+const LD_JSON_RE = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+const FETCH_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 /** DFS for a `Recipe` node — handles a bare object, an array, and a `@graph`. */
 function findRecipeNode(node: unknown): Record<string, unknown> | null {
@@ -151,10 +135,8 @@ function mapRecipe(node: Record<string, unknown>): ExtractedRecipe {
   return recipe;
 }
 
-/**
- * Flatten `recipeInstructions` to step texts. Steps come as strings, `HowToStep`
- * objects (a `text` field), or `HowToSection`s nesting an `itemListElement` array.
- */
+/** Flatten `recipeInstructions` — strings, `HowToStep` objects, or `HowToSection`s
+ * nesting an `itemListElement` array — to step texts. */
 function mapInstructions(raw: unknown): string[] {
   const steps: string[] = [];
   const visit = (value: unknown): void => {
@@ -181,7 +163,17 @@ function mapInstructions(raw: unknown): string[] {
   return steps;
 }
 
-/** First usable image URL from a `string | string[] | ImageObject` value. */
+/** Convert an ISO-8601 duration (`PT1H15M`) to whole minutes, or undefined. */
+function isoDurationToMinutes(iso: string | undefined): number | undefined {
+  if (!iso) return undefined;
+  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso.trim());
+  if (!match) return undefined;
+  const [, days, hours, minutes, seconds] = match.map((part) => (part ? parseInt(part, 10) : 0));
+  const total = days * 1440 + hours * 60 + minutes + Math.round(seconds / 60);
+  return total > 0 ? total : undefined;
+}
+
+/** First usable image URL from a `string | string[] | ImageObject`. */
 function firstImageUrl(image: unknown): string | undefined {
   const first = firstOf(image);
   if (typeof first === 'string') return first || undefined;
@@ -210,7 +202,6 @@ function asStringArray(value: unknown): string[] {
   return [];
 }
 
-/** Named HTML entities common in recipe text; numeric entities are generic. */
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
   lt: '<',

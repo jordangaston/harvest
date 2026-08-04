@@ -1,10 +1,7 @@
 /**
- * TikTok oEmbed (Tier 0, no creds): the free caption + thumbnail for a TikTok
- * URL. TikTok's public oEmbed endpoint returns the video's caption as `title` and
- * a `thumbnail_url`, so we can attempt a caption-first extract before spending an
- * Apify run. Returns `null` when the post is private/removed or the endpoint
- * declines — the caller falls back to a higher tier rather than failing the import.
- *
+ * TikTok oEmbed (Tier 0, no creds): the free caption + thumbnail for a TikTok URL
+ * from TikTok's public oEmbed endpoint. Returns `null` when the post is
+ * private/removed so the caller can fall back to a higher tier.
  * Docs: https://developers.tiktok.com/doc/embed-videos/
  */
 
