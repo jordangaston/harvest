@@ -8,6 +8,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: requiredUrl('DATABASE_URL'),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
