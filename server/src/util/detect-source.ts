@@ -1,5 +1,31 @@
 import type { SourceType } from '../db/schema/enums.js';
 
+/** A submitted import source, classified into its platform + stored reference. */
+export interface ClassifiedSource {
+  sourceType: SourceType;
+  ref: string;
+}
+
+/** The submitted source as the API receives it: a link, a share-sheet payload, or a photo. */
+export interface SourceInput {
+  url?: string;
+  share_payload?: { url?: string; text?: string };
+  image_ref?: string;
+}
+
+/**
+ * The single entry the intake uses: classify a submitted source (a link or an
+ * uploaded photo) into its platform + the reference we store, or `null` when it
+ * isn't an importable recipe source. Keeps the link/photo branch here rather
+ * than in the route.
+ */
+export function classifySource(input: SourceInput): ClassifiedSource | null {
+  if (input.image_ref) return { sourceType: 'photo', ref: input.image_ref };
+  const url = input.url ?? extractUrl(input.share_payload);
+  const platform = detectSource(url);
+  return platform && url ? { sourceType: platform, ref: normalizeUrl(url) } : null;
+}
+
 /**
  * Classifies a URL's source — the platform it's from (O-01). Pure and network-
  * free: short links are host-mapped without following the redirect. Returns the

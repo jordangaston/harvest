@@ -43,6 +43,23 @@ against SRP: one responsibility per step, the workflow just sequences them.
 > extract + persist in a single function behind one step — so a persist failure
 > would re-fetch and re-transcribe from scratch. Wrong. Decompose into steps.
 
+**Status writes must be transactional.** The workflow's status transitions are
+`@appDataSource.transaction` (DBOS Drizzle transactions), so the `import_jobs`
+row and the DBOS checkpoint commit together. A plain write can leave the job row
+and the workflow's recorded state divergent after a crash. (This corrected an
+earlier call of mine to use plain steps — the transaction is the right tool.)
+
+**All non-deterministic code goes in a step.** A DBOS workflow body must be
+deterministic; every network/IO/random call lives in a `@DBOS.step` (or
+`@DBOS.transaction`). The workflow only ever awaits steps/transactions. The
+pipeline's `run` is a deterministic *orchestrator* of steps — never the place the
+IO happens. (DBOS steps are static methods, so the pipeline is a static-method
+class, not an instance+factory.)
+
+**Class-syntax workflows call themselves — no wrapper function.** Enqueue with
+`DBOS.startWorkflow(ImportWorkflow, { workflowID }).run(input)` at the call site;
+a `startImportWorkflow()` free function is the ceremony class syntax removes.
+
 **Make the workflow unit-testable by mocking its steps.** Per the DBOS testing
 guide, unit-test the workflow logic in isolation: mock the step functions, assert
 the workflow set `running`, then set `ready(recipeId)` on success or
@@ -90,6 +107,9 @@ exactly-once) — that's DBOS's test suite, not ours.
 | **Testing a dependency's own guarantees** (a crash-resume test proving DBOS recovers workers) | YAGNI on tests; not our code | Trust the vendor's tests. Delete it. |
 | **A "source" grab-bag** (`ResolvedSource {platform, sourceType, normalizedUrl, imageRef}`; a service method untangling `{url?, sharePayload?, imageRef?}`) | Model the domain; SRP | `source` = a clean enum (the platform); the URL/ref is a *separate* value. Classifier returns the enum; the route normalizes input before the service. |
 | **Routes in their own file when the app has an inline convention** (`import-routes.ts` while auth routes live in `app.ts`) | Consistency | Follow the established pattern — register routes where the others are. |
+| **Making the caller branch** (route does `image_ref ? createFromPhoto : createFromUrl`) | SRP; hide the decision | One `create(source)`; the link-vs-photo `if` lives behind a single classifier. |
+| **Non-deterministic code in a workflow body** (calling a plain `pipeline.run()` that does IO from `@DBOS.workflow`) | DBOS determinism | All IO in a `@DBOS.step`; the workflow only awaits steps/transactions. |
+| **Plain writes for workflow state** (status update outside a transaction) | Consistency: row ↔ checkpoint can diverge on crash | `@appDataSource.transaction` so the DB write and the DBOS checkpoint commit together. |
 
 ## Distilled checklist (apply before committing)
 

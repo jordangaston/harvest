@@ -22,20 +22,18 @@ export class ImportError extends Error {
 }
 
 /**
- * The import work — the concern the workflow drives, kept separate from it. It
- * turns a resolved source into a persisted recipe and returns the recipe id, or
- * throws an {@link ImportError}.
+ * The import work — the concern the workflow drives, kept separate from it.
+ * `run` turns a resolved source into a persisted recipe and returns the recipe
+ * id, or throws an {@link ImportError}. It is a deterministic orchestrator: every
+ * non-deterministic stage is a `@DBOS.step` (static, since DBOS requires it) that
+ * `run` awaits, so the workflow only ever drives steps.
  *
  * WI-03 ships the skeleton: nothing is parseable yet, so it fails NO_RECIPE.
- * WI-05 decomposes `run` into fetch → transcribe → vision → extract → persist
- * DBOS steps, so a late failure re-runs only the failed stage.
+ * WI-05 adds the fetch → transcribe → vision → extract → persist steps, so a
+ * late failure re-runs only the failed stage, not the network calls before it.
  */
 export class ImportPipeline {
-  static create(): ImportPipeline {
-    return new ImportPipeline();
-  }
-
-  async run(_input: ImportInput): Promise<string> {
+  static async run(_input: ImportInput): Promise<string> {
     throw new ImportError('NO_RECIPE');
   }
 }

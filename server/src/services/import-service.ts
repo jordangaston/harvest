@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { DBOS } from '@dbos-inc/dbos-sdk';
 import { ImportJobRepository } from '../repositories/import-job-repository.js';
-import { detectSource, normalizeUrl } from '../util/detect-source.js';
+import { classifySource, type SourceInput } from '../util/detect-source.js';
 import { toPublicJob, type PublicJob } from '../models/import-job.js';
-import { startImportWorkflow } from '../pipeline/import-workflow.js';
+import { ImportWorkflow } from '../pipeline/import-workflow.js';
 import type { ImportInput } from '../pipeline/import-pipeline.js';
 import { NotFoundError, UnsupportedSourceError } from '../api/errors.js';
 import type { SourceType } from '../db/schema/enums.js';
@@ -24,23 +25,22 @@ export class ImportService {
   ) {}
 
   static create() {
-    return new ImportService(ImportJobRepository.create(), startImportWorkflow);
+    // Enqueue the workflow under the job's id, so the durable run and the row
+    // share one identifier (idempotent: enqueuing the same id twice runs once).
+    return new ImportService(ImportJobRepository.create(), async (input) => {
+      await DBOS.startWorkflow(ImportWorkflow, { workflowID: input.jobId }).run(input);
+    });
   }
 
   /**
-   * Creates a queued import from a link.
+   * Creates a queued import from a submitted source (link or photo).
    *
-   * @throws {UnsupportedSourceError} If the URL isn't an importable source (422).
+   * @throws {UnsupportedSourceError} If the source isn't importable (422).
    */
-  async createFromUrl(userId: string, rawUrl: string | undefined): Promise<PublicJob> {
-    const source = detectSource(rawUrl);
-    if (!source) throw new UnsupportedSourceError();
-    return this.start(userId, source, normalizeUrl(rawUrl!));
-  }
-
-  /** Creates a queued import from an uploaded photo's storage ref. */
-  createFromPhoto(userId: string, imageRef: string): Promise<PublicJob> {
-    return this.start(userId, 'photo', imageRef);
+  async create(userId: string, source: SourceInput): Promise<PublicJob> {
+    const classified = classifySource(source);
+    if (!classified) throw new UnsupportedSourceError();
+    return this.start(userId, classified.sourceType, classified.ref);
   }
 
   /**

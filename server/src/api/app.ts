@@ -9,7 +9,6 @@ import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema, crea
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
-import { extractUrl } from '../util/detect-source.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -73,9 +72,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.post('/v1/imports', { preHandler: authGuard }, async (request, reply) => {
     const { source } = createImportSchema.parse(request.body);
-    const job = source.image_ref
-      ? await imports.createFromPhoto(request.authUserId!, source.image_ref)
-      : await imports.createFromUrl(request.authUserId!, source.url ?? extractUrl(source.share_payload));
+    const job = await imports.create(request.authUserId!, source);
     reply.code(202);
     return { job };
   });

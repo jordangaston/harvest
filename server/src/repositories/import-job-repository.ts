@@ -4,6 +4,10 @@ import { importJobs } from '../db/schema/index.js';
 import type { SourceType } from '../db/schema/enums.js';
 import { ImportJobSchema, type ImportJob } from '../models/import-job.js';
 
+/** A Drizzle client for a write: the db singleton, or the transaction client
+ * (`DrizzleDataSource.client`) when a status write runs inside a DBOS transaction. */
+export type DbExecutor = Pick<Database, 'update'>;
+
 /** Fields the intake supplies to create a queued job; the DB defaults the rest. */
 export interface CreateImportJobInput {
   /** App-generated uuid used as both the row id and the DBOS workflow id, so
@@ -49,17 +53,18 @@ export class ImportJobRepository {
     return row ? ImportJobSchema.parse(row) : null;
   }
 
-  /** Transitions a job to `running` with the given progress; bumps updated_at. */
-  async setRunning(id: string, progress: number): Promise<void> {
-    await this.db
+  /** Transitions a job to `running`; runs on `tx` when the workflow supplies its
+   * transaction client, else the db singleton. */
+  async setRunning(id: string, progress: number, tx: DbExecutor = this.db): Promise<void> {
+    await tx
       .update(importJobs)
       .set({ status: 'running', progress, updatedAt: sql`now()` })
       .where(eq(importJobs.id, id));
   }
 
   /** Writes the terminal status (+ error code / recipe id) and bumps updated_at. */
-  async setTerminal(id: string, update: TerminalUpdate): Promise<void> {
-    await this.db
+  async setTerminal(id: string, update: TerminalUpdate, tx: DbExecutor = this.db): Promise<void> {
+    await tx
       .update(importJobs)
       .set({
         status: update.status,

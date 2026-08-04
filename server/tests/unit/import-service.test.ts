@@ -23,13 +23,13 @@ function makeJob(overrides: Partial<ImportJob> = {}): ImportJob {
 }
 
 describe('ImportService (TC-7 / AC-2/4/8)', () => {
-  it('createFromUrl classifies the link, inserts a queued row, and enqueues once under the same id', async () => {
+  it('create classifies the source, inserts a queued row, and enqueues once under the same id', async () => {
     const created = makeJob();
     const repo = { create: vi.fn(async () => created) } as unknown as ImportJobRepository;
     const enqueue = vi.fn<EnqueueImport>(async () => {});
     const service = new ImportService(repo, enqueue);
 
-    const result = await service.createFromUrl(USER, 'https://www.tiktok.com/@x/video/1');
+    const result = await service.create(USER, { url: 'https://www.tiktok.com/@x/video/1' });
 
     const createArg = (repo.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(createArg).toMatchObject({ userId: USER, sourceType: 'tiktok' });
@@ -38,12 +38,12 @@ describe('ImportService (TC-7 / AC-2/4/8)', () => {
     expect(result).toEqual({ id: created.id, status: 'queued', progress: 0, source_type: 'tiktok' });
   });
 
-  it('createFromUrl throws UNSUPPORTED and never inserts or enqueues for an unsupported link', async () => {
+  it('create throws UNSUPPORTED and never inserts or enqueues for an unsupported source', async () => {
     const repo = { create: vi.fn() } as unknown as ImportJobRepository;
     const enqueue = vi.fn<EnqueueImport>(async () => {});
     const service = new ImportService(repo, enqueue);
 
-    await expect(service.createFromUrl(USER, 'https://instagram.com/someprofile')).rejects.toBeInstanceOf(
+    await expect(service.create(USER, { url: 'https://instagram.com/someprofile' })).rejects.toBeInstanceOf(
       UnsupportedSourceError,
     );
     expect(repo.create).not.toHaveBeenCalled();
