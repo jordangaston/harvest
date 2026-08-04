@@ -4,10 +4,6 @@ import { importJobs } from '../db/schema/index.js';
 import type { SourceType } from '../db/schema/enums.js';
 import { ImportJobSchema, type ImportJob } from '../models/import-job.js';
 
-/** A Drizzle client usable for a query: the db singleton or a transaction
- * client (the DBOS `appDataSource.client` inside a `runTransaction` body). */
-export type DbExecutor = Pick<Database, 'select' | 'insert' | 'update'>;
-
 /** Fields the intake supplies to create a queued job; the DB defaults the rest. */
 export interface CreateImportJobInput {
   /** App-generated uuid used as both the row id and the DBOS workflow id, so
@@ -27,10 +23,9 @@ export interface TerminalUpdate {
 }
 
 /**
- * Data access for `import_jobs`. The status/progress updaters take an optional
- * `tx` executor so the workflow can run each transition inside a DBOS
- * `runTransaction` (committing atomically with the checkpoint). Reads are
- * owner-scoped (`findByIdForUser`) so a job never leaks across users (AC-8).
+ * Data access for `import_jobs`. The workflow's status steps call these writes
+ * directly (each step is DBOS-memoized, so a write lands at most once). Reads
+ * are owner-scoped (`findByIdForUser`) so a job never leaks across users (AC-8).
  */
 export class ImportJobRepository {
   constructor(private readonly db: Database) {}
@@ -40,17 +35,14 @@ export class ImportJobRepository {
   }
 
   /** Inserts a `queued` job with a caller-supplied id and returns the row. */
-  async create(input: CreateImportJobInput, tx?: DbExecutor): Promise<ImportJob> {
-    const [row] = await this.exec(tx)
-      .insert(importJobs)
-      .values({ ...input, status: 'queued' })
-      .returning();
+  async create(input: CreateImportJobInput): Promise<ImportJob> {
+    const [row] = await this.db.insert(importJobs).values({ ...input, status: 'queued' }).returning();
     return ImportJobSchema.parse(row);
   }
 
   /** Finds a job by id, scoped to its owner — null if missing or foreign. */
-  async findByIdForUser(id: string, userId: string, tx?: DbExecutor): Promise<ImportJob | null> {
-    const [row] = await this.exec(tx)
+  async findByIdForUser(id: string, userId: string): Promise<ImportJob | null> {
+    const [row] = await this.db
       .select()
       .from(importJobs)
       .where(and(eq(importJobs.id, id), eq(importJobs.userId, userId)));
@@ -58,16 +50,16 @@ export class ImportJobRepository {
   }
 
   /** Transitions a job to `running` with the given progress; bumps updated_at. */
-  async setRunning(id: string, progress: number, tx?: DbExecutor): Promise<void> {
-    await this.exec(tx)
+  async setRunning(id: string, progress: number): Promise<void> {
+    await this.db
       .update(importJobs)
       .set({ status: 'running', progress, updatedAt: sql`now()` })
       .where(eq(importJobs.id, id));
   }
 
   /** Writes the terminal status (+ error code / recipe id) and bumps updated_at. */
-  async setTerminal(id: string, update: TerminalUpdate, tx?: DbExecutor): Promise<void> {
-    await this.exec(tx)
+  async setTerminal(id: string, update: TerminalUpdate): Promise<void> {
+    await this.db
       .update(importJobs)
       .set({
         status: update.status,
@@ -77,9 +69,5 @@ export class ImportJobRepository {
         updatedAt: sql`now()`,
       })
       .where(eq(importJobs.id, id));
-  }
-
-  private exec(tx?: DbExecutor): DbExecutor {
-    return tx ?? this.db;
   }
 }

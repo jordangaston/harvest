@@ -5,10 +5,11 @@ import { UserService, type Resolution } from '../services/user-service.js';
 import { OtpService } from '../services/otp-service.js';
 import { authGuard } from './middleware/auth-guard.js';
 import { registerErrorHandler, OtpRequestFailedError, InvalidOtpError } from './errors.js';
-import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema } from './schemas.js';
+import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema, createImportSchema } from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
-import { registerImportRoutes } from './routes/import-routes.js';
+import { ImportService } from '../services/import-service.js';
+import { extractUrl } from '../util/detect-source.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -29,6 +30,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
   const users = UserService.create();
   const otps = OtpService.create();
+  const imports = ImportService.create();
 
   app.get('/healthz', async (_request, reply) => {
     const status = (await dbReachable()) ? 'ok' : 'error';
@@ -69,7 +71,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { user: me };
   });
 
-  registerImportRoutes(app);
+  app.post('/v1/imports', { preHandler: authGuard }, async (request, reply) => {
+    const { source } = createImportSchema.parse(request.body);
+    const job = source.image_ref
+      ? await imports.createFromPhoto(request.authUserId!, source.image_ref)
+      : await imports.createFromUrl(request.authUserId!, source.url ?? extractUrl(source.share_payload));
+    reply.code(202);
+    return { job };
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/imports/:id', { preHandler: authGuard }, async (request) => {
+    const job = await imports.get(request.authUserId!, request.params.id);
+    return { job };
+  });
 
   registerErrorHandler(app);
   return app;
