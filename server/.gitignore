@@ -14,5 +14,8 @@ dist/
 # test coverage
 coverage/
 
+# tesseract.js OCR model, downloaded to cwd on first run
+*.traineddata
+
 # macOS
 .DS_Store

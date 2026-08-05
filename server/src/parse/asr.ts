@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { groqFetch } from './groq.js';
 
 /**
  * Audio transcription (O-04). Real path posts a WAV to Groq's OpenAI-compatible
@@ -35,7 +36,7 @@ export class GroqWhisper implements Transcriber {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'audio.wav');
     form.append('model', WHISPER_MODEL);
-    const res = await fetch(GROQ_TRANSCRIPTIONS_URL, {
+    const res = await groqFetch(GROQ_TRANSCRIPTIONS_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}` },
       body: form,

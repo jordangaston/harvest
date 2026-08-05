@@ -1,12 +1,12 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db, type Database } from '../db/index.js';
-import { importJobs } from '../db/schema/index.js';
+import { importJobs, importJobRecipes } from '../db/schema/index.js';
 import type { SourceType } from '../db/schema/enums.js';
 import { ImportJobSchema, type ImportJob } from '../models/import-job.js';
 
 /** A Drizzle client for a write: the db singleton, or the transaction client
  * (`DrizzleDataSource.client`) when a status write runs inside a DBOS transaction. */
-export type DbExecutor = Pick<Database, 'update'>;
+export type DbExecutor = Pick<Database, 'update' | 'insert'>;
 
 /** Fields the intake supplies to create a queued job; the DB defaults the rest. */
 export interface CreateImportJobInput {
@@ -96,5 +96,35 @@ export class ImportJobRepository {
         updatedAt: sql`now()`,
       })
       .where(eq(importJobs.id, id));
+  }
+
+  /**
+   * Records the recipes an import produced, in slide order (idempotent on the
+   * (import_job_id, recipe_id) key, so a workflow re-run re-links safely).
+   * @param jobId - The import job.
+   * @param recipeIds - Persisted recipe ids, in the order to surface them.
+   * @param tx - Executor; the workflow's transaction client to commit with the
+   *   DBOS checkpoint, else the db singleton.
+   */
+  async linkRecipes(jobId: string, recipeIds: string[], tx: DbExecutor = this.db): Promise<void> {
+    if (recipeIds.length === 0) return;
+    await tx
+      .insert(importJobRecipes)
+      .values(recipeIds.map((recipeId, position) => ({ importJobId: jobId, recipeId, position })))
+      .onConflictDoNothing();
+  }
+
+  /**
+   * Reads the recipe ids an import produced, in slide order.
+   * @param jobId - The import job.
+   * @returns The linked recipe ids ordered by position (empty until it's ready).
+   */
+  async findRecipeIds(jobId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ recipeId: importJobRecipes.recipeId })
+      .from(importJobRecipes)
+      .where(eq(importJobRecipes.importJobId, jobId))
+      .orderBy(importJobRecipes.position);
+    return rows.map((row) => row.recipeId);
   }
 }

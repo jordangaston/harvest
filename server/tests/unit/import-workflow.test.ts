@@ -38,10 +38,10 @@ beforeEach(() => {
 
 describe('ImportWorkflow — status transitions + exception handling only', () => {
   it('marks running, then ready with the recipe id when the pipeline succeeds', async () => {
-    vi.spyOn(ImportPipeline, 'run').mockResolvedValue('recipe-9');
+    vi.spyOn(ImportPipeline, 'run').mockResolvedValue(['recipe-9']);
     await ImportWorkflow.run(INPUT);
     expect(ImportWorkflow.markRunning).toHaveBeenCalledWith('job-1');
-    expect(ImportWorkflow.markReady).toHaveBeenCalledWith('job-1', 'recipe-9');
+    expect(ImportWorkflow.markReady).toHaveBeenCalledWith('job-1', ['recipe-9']);
     expect(ImportWorkflow.markFailed).not.toHaveBeenCalled();
   });
 

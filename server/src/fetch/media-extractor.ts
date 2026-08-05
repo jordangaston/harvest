@@ -132,3 +132,39 @@ function runFfmpegToBuffer(args: string[]): Promise<Buffer> {
     );
   });
 }
+
+/**
+ * Downscale a JPEG buffer so its longer side is at most `maxSide` px (never
+ * upscales), cutting OCR CPU roughly with the pixel count. Text stays legible
+ * well below native resolution. Returns the original bytes if ffmpeg fails, so a
+ * resize hiccup never blocks OCR.
+ *
+ * @param image - The source image bytes.
+ * @param maxSide - The output's longer-side cap (default 720).
+ * @returns The downscaled JPEG bytes (or the original on failure).
+ */
+export function scaleImage(image: Buffer, maxSide = 720): Promise<Buffer> {
+  // scale='if(gt(iw,ih), min(maxSide,iw), -2)':'if(gt(iw,ih), -2, min(maxSide,ih))'
+  const w = `if(gt(iw,ih),min(${maxSide},iw),-2)`;
+  const h = `if(gt(iw,ih),-2,min(${maxSide},ih))`;
+  return runFfmpegBufferToBuffer(['-i', 'pipe:0', '-vf', `scale=${w}:${h}`, '-f', 'mjpeg', 'pipe:1'], image).catch(
+    () => image,
+  );
+}
+
+/** Run ffmpeg with `input` on stdin, collecting stdout into a Buffer. */
+function runFfmpegBufferToBuffer(args: string[], input: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const chunks: Buffer[] = [];
+    let stderr = '';
+    child.stdout.on('data', (chunk) => chunks.push(chunk));
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('error', reject);
+    child.on('close', (code) =>
+      code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`)),
+    );
+    child.stdin.on('error', reject);
+    child.stdin.end(input);
+  });
+}

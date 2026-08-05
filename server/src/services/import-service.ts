@@ -58,7 +58,7 @@ export class ImportService {
   async get(userId: string, jobId: string): Promise<PublicJob> {
     const job = await this.jobs.findByIdForUser(jobId, userId);
     if (!job) throw new NotFoundError();
-    return toPublicJob(job);
+    return toPublicJob(job, await this.jobs.findRecipeIds(jobId));
   }
 
   /**

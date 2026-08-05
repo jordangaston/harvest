@@ -20,7 +20,9 @@ export type ImportJob = z.infer<typeof ImportJobSchema>;
 export type ImportJobStatus = ImportJob['status'];
 
 /** The public job shape returned to clients (AC-9): only these fields, never
- * `user_id`, `source_ref`, or any internal column. snake_case; null fields omitted. */
+ * `user_id`, `source_ref`, or any internal column. snake_case; null fields omitted.
+ * `recipe_id` is the primary recipe; `recipe_ids` is the full ordered set a
+ * slideshow import produced. */
 export interface PublicJob {
   id: string;
   status: ImportJobStatus;
@@ -28,15 +30,17 @@ export interface PublicJob {
   source_type: ImportJob['sourceType'];
   error_code?: string;
   recipe_id?: string;
+  recipe_ids?: string[];
 }
 
 /**
  * Maps a job to its public shape (AC-9), dropping internal columns and omitting
  * null error/recipe fields.
  * @param job - The domain job.
+ * @param recipeIds - The recipes the import produced, in order (empty until ready).
  * @returns The client-safe projection.
  */
-export function toPublicJob(job: ImportJob): PublicJob {
+export function toPublicJob(job: ImportJob, recipeIds: string[] = []): PublicJob {
   const publicJob: PublicJob = {
     id: job.id,
     status: job.status,
@@ -45,5 +49,6 @@ export function toPublicJob(job: ImportJob): PublicJob {
   };
   if (job.errorCode) publicJob.error_code = job.errorCode;
   if (job.recipeId) publicJob.recipe_id = job.recipeId;
+  if (recipeIds.length > 0) publicJob.recipe_ids = recipeIds;
   return publicJob;
 }

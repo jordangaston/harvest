@@ -52,7 +52,10 @@ describe('ImportService (TC-7 / AC-2/4/8)', () => {
 
   it('get returns the owner-scoped public job', async () => {
     const job = makeJob({ status: 'running', progress: 10 });
-    const repo = { findByIdForUser: vi.fn(async () => job) } as unknown as ImportJobRepository;
+    const repo = {
+      findByIdForUser: vi.fn(async () => job),
+      findRecipeIds: vi.fn(async () => []),
+    } as unknown as ImportJobRepository;
     const service = new ImportService(repo, vi.fn());
 
     expect(await service.get(USER, job.id)).toMatchObject({ status: 'running', progress: 10 });

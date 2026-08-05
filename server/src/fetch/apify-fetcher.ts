@@ -15,6 +15,9 @@ export interface FetchedPost {
   thumbnailUrl?: string;
   videoUrl?: string;
   outboundLink?: string;
+  /** Ordered slide image URLs of a carousel/sidecar post (Instagram); absent for
+   * single-media posts. Drives the multi-recipe slideshow path. */
+  images?: string[];
 }
 
 /** Platforms an Apify actor exists for. Website/photo never route here. */
@@ -24,9 +27,11 @@ export interface SourceFetcher {
   fetchPost(platform: ApifyPlatform, url: string): Promise<FetchedPost>;
 }
 
-/** Per-platform actor IDs (see docs/test-fixtures.md "Provider notes"). */
+/** Per-platform actor IDs (see docs/test-fixtures.md "Provider notes"). The
+ * Instagram actor is the general post scraper (not the reel-only one) so a single
+ * URL resolves whether it's a reel, a single photo, or a multi-image carousel. */
 const ACTORS: Record<ApifyPlatform, string> = {
-  instagram: 'apify/instagram-reel-scraper',
+  instagram: 'apify/instagram-scraper',
   tiktok: 'clockworks/tiktok-video-scraper',
   facebook: 'apivault_labs/facebook-reels-video-scraper',
   pinterest: 'dltik/pinterest-scraper',
@@ -103,7 +108,7 @@ export function selectSourceFetcher(): SourceFetcher {
 function buildInput(platform: ApifyPlatform, url: string): Record<string, unknown> {
   switch (platform) {
     case 'instagram':
-      return { directUrls: [url], resultsLimit: 1 };
+      return { directUrls: [url], resultsType: 'posts', resultsLimit: 1, addParentData: false };
     case 'tiktok':
       return { postURLs: [url], resultsPerPage: 1, shouldDownloadVideos: false };
     case 'facebook':
@@ -120,7 +125,12 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
     case 'tiktok':
       return { caption: str(item.text), thumbnailUrl: str(nested(item.videoMeta, 'coverUrl')), videoUrl: str(item.webVideoUrl) };
     case 'instagram':
-      return { caption: str(item.caption), thumbnailUrl: str(item.displayUrl), videoUrl: str(item.videoUrl) };
+      return {
+        caption: str(item.caption),
+        thumbnailUrl: str(item.displayUrl),
+        videoUrl: str(item.videoUrl),
+        images: strArray(item.images),
+      };
     case 'facebook':
       return {
         caption: str(item.text ?? item.caption),
@@ -136,6 +146,13 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
 /** The value if it's a non-empty string, else undefined. */
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/** The non-empty string elements of an array, or undefined when there are none. */
+function strArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return urls.length > 0 ? urls : undefined;
 }
 
 /** Read `key` off `value` when it's an object, else undefined. */
