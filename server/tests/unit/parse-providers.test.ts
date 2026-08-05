@@ -20,12 +20,11 @@ describe('provider selection by env', () => {
     vi.resetModules();
   });
 
-  async function selectors(groqKey?: string) {
+  async function selectors(keys: { groq?: string; deepseek?: string } = {}) {
     vi.resetModules();
-    if (groqKey) vi.stubEnv('GROQ_API_KEY', groqKey);
-    else vi.stubEnv('GROQ_API_KEY', '');
+    vi.stubEnv('GROQ_API_KEY', keys.groq ?? '');
+    vi.stubEnv('DEEPSEEK_API_KEY', keys.deepseek ?? '');
     const asr = await import('../../src/parse/asr.js');
-    const vision = await import('../../src/parse/vision.js');
     const extractor = await import('../../src/parse/extractor.js');
     return {
       transcriber: asr.selectTranscriber(),
@@ -33,20 +32,24 @@ describe('provider selection by env', () => {
       GroqWhisper: asr.GroqWhisper,
       recipeExtractor: extractor.selectExtractor(),
       StubExtractor: extractor.StubExtractor,
-      GroqExtractor: extractor.GroqExtractor,
+      DeepseekExtractor: extractor.DeepseekExtractor,
     };
   }
 
-  it('returns stubs for ASR/extraction when GROQ_API_KEY is absent', async () => {
+  it('returns stubs for ASR/extraction when no keys are set', async () => {
     const s = await selectors();
     expect(s.transcriber).toBeInstanceOf(s.StubTranscriber);
     expect(s.recipeExtractor).toBeInstanceOf(s.StubExtractor);
   });
 
-  it('returns real Groq providers for ASR/extraction when GROQ_API_KEY is set', async () => {
-    const s = await selectors('gsk_test');
+  it('returns Groq Whisper for ASR when GROQ_API_KEY is set', async () => {
+    const s = await selectors({ groq: 'gsk_test' });
     expect(s.transcriber).toBeInstanceOf(s.GroqWhisper);
-    expect(s.recipeExtractor).toBeInstanceOf(s.GroqExtractor);
+  });
+
+  it('returns DeepSeek extraction when DEEPSEEK_API_KEY is set', async () => {
+    const s = await selectors({ deepseek: 'sk_test' });
+    expect(s.recipeExtractor).toBeInstanceOf(s.DeepseekExtractor);
   });
 });
 

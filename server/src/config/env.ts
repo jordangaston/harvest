@@ -29,8 +29,14 @@ const envSchema = z.object({
   TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
   // Apify API token (optional). Present → real ApifyFetcher; absent → stub.
   APIFY_TOKEN: z.string().optional(),
-  // Groq API key (optional). Present → real ASR/vision/extraction; absent → stubs.
+  // HikerAPI access key (optional). Present → Instagram posts fetch via HikerAPI's
+  // fast private-media API; absent → the Apify actor (or the stub).
+  HIKER_API_KEY: z.string().optional(),
+  // Groq API key (optional). Present → real Whisper ASR; absent → stub.
   GROQ_API_KEY: z.string().optional(),
+  // DeepSeek API key (optional). Present → real recipe extraction (deepseek-v4-flash);
+  // absent → the offline stub.
+  DEEPSEEK_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

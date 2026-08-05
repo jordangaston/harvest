@@ -1,18 +1,17 @@
 import { env } from '../config/env.js';
-import { groqFetch } from './groq.js';
+import { fetchWithRetry } from './http.js';
 import type { ExtractedRecipe } from '../fetch/website.js';
 
 /**
  * Recipe extraction (O-06): turn caption/transcript/vision text into a structured
- * recipe (JSON) with a confidence score. The Groq path prompts Qwen; the stub
- * derives a deterministic recipe from the caption so tests run offline.
+ * recipe (JSON) with a confidence score. The live path prompts DeepSeek (OpenAI-
+ * compatible, JSON mode); the stub derives a deterministic recipe from the
+ * caption so tests run offline.
  */
 
-const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// A non-reasoning model with JSON mode — a reasoning model (Qwen3) breaks
-// `response_format: json_object` on long captions (empty json_validate_failed).
-// ponytail: swap the id if Groq renames it.
-const EXTRACTION_MODEL = 'llama-3.3-70b-versatile';
+const DEEPSEEK_CHAT_URL = 'https://api.deepseek.com/chat/completions';
+// ponytail: swap the id if DeepSeek renames it.
+const EXTRACTION_MODEL = 'deepseek-v4-flash';
 
 /** The signals an extractor reads. `structured` is a JSON-LD shortcut. */
 export interface ParseContext {
@@ -62,27 +61,30 @@ function toData(raw: Record<string, unknown>): ExtractedRecipeData {
   };
 }
 
-/** Qwen JSON extraction via Groq. */
-export class GroqExtractor implements RecipeExtractor {
-  /** @param apiKey - Groq API key for Bearer auth. */
+/** JSON recipe extraction via DeepSeek (OpenAI-compatible chat completions). */
+export class DeepseekExtractor implements RecipeExtractor {
+  /** @param apiKey - DeepSeek API key for Bearer auth. */
   constructor(private readonly apiKey: string) {}
 
   /** Wire the singleton env key. */
-  static create(): GroqExtractor {
-    return new GroqExtractor(env.GROQ_API_KEY!);
+  static create(): DeepseekExtractor {
+    return new DeepseekExtractor(env.DEEPSEEK_API_KEY!);
   }
 
   /**
    * @param ctx - The parse signals to extract from.
    * @returns The structured recipe with a confidence score.
-   * @throws Error - On a non-2xx Groq response.
+   * @throws Error - On a non-2xx DeepSeek response.
    */
   async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
-    const res = await groqFetch(GROQ_CHAT_URL, {
+    const res = await fetchWithRetry(DEEPSEEK_CHAT_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: EXTRACTION_MODEL,
+        // Extraction is a direct parse, not a reasoning task — v4-flash thinks by
+        // default (high effort), which is slow and empties JSON-mode output. Off.
+        thinking: { type: 'disabled' },
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -90,7 +92,7 @@ export class GroqExtractor implements RecipeExtractor {
         ],
       }),
     });
-    if (!res.ok) throw new Error(`Groq extraction failed — HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`DeepSeek extraction failed — HTTP ${res.status}`);
     const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
     return toData(JSON.parse(json.choices[0]?.message.content ?? '{}'));
   }
@@ -115,7 +117,7 @@ export class StubExtractor implements RecipeExtractor {
   }
 }
 
-/** Groq if keyed, else the offline stub. */
+/** DeepSeek if keyed, else the offline stub. */
 export function selectExtractor(): RecipeExtractor {
-  return env.GROQ_API_KEY ? GroqExtractor.create() : new StubExtractor();
+  return env.DEEPSEEK_API_KEY ? DeepseekExtractor.create() : new StubExtractor();
 }

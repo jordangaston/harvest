@@ -83,6 +83,11 @@ export class ImportPipeline {
       return [await ImportPipeline.persistOrThrow(data, input)];
     }
 
+    // A multi-image carousel holds several recipes on its slides; its caption is
+    // just a teaser. OCR the slides directly rather than caption-first, which
+    // would otherwise extract one thin recipe from the teaser and stop there.
+    if ((material.imageUrls?.length ?? 0) > 1) return ImportPipeline.extractCarousel(material.imageUrls!, input);
+
     // Caption-first: the free caption is often the whole recipe — try it before
     // spending ASR/vision on the media.
     if (material.caption) {
