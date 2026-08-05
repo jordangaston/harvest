@@ -24,8 +24,7 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
  * Persists a parsed recipe and saves it to the user's cookbook (O-08). One
  * transaction writes the recipe, its ingredients (each with an O-09 icon key),
  * its steps, and one `saved_recipes` join row. Idempotent on the unique
- * (user_id, recipe_id): a
- * duplicate save is swallowed, not raised.
+ * (user_id, recipe_id): a duplicate save is swallowed, not raised.
  *
  * ponytail: BR-07 thumbnail re-host is deferred — imageUrl is stored as-is and
  * the mobile app hotlinks it; re-host to object storage when hotlinking breaks.

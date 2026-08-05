@@ -3,8 +3,6 @@ import { env } from './config/env.js';
 import { db, pool } from './db/index.js';
 import { buildApp } from './api/app.js';
 import { initDbos, shutdownDbos } from './pipeline/bootstrap.js';
-import { setParseProvider } from './pipeline/parse-step.js';
-import { createParseProvider } from './parse/parse-provider.js';
 import type { FastifyInstance } from 'fastify';
 
 // Migrations run as a deploy step (npm run migrate), not on boot.
@@ -12,7 +10,6 @@ async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   console.log('db connected');
 
-  setParseProvider(createParseProvider());
   await initDbos();
   console.log('dbos launched');
 
