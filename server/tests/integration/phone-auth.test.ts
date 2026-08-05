@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { db, pool } from '../../src/db/index.js';
-import { users, importJobs } from '../../src/db/schema/index.js';
+import { users, importJobs, savedRecipes } from '../../src/db/schema/index.js';
 import { UserRepository } from '../../src/repositories/user-repository.js';
 import { buildApp } from '../../src/api/app.js';
 
@@ -13,6 +13,7 @@ let app: FastifyInstance;
 
 beforeEach(async () => {
   await db.delete(importJobs); // FK dependents before users
+  await db.delete(savedRecipes);
   await db.delete(users);
   app = buildApp();
 });

@@ -3,16 +3,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DBOS } from '@dbos-inc/dbos-sdk';
 import type { SourceType } from '../db/schema/enums.js';
-import { WebsiteFetcher, type ExtractedRecipe } from '../fetch/website.js';
-import { TikTokOembed } from '../fetch/tiktok-oembed.js';
+import { selectWebsiteFetcher, type ExtractedRecipe } from '../fetch/website.js';
+import { selectTikTokOembed } from '../fetch/tiktok-oembed.js';
 import { selectSourceFetcher, type ApifyPlatform } from '../fetch/apify-fetcher.js';
-import { MediaExtractor } from '../fetch/media-extractor.js';
+import { selectMediaExtractor } from '../fetch/media-extractor.js';
 import { selectTranscriber } from '../parse/asr.js';
 import { selectVision } from '../parse/vision.js';
 import { selectExtractor, type ParseContext, type ExtractedRecipeData } from '../parse/extractor.js';
 import { RecipeRepository, type RecipeInput } from '../repositories/recipe-repository.js';
 
-const media = MediaExtractor.create();
+const website = selectWebsiteFetcher();
+const tiktok = selectTikTokOembed();
+const media = selectMediaExtractor();
 const transcriber = selectTranscriber();
 const vision = selectVision();
 const extractor = selectExtractor();
@@ -88,9 +90,9 @@ export class ImportPipeline {
     try {
       switch (input.sourceType) {
         case 'website':
-          return { structured: await WebsiteFetcher.create().fetch(input.sourceRef) };
+          return { structured: await website.fetch(input.sourceRef) };
         case 'tiktok':
-          return { caption: (await TikTokOembed.create().fetch(input.sourceRef))?.caption };
+          return { caption: (await tiktok.fetch(input.sourceRef))?.caption };
         case 'photo':
           return { imageRef: input.sourceRef };
         default:
@@ -104,7 +106,7 @@ export class ImportPipeline {
   /** IG/FB/Pinterest: an outbound link → website (Q-01), else caption + video. */
   private static async fromApify(platform: Exclude<ApifyPlatform, 'tiktok'>, url: string): Promise<Material> {
     const post = await selectSourceFetcher().fetchPost(platform, url);
-    if (post.outboundLink) return { structured: await WebsiteFetcher.create().fetch(post.outboundLink) };
+    if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
     return { caption: post.caption, videoUrl: post.videoUrl };
   }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { db, pool } from '../../src/db/index.js';
-import { importJobs, users } from '../../src/db/schema/index.js';
+import { importJobs, users, recipes, ingredients, recipeSteps, savedRecipes } from '../../src/db/schema/index.js';
 import { buildApp } from '../../src/api/app.js';
 import { initDbos, shutdownDbos } from '../../src/pipeline/bootstrap.js';
 
@@ -53,12 +53,17 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // Clear FK dependents before their parents.
   await db.delete(importJobs);
+  await db.delete(savedRecipes);
+  await db.delete(ingredients);
+  await db.delete(recipeSteps);
+  await db.delete(recipes);
   await db.delete(users);
 });
 
 describe('POST /v1/imports', () => {
-  it('creates one owner-scoped queued job, which the workflow drives to a terminal state', async () => {
+  it('creates one owner-scoped queued job that the workflow drives to a persisted recipe', async () => {
     const { token, userId } = await mintBearer();
 
     const res = await createImport(token, { url: TIKTOK_URL });
@@ -66,16 +71,19 @@ describe('POST /v1/imports', () => {
     const job = res.json().job;
     expect(job).toMatchObject({ status: 'queued', source_type: 'tiktok' });
 
-    const rows = await db.select().from(importJobs);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].userId).toBe(userId);
+    const jobRows = await db.select().from(importJobs);
+    expect(jobRows).toHaveLength(1);
+    expect(jobRows[0].userId).toBe(userId);
 
-    // The pipeline runs offline stubs, so the exact outcome depends on what the
-    // live TikTok oembed returns; assert only that the workflow reaches a terminal
-    // state at full progress.
+    // Offline stubs run in test: the stub TikTok caption yields a recipe, so the
+    // workflow terminates `ready` with a persisted recipe. The title comes from
+    // the stub caption — asserting it guards against this test going to the network.
     const terminal = await pollTerminal(token, job.id);
-    expect(terminal).toMatchObject({ progress: 100 });
-    expect(['ready', 'failed']).toContain(terminal.status);
+    expect(terminal).toMatchObject({ status: 'ready', progress: 100 });
+    expect(terminal.recipe_id).toBeDefined();
+    const recipeRows = await db.select().from(recipes);
+    expect(recipeRows).toHaveLength(1);
+    expect(recipeRows[0].title).toBe('Crockpot Chicken Teriyaki');
   });
 
   it('rejects an unsupported source with 422 and writes no row', async () => {

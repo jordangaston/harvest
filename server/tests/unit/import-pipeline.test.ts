@@ -25,7 +25,7 @@ const { fetchWebsite, persist, extract } = vi.hoisted(() => ({
   extract: vi.fn(),
 }));
 vi.mock('../../src/fetch/website.js', () => ({
-  WebsiteFetcher: { create: () => ({ fetch: fetchWebsite }) },
+  selectWebsiteFetcher: () => ({ fetch: fetchWebsite }),
 }));
 vi.mock('../../src/repositories/recipe-repository.js', () => ({
   RecipeRepository: { create: () => ({ persist }) },

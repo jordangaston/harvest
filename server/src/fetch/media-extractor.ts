@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { env } from '../config/env.js';
 
 /**
  * Media extract (needs the ffmpeg binary): pull the audio track and sampled
@@ -49,6 +50,11 @@ export class StubMediaExtractor {
   async frames(_videoUrl: string, outDir: string, max = 12): Promise<string[]> {
     return framePaths(outDir, max);
   }
+}
+
+// ponytail: no creds to gate on, so tests run the stub, everything else is live.
+export function selectMediaExtractor(): MediaExtractor | StubMediaExtractor {
+  return env.NODE_ENV === 'test' ? new StubMediaExtractor() : MediaExtractor.create();
 }
 
 /** The numbered JPEG paths ffmpeg's `frame-%03d.jpg` pattern writes into `outDir`. */

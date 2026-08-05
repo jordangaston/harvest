@@ -3,6 +3,7 @@
  * and free (it's what Google reads for rich results), no LLM, no DOM walking.
  * Adapted from heb-bot; the `parse` half is pure so it unit-tests offline.
  */
+import { env } from '../config/env.js';
 
 /** A recipe extracted from a page's JSON-LD. `title`/`ingredients`/`steps` are
  * always present (possibly empty); the rest appear only when the source carried
@@ -73,6 +74,12 @@ export class StubWebsiteFetcher {
   async fetch(_url: string): Promise<ExtractedRecipe> {
     return StubWebsiteFetcher.FIXTURE;
   }
+}
+
+// ponytail: NODE_ENV is the only offline signal for a credential-free fetch —
+// there's no token to gate on, so tests run the stub and everything else is live.
+export function selectWebsiteFetcher(): WebsiteFetcher | StubWebsiteFetcher {
+  return env.NODE_ENV === 'test' ? new StubWebsiteFetcher() : WebsiteFetcher.create();
 }
 
 const LD_JSON_RE = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
