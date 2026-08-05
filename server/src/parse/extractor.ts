@@ -2,18 +2,14 @@ import { env } from '../config/env.js';
 import type { ExtractedRecipe } from '../fetch/website.js';
 
 /**
- * Recipe extraction (O-06): turn caption/transcript/vision text (or already-
- * structured JSON-LD) into a structured recipe with a confidence score. The Groq
- * path prompts Qwen for JSON and escalates to Claude when confidence < 0.6; the
- * stub derives a deterministic recipe from the caption so tests run offline.
+ * Recipe extraction (O-06): turn caption/transcript/vision text into a structured
+ * recipe (JSON) with a confidence score. The Groq path prompts Qwen; the stub
+ * derives a deterministic recipe from the caption so tests run offline.
  */
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // ponytail: Qwen text model on Groq at build time; swap the id if renamed.
 const QWEN_MODEL = 'qwen/qwen3-32b';
-const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_MODEL = 'claude-opus-4-8';
-const ESCALATION_THRESHOLD = 0.6;
 
 /** The signals an extractor reads. `structured` is a JSON-LD shortcut. */
 export interface ParseContext {
@@ -62,51 +58,15 @@ function toData(raw: Record<string, unknown>): ExtractedRecipeData {
   };
 }
 
-// Claude escalation for low-confidence Groq extractions (O-06). Not
-// network-verified offline; coded to the Anthropic Messages API docs.
-export class AnthropicExtractor implements RecipeExtractor {
+// Qwen JSON extraction via Groq.
+export class GroqExtractor implements RecipeExtractor {
   constructor(private readonly apiKey: string) {}
 
-  async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
-    const res = await fetch(ANTHROPIC_MESSAGES_URL, {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 2048,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: contextText(ctx) }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Anthropic extraction failed — HTTP ${res.status}`);
-    const json = (await res.json()) as { content: Array<{ text?: string }> };
-    return toData(JSON.parse(json.content[0]?.text ?? '{}'));
-  }
-}
-
-// Qwen JSON extraction via Groq; escalates to Claude when it is unsure.
-export class GroqExtractor implements RecipeExtractor {
-  constructor(
-    private readonly apiKey: string,
-    private readonly escalation?: RecipeExtractor,
-  ) {}
-
   static create(): GroqExtractor {
-    const escalation = env.ANTHROPIC_API_KEY ? new AnthropicExtractor(env.ANTHROPIC_API_KEY) : undefined;
-    return new GroqExtractor(env.GROQ_API_KEY!, escalation);
+    return new GroqExtractor(env.GROQ_API_KEY!);
   }
 
   async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
-    const data = await this.callGroq(ctx);
-    if (data.confidence < ESCALATION_THRESHOLD && this.escalation) return this.escalation.extract(ctx);
-    return data;
-  }
-
-  private async callGroq(ctx: ParseContext): Promise<ExtractedRecipeData> {
     const res = await fetch(GROQ_CHAT_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },

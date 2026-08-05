@@ -64,24 +64,36 @@ export class ImportError extends Error {
 export class ImportPipeline {
   static async run(input: ImportInput): Promise<string> {
     const material = await ImportPipeline.fetchSource(input);
-    const structured = material.structured;
-    if (structured) return ImportPipeline.persistOrThrow({ ...structured, confidence: 1 }, input);
+    if (material.structured) return ImportPipeline.persistOrThrow({ ...material.structured, confidence: 1 }, input);
 
+    // Caption-first: the free caption is often the whole recipe — try it before
+    // spending ASR/vision on the media.
+    if (material.caption) {
+      const fromCaption = await ImportPipeline.extractOrThrow({ caption: material.caption });
+      if (hasRecipe(fromCaption)) return ImportPipeline.persist(fromCaption, input);
+    }
+
+    // The caption fell short — escalate to the media (O-04/O-05). A source with
+    // neither a usable caption nor media has no recipe to find.
     const ctx: ParseContext = { caption: material.caption };
     if (material.videoUrl) {
       ctx.transcript = await ImportPipeline.transcribe(material.videoUrl);
       ctx.visionText = await ImportPipeline.describeVideo(material.videoUrl);
     } else if (material.imageRef) {
       ctx.visionText = await ImportPipeline.describePhoto(material.imageRef);
+    } else {
+      throw new ImportError('NO_RECIPE');
     }
+    return ImportPipeline.persistOrThrow(await ImportPipeline.extractOrThrow(ctx), input);
+  }
 
-    let data: ExtractedRecipeData;
+  /** The extract step, with its throw mapped to EXTRACTION_FAILED. */
+  private static async extractOrThrow(ctx: ParseContext): Promise<ExtractedRecipeData> {
     try {
-      data = await ImportPipeline.extract(ctx);
+      return await ImportPipeline.extract(ctx);
     } catch {
       throw new ImportError('EXTRACTION_FAILED');
     }
-    return ImportPipeline.persistOrThrow(data, input);
   }
 
   /** Routes by source type to a Tier-0 structured recipe or the raw material. */
@@ -156,9 +168,14 @@ export class ImportPipeline {
 
   /** Gate on a real recipe, then persist — an empty extraction is NO_RECIPE. */
   private static async persistOrThrow(data: ExtractedRecipeData, input: ImportInput): Promise<string> {
-    if (!data.title || data.ingredients.length === 0) throw new ImportError('NO_RECIPE');
+    if (!hasRecipe(data)) throw new ImportError('NO_RECIPE');
     return ImportPipeline.persist(data, input);
   }
+}
+
+/** A usable recipe has at least a title and one ingredient. */
+function hasRecipe(data: ExtractedRecipeData): boolean {
+  return Boolean(data.title) && data.ingredients.length > 0;
 }
 
 function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
