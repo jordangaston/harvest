@@ -12,6 +12,8 @@ export const ingredients = pgTable('ingredients', {
   quantityText: text('quantity_text'),
   amount: numeric('amount'),
   unit: text('unit'),
+  // O-09 painterly icon key (mapIngredientIcon), resolved to an asset in the app.
+  icon: text('icon'),
 });
 
 export type Ingredient = typeof ingredients.$inferSelect;

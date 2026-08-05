@@ -4,6 +4,7 @@
  * private/removed so the caller can fall back to a higher tier.
  * Docs: https://developers.tiktok.com/doc/embed-videos/
  */
+import { env } from '../config/env.js';
 
 const OEMBED_ENDPOINT = 'https://www.tiktok.com/oembed';
 
@@ -50,4 +51,9 @@ export class StubTikTokOembed {
   async fetch(_url: string): Promise<TikTokOembedResult | null> {
     return StubTikTokOembed.PAYLOAD;
   }
+}
+
+// ponytail: no creds to gate on, so tests run the stub, everything else is live.
+export function selectTikTokOembed(): TikTokOembed | StubTikTokOembed {
+  return env.NODE_ENV === 'test' ? new StubTikTokOembed() : TikTokOembed.create();
 }

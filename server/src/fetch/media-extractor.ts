@@ -1,17 +1,11 @@
 import { spawn } from 'node:child_process';
+import { env } from '../config/env.js';
 
 /**
  * Media extract (needs the ffmpeg binary): pull the audio track and sampled
  * frames from a video URL for Whisper (ASR) and Qwen-VL (on-screen text). ffmpeg
- * reads the remote URL directly — audio to mono 16 kHz WAV on stdout, frames a
- * scene-change + fps sample capped at `max`. Tests use the arg builders + stub.
+ * reads the remote URL directly, so no download step.
  */
-
-/** Where extracted frames land, and their count. */
-export interface FramesResult {
-  dir: string;
-  paths: string[];
-}
 
 export class MediaExtractor {
   static create(): MediaExtractor {
@@ -36,13 +30,12 @@ export class MediaExtractor {
    * @param videoUrl - The remote (or local) video URL/path ffmpeg reads
    * @param outDir - Directory the frames are written to (caller-owned)
    * @param max - Maximum frames to keep (default 12)
-   * @returns The output dir and the frame file paths
+   * @returns The frame file paths
    * @throws If ffmpeg exits non-zero
    */
-  async frames(videoUrl: string, outDir: string, max = 12): Promise<FramesResult> {
+  async frames(videoUrl: string, outDir: string, max = 12): Promise<string[]> {
     await runFfmpeg(framesArgs(videoUrl, outDir, max));
-    const paths = Array.from({ length: max }, (_, i) => `${outDir}/frame-${String(i + 1).padStart(3, '0')}.jpg`);
-    return { dir: outDir, paths };
+    return framePaths(outDir, max);
   }
 }
 
@@ -54,10 +47,19 @@ export class StubMediaExtractor {
     return StubMediaExtractor.AUDIO;
   }
 
-  async frames(_videoUrl: string, outDir: string, max = 12): Promise<FramesResult> {
-    const paths = Array.from({ length: max }, (_, i) => `${outDir}/frame-${String(i + 1).padStart(3, '0')}.jpg`);
-    return { dir: outDir, paths };
+  async frames(_videoUrl: string, outDir: string, max = 12): Promise<string[]> {
+    return framePaths(outDir, max);
   }
+}
+
+// ponytail: no creds to gate on, so tests run the stub, everything else is live.
+export function selectMediaExtractor(): MediaExtractor | StubMediaExtractor {
+  return env.NODE_ENV === 'test' ? new StubMediaExtractor() : MediaExtractor.create();
+}
+
+/** The numbered JPEG paths ffmpeg's `frame-%03d.jpg` pattern writes into `outDir`. */
+function framePaths(outDir: string, max: number): string[] {
+  return Array.from({ length: max }, (_, i) => `${outDir}/frame-${String(i + 1).padStart(3, '0')}.jpg`);
 }
 
 /** ffmpeg args for a mono 16 kHz WAV on stdout (exported for arg-only tests). */
