@@ -114,15 +114,24 @@ const POST_PATH_PATTERNS: Partial<Record<SourceType, RegExp[]>> = {
   pinterest: [/^\/pin\/\d+/],
 };
 
-/** Short-link hosts point at a shared post for any non-root path; canonical
- * hosts require a known post path so a bare host or profile URL is unsupported. */
+/**
+ * Whether the URL is a post (vs. a profile/root). Short-link hosts count any
+ * non-root path; canonical hosts require a known post path.
+ *
+ * @param matched - The host entry the URL resolved to
+ * @param url - The parsed URL
+ * @returns True when the URL points at an importable post.
+ */
 function isPost(matched: (typeof HOST_PLATFORMS)[number], url: URL): boolean {
   if (matched.shortLink) return url.pathname.replace(/\/+$/, '').length > 0;
   const patterns = POST_PATH_PATTERNS[matched.platform] ?? [];
   return patterns.some((re) => re.test(url.pathname + url.search));
 }
 
-/** Parses a string as an http(s) URL, or undefined if it isn't one. */
+/**
+ * Parse `raw` as an http(s) URL.
+ * @returns The URL, or undefined if malformed or not http(s).
+ */
 function parseHttpUrl(raw: string): URL | undefined {
   try {
     const url = new URL(raw.trim());

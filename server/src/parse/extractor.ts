@@ -58,14 +58,21 @@ function toData(raw: Record<string, unknown>): ExtractedRecipeData {
   };
 }
 
-// Qwen JSON extraction via Groq.
+/** Qwen JSON extraction via Groq. */
 export class GroqExtractor implements RecipeExtractor {
+  /** @param apiKey - Groq API key for Bearer auth. */
   constructor(private readonly apiKey: string) {}
 
+  /** Wire the singleton env key. */
   static create(): GroqExtractor {
     return new GroqExtractor(env.GROQ_API_KEY!);
   }
 
+  /**
+   * @param ctx - The parse signals to extract from.
+   * @returns The structured recipe with a confidence score.
+   * @throws Error - On a non-2xx Groq response.
+   */
   async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
     const res = await fetch(GROQ_CHAT_URL, {
       method: 'POST',
@@ -85,8 +92,12 @@ export class GroqExtractor implements RecipeExtractor {
   }
 }
 
-// Dev/test double: derives a recipe from the caption's first line, no network.
+/** Dev/test double: derives a recipe from the caption's first line, no network. */
 export class StubExtractor implements RecipeExtractor {
+  /**
+   * @param ctx - Read for a caption/vision/transcript first line.
+   * @returns A deterministic single-ingredient recipe (empty title → confidence 0).
+   */
   async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
     const text = ctx.caption ?? ctx.visionText ?? ctx.transcript ?? '';
     const [firstLine] = text.split('\n');
@@ -100,6 +111,7 @@ export class StubExtractor implements RecipeExtractor {
   }
 }
 
+/** Groq if keyed, else the offline stub. */
 export function selectExtractor(): RecipeExtractor {
   return env.GROQ_API_KEY ? GroqExtractor.create() : new StubExtractor();
 }

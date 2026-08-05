@@ -24,6 +24,7 @@ export class ImportService {
     private readonly enqueue: EnqueueImport,
   ) {}
 
+  /** Wire dependencies from the shared singletons. */
   static create() {
     // Enqueue the workflow under the job's id, so the durable run and the row
     // share one identifier (idempotent: enqueuing the same id twice runs once).
@@ -35,6 +36,9 @@ export class ImportService {
   /**
    * Creates a queued import from a submitted source (link or photo).
    *
+   * @param userId - Owner of the new job.
+   * @param source - The submitted link or photo to classify.
+   * @returns The queued job for polling.
    * @throws {UnsupportedSourceError} If the source isn't importable (422).
    */
   async create(userId: string, source: SourceInput): Promise<PublicJob> {
@@ -46,6 +50,9 @@ export class ImportService {
   /**
    * Returns the caller's job for polling (F-06).
    *
+   * @param userId - Caller; scopes the lookup so foreign ids 404.
+   * @param jobId - The job to fetch.
+   * @returns The job's public projection.
    * @throws {NotFoundError} If the id is missing or owned by another user (404).
    */
   async get(userId: string, jobId: string): Promise<PublicJob> {
@@ -54,6 +61,14 @@ export class ImportService {
     return toPublicJob(job);
   }
 
+  /**
+   * Writes one `queued` row then enqueues the workflow under the same id.
+   *
+   * @param userId - Owner of the job.
+   * @param sourceType - Classified source kind.
+   * @param sourceRef - Classified source reference (url or upload id).
+   * @returns The queued job.
+   */
   private async start(userId: string, sourceType: SourceType, sourceRef: string): Promise<PublicJob> {
     const jobId = randomUUID();
     const job = await this.jobs.create({ id: jobId, userId, sourceType, sourceRef });

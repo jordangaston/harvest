@@ -30,7 +30,12 @@ export interface PublicJob {
   recipe_id?: string;
 }
 
-/** Maps a job row to its public shape, dropping every internal/null field. */
+/**
+ * Maps a job to its public shape (AC-9), dropping internal columns and omitting
+ * null error/recipe fields.
+ * @param job - The domain job.
+ * @returns The client-safe projection.
+ */
 export function toPublicJob(job: ImportJob): PublicJob {
   const publicJob: PublicJob = {
     id: job.id,

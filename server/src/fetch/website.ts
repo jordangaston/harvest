@@ -21,6 +21,7 @@ export interface ExtractedRecipe {
 }
 
 export class WebsiteFetcher {
+  /** @returns A live fetcher. */
   static create(): WebsiteFetcher {
     return new WebsiteFetcher();
   }
@@ -71,11 +72,16 @@ export class StubWebsiteFetcher {
     totalMinutes: 30,
   };
 
+  /** @returns The fixed stub recipe (no network). */
   async fetch(_url: string): Promise<ExtractedRecipe> {
     return StubWebsiteFetcher.FIXTURE;
   }
 }
 
+/**
+ * The stub under `NODE_ENV=test`, else the live fetcher.
+ * @returns The fetcher for the current environment.
+ */
 // ponytail: NODE_ENV is the only offline signal for a credential-free fetch —
 // there's no token to gate on, so tests run the stub and everything else is live.
 export function selectWebsiteFetcher(): WebsiteFetcher | StubWebsiteFetcher {
@@ -109,6 +115,7 @@ function hasType(type: unknown, wanted: string): boolean {
   return Array.isArray(type) && type.includes(wanted);
 }
 
+/** Map a JSON-LD `Recipe` node onto `ExtractedRecipe`; optional fields are set only when present. */
 function mapRecipe(node: Record<string, unknown>): ExtractedRecipe {
   const recipe: ExtractedRecipe = {
     title: decode(asString(node.name)),
@@ -195,12 +202,14 @@ function firstOf(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/** A string/number coerced to a string, else `''`. */
 function asString(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   return '';
 }
 
+/** A string (wrapped) or array's non-empty strings; anything else yields `[]`. */
 function asStringArray(value: unknown): string[] {
   if (typeof value === 'string') return value ? [value] : [];
   if (Array.isArray(value)) {
@@ -233,6 +242,7 @@ function decode(value: string): string {
     .trim();
 }
 
+/** The code point as a string, or `''` if it's out of the Unicode range. */
 function safeCodePoint(codePoint: number): string {
   if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return '';
   try {

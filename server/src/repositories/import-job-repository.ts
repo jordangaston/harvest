@@ -34,17 +34,27 @@ export interface TerminalUpdate {
 export class ImportJobRepository {
   constructor(private readonly db: Database) {}
 
+  /** Wire dependencies from the shared singletons. */
   static create() {
     return new ImportJobRepository(db);
   }
 
-  /** Inserts a `queued` job with a caller-supplied id and returns the row. */
+  /**
+   * Inserts a `queued` job with the caller-supplied id.
+   * @param input - Intake fields; the DB defaults status/progress/timestamps.
+   * @returns The inserted row, parsed into the domain model.
+   */
   async create(input: CreateImportJobInput): Promise<ImportJob> {
     const [row] = await this.db.insert(importJobs).values({ ...input, status: 'queued' }).returning();
     return ImportJobSchema.parse(row);
   }
 
-  /** Finds a job by id, scoped to its owner — null if missing or foreign. */
+  /**
+   * Finds a job by id, scoped to its owner so it never leaks across users (AC-8).
+   * @param id - Job id.
+   * @param userId - Owner the job must belong to.
+   * @returns The job parsed into the domain model, or null if missing or foreign.
+   */
   async findByIdForUser(id: string, userId: string): Promise<ImportJob | null> {
     const [row] = await this.db
       .select()
@@ -53,8 +63,13 @@ export class ImportJobRepository {
     return row ? ImportJobSchema.parse(row) : null;
   }
 
-  /** Transitions a job to `running`; runs on `tx` when the workflow supplies its
-   * transaction client, else the db singleton. */
+  /**
+   * Transitions a job to `running` and bumps updated_at.
+   * @param id - Job id.
+   * @param progress - Progress value to record.
+   * @param tx - Executor; the workflow's transaction client when the write must
+   *   commit with the DBOS checkpoint, else the db singleton.
+   */
   async setRunning(id: string, progress: number, tx: DbExecutor = this.db): Promise<void> {
     await tx
       .update(importJobs)
@@ -62,7 +77,14 @@ export class ImportJobRepository {
       .where(eq(importJobs.id, id));
   }
 
-  /** Writes the terminal status (+ error code / recipe id) and bumps updated_at. */
+  /**
+   * Writes the terminal status (+ error code / recipe id) and bumps updated_at.
+   * @param id - Job id.
+   * @param update - Terminal outcome: `ready`/`failed`, progress, and either
+   *   error code or recipe id (null-coalesced to null when absent).
+   * @param tx - Executor; the workflow's transaction client to commit with the
+   *   DBOS checkpoint, else the db singleton.
+   */
   async setTerminal(id: string, update: TerminalUpdate, tx: DbExecutor = this.db): Promise<void> {
     await tx
       .update(importJobs)

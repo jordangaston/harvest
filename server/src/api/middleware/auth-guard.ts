@@ -9,8 +9,12 @@ declare module 'fastify' {
 
 const users = UserService.create();
 
-// preHandler: authenticates the bearer access token and stamps request.authUserId.
-// A missing or invalid token is a 401.
+/**
+ * Fastify preHandler: authenticates the bearer access token and stamps `request.authUserId`.
+ * A missing or invalid token short-circuits with a 401 and the request never reaches the handler.
+ * @param request - incoming request; its Authorization header supplies the token.
+ * @param reply - used to send the 401 on failure.
+ */
 export async function authGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const token = bearer(request.headers.authorization);
   const userId = token && (await users.authenticateAccessToken(token));
@@ -21,6 +25,11 @@ export async function authGuard(request: FastifyRequest, reply: FastifyReply): P
   request.authUserId = userId;
 }
 
+/**
+ * Extracts the token from an `Authorization: Bearer <token>` header.
+ * @param header - the raw header value, or undefined when absent.
+ * @returns the token, or null if the scheme isn't `Bearer` or the token is empty.
+ */
 function bearer(header: string | undefined): string | null {
   const [scheme, token] = header?.split(' ') ?? [];
   return scheme === 'Bearer' && token ? token : null;

@@ -1,6 +1,20 @@
 import { z } from 'zod';
 
-// Same "is required" message whether a var is missing or empty.
+// Load .env into process.env for local dev; real env vars (prod, CI) win since
+// loadEnvFile never overwrites. Skipped under test — vitest provides a controlled
+// env and the offline stubs depend on APIFY_TOKEN/GROQ_API_KEY staying unset.
+if (process.env.NODE_ENV !== 'test') {
+  try {
+    process.loadEnvFile();
+  } catch {
+    // No .env file — rely on the ambient environment.
+  }
+}
+
+/**
+ * A required non-empty string schema. Same "is required" message whether the var is missing or empty.
+ * @param name - env var name, interpolated into the error message.
+ */
 const requiredUrl = (name: string) =>
   z.string({ error: `${name} is required` }).min(1, `${name} is required`);
 
@@ -21,6 +35,11 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Parses and validates `process.env` against the schema at startup.
+ * @returns the typed, defaulted env config.
+ * On any validation failure, writes the issues to stderr and exits the process with code 1 (never returns).
+ */
 function loadEnv(): Env {
   const result = envSchema.safeParse(process.env);
   if (result.success) return result.data;

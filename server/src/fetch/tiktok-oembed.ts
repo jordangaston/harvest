@@ -21,6 +21,7 @@ interface OembedPayload {
 }
 
 export class TikTokOembed {
+  /** @returns A live oEmbed client. */
   static create(): TikTokOembed {
     return new TikTokOembed();
   }
@@ -48,11 +49,16 @@ export class StubTikTokOembed {
     thumbnailUrl: 'https://p16.tiktokcdn.com/stub-thumb.jpg',
   };
 
+  /** @returns The fixed stub payload (no network). */
   async fetch(_url: string): Promise<TikTokOembedResult | null> {
     return StubTikTokOembed.PAYLOAD;
   }
 }
 
+/**
+ * The stub under `NODE_ENV=test`, else the live client.
+ * @returns The oEmbed client for the current environment.
+ */
 // ponytail: no creds to gate on, so tests run the stub, everything else is live.
 export function selectTikTokOembed(): TikTokOembed | StubTikTokOembed {
   return env.NODE_ENV === 'test' ? new StubTikTokOembed() : TikTokOembed.create();
