@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { groqFetch } from './groq.js';
 import type { ExtractedRecipe } from '../fetch/website.js';
 
 /**
@@ -8,8 +9,10 @@ import type { ExtractedRecipe } from '../fetch/website.js';
  */
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// ponytail: Qwen text model on Groq at build time; swap the id if renamed.
-const QWEN_MODEL = 'qwen/qwen3-32b';
+// A non-reasoning model with JSON mode — a reasoning model (Qwen3) breaks
+// `response_format: json_object` on long captions (empty json_validate_failed).
+// ponytail: swap the id if Groq renames it.
+const EXTRACTION_MODEL = 'llama-3.3-70b-versatile';
 
 /** The signals an extractor reads. `structured` is a JSON-LD shortcut. */
 export interface ParseContext {
@@ -53,7 +56,8 @@ function toData(raw: Record<string, unknown>): ExtractedRecipeData {
     steps: Array.isArray(raw.steps) ? (raw.steps as string[]) : [],
     servings: typeof raw.servings === 'string' ? raw.servings : undefined,
     totalMinutes: typeof raw.totalMinutes === 'number' ? raw.totalMinutes : undefined,
-    imageUrl: typeof raw.imageUrl === 'string' ? raw.imageUrl : undefined,
+    // Empty string → absent, so a thumbnail fallback (`?? thumbnail`) applies.
+    imageUrl: typeof raw.imageUrl === 'string' && raw.imageUrl ? raw.imageUrl : undefined,
     confidence: typeof raw.confidence === 'number' ? raw.confidence : 0.5,
   };
 }
@@ -74,11 +78,11 @@ export class GroqExtractor implements RecipeExtractor {
    * @throws Error - On a non-2xx Groq response.
    */
   async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
-    const res = await fetch(GROQ_CHAT_URL, {
+    const res = await groqFetch(GROQ_CHAT_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL,
+        model: EXTRACTION_MODEL,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },

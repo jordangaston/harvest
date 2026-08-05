@@ -26,8 +26,8 @@ export class ImportWorkflow {
   static async run(input: ImportInput): Promise<void> {
     await ImportWorkflow.markRunning(input.jobId);
     try {
-      const recipeId = await ImportPipeline.run(input);
-      await ImportWorkflow.markReady(input.jobId, recipeId);
+      const recipeIds = await ImportPipeline.run(input);
+      await ImportWorkflow.markReady(input.jobId, recipeIds);
     } catch (err) {
       await ImportWorkflow.markFailed(input.jobId, ImportError.codeOf(err));
     }
@@ -43,13 +43,16 @@ export class ImportWorkflow {
   }
 
   /**
-   * Flip the job to `ready` and attach its recipe.
+   * Flip the job to `ready`, feature the first recipe as its primary, and link
+   * the full ordered set (a slideshow yields several).
    * @param jobId - The job to update.
-   * @param recipeId - The persisted recipe.
+   * @param recipeIds - The persisted recipe ids, in slide order (at least one).
    */
   @appDataSource.transaction()
-  static async markReady(jobId: string, recipeId: string): Promise<void> {
-    await repo.setTerminal(jobId, { status: 'ready', progress: 100, recipeId }, DrizzleDataSource.client as unknown as DbExecutor);
+  static async markReady(jobId: string, recipeIds: string[]): Promise<void> {
+    const tx = DrizzleDataSource.client as unknown as DbExecutor;
+    await repo.setTerminal(jobId, { status: 'ready', progress: 100, recipeId: recipeIds[0] }, tx);
+    await repo.linkRecipes(jobId, recipeIds, tx);
   }
 
   /**

@@ -31,26 +31,53 @@ describe('provider selection by env', () => {
       transcriber: asr.selectTranscriber(),
       StubTranscriber: asr.StubTranscriber,
       GroqWhisper: asr.GroqWhisper,
-      vision: vision.selectVision(),
-      StubVision: vision.StubVision,
-      GroqVision: vision.GroqVision,
       recipeExtractor: extractor.selectExtractor(),
       StubExtractor: extractor.StubExtractor,
       GroqExtractor: extractor.GroqExtractor,
     };
   }
 
-  it('returns stubs when GROQ_API_KEY is absent', async () => {
+  it('returns stubs for ASR/extraction when GROQ_API_KEY is absent', async () => {
     const s = await selectors();
     expect(s.transcriber).toBeInstanceOf(s.StubTranscriber);
-    expect(s.vision).toBeInstanceOf(s.StubVision);
     expect(s.recipeExtractor).toBeInstanceOf(s.StubExtractor);
   });
 
-  it('returns real providers when GROQ_API_KEY is set', async () => {
+  it('returns real Groq providers for ASR/extraction when GROQ_API_KEY is set', async () => {
     const s = await selectors('gsk_test');
     expect(s.transcriber).toBeInstanceOf(s.GroqWhisper);
-    expect(s.vision).toBeInstanceOf(s.GroqVision);
     expect(s.recipeExtractor).toBeInstanceOf(s.GroqExtractor);
+  });
+});
+
+// Vision selection is gated on NODE_ENV (not a key): the offline stub under
+// test, local Tesseract OCR otherwise. Selection reads env at import.
+describe('vision selection by env', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function selectVisionUnder(nodeEnv: string) {
+    vi.resetModules();
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    const vision = await import('../../src/parse/vision.js');
+    return {
+      instance: vision.selectVision(),
+      StubVision: vision.StubVision,
+      NativeTesseractReader: vision.NativeTesseractReader,
+      TesseractReader: vision.TesseractReader,
+    };
+  }
+
+  it('uses the offline stub under test', async () => {
+    const s = await selectVisionUnder('test');
+    expect(s.instance).toBeInstanceOf(s.StubVision);
+  });
+
+  it('uses a local Tesseract reader (native or WASM) outside test', async () => {
+    const s = await selectVisionUnder('development');
+    const isLocalOcr = s.instance instanceof s.NativeTesseractReader || s.instance instanceof s.TesseractReader;
+    expect(isLocalOcr).toBe(true);
   });
 });

@@ -50,9 +50,9 @@ describe('ImportPipeline.run', () => {
       steps: ['Sear.'],
     });
 
-    const recipeId = await ImportPipeline.run(INPUT);
+    const recipeIds = await ImportPipeline.run(INPUT);
 
-    expect(recipeId).toBe('recipe-1');
+    expect(recipeIds).toEqual(['recipe-1']);
     expect(extract).not.toHaveBeenCalled();
     expect(persist).toHaveBeenCalledOnce();
   });

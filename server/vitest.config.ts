@@ -1,9 +1,11 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
 export default defineConfig({
   test: {
     environment: 'node',
     globalSetup: ['tests/helpers/global-setup.ts'],
+    // e2e hits real Apify/Groq and costs money — it runs only via `npm run test:e2e`.
+    exclude: [...configDefaults.exclude, 'tests/e2e/**'],
     hookTimeout: 30000,
     // Integration suites share one local Postgres; run test files serially so
     // their per-test cleanups don't race.
