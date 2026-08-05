@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
  */
 
 export class MediaExtractor {
+  /** @returns A live extractor (needs the ffmpeg binary on PATH). */
   static create(): MediaExtractor {
     return new MediaExtractor();
   }
@@ -43,15 +44,26 @@ export class MediaExtractor {
 export class StubMediaExtractor {
   static readonly AUDIO = Buffer.from('stub-wav-bytes');
 
+  /** @returns The fixed stub WAV buffer (no ffmpeg). */
   async audio(_videoUrl: string): Promise<Buffer> {
     return StubMediaExtractor.AUDIO;
   }
 
+  /**
+   * Return the `max` frame paths without writing any files.
+   * @param outDir - Directory the paths are rooted in
+   * @param max - Number of paths to return (default 12)
+   * @returns The would-be frame paths.
+   */
   async frames(_videoUrl: string, outDir: string, max = 12): Promise<string[]> {
     return framePaths(outDir, max);
   }
 }
 
+/**
+ * The stub under `NODE_ENV=test`, else the live extractor.
+ * @returns The extractor for the current environment.
+ */
 // ponytail: no creds to gate on, so tests run the stub, everything else is live.
 export function selectMediaExtractor(): MediaExtractor | StubMediaExtractor {
   return env.NODE_ENV === 'test' ? new StubMediaExtractor() : MediaExtractor.create();
@@ -86,6 +98,10 @@ export function framesArgs(videoUrl: string, outDir: string, max: number): strin
   ];
 }
 
+/**
+ * Run ffmpeg for its side effects (discards stdout).
+ * @throws If ffmpeg exits non-zero (message carries the last stderr).
+ */
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -98,6 +114,11 @@ function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
+/**
+ * Run ffmpeg and collect its stdout into a Buffer.
+ * @returns The captured stdout bytes.
+ * @throws If ffmpeg exits non-zero (message carries the last stderr).
+ */
 function runFfmpegToBuffer(args: string[]): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });

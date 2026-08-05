@@ -33,8 +33,13 @@ const ACTORS: Record<ApifyPlatform, string> = {
 };
 
 export class ApifyFetcher implements SourceFetcher {
+  /** @param client - An authenticated Apify client (token already set). */
   constructor(private readonly client: ApifyClient) {}
 
+  /**
+   * Wire a fetcher against a client built from `APIFY_TOKEN`.
+   * @returns A live fetcher.
+   */
   static create(): ApifyFetcher {
     return new ApifyFetcher(new ApifyClient({ token: env.APIFY_TOKEN }));
   }
@@ -79,6 +84,11 @@ export class StubApifyFetcher implements SourceFetcher {
     },
   };
 
+  /**
+   * Return the recorded fixture for `platform` (url ignored).
+   * @param platform - The social platform (selects the fixture)
+   * @returns The fixture post.
+   */
   async fetchPost(platform: ApifyPlatform, _url: string): Promise<FetchedPost> {
     return StubApifyFetcher.FIXTURES[platform];
   }
@@ -123,10 +133,12 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
   }
 }
 
+/** The value if it's a non-empty string, else undefined. */
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Read `key` off `value` when it's an object, else undefined. */
 function nested(value: unknown, key: string): unknown {
   return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
 }

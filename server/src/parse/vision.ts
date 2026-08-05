@@ -16,14 +16,21 @@ export interface FrameReader {
   readFrames(images: Buffer[]): Promise<string>;
 }
 
-// Real Qwen-VL via Groq. Groq caps images per request; we send at most 5.
+/** Real Qwen-VL via Groq. Groq caps images per request; we send at most 5. */
 export class GroqVision implements FrameReader {
+  /** @param apiKey - Groq API key for Bearer auth. */
   constructor(private readonly apiKey: string) {}
 
+  /** Wire the singleton env key. */
   static create(): GroqVision {
     return new GroqVision(env.GROQ_API_KEY!);
   }
 
+  /**
+   * @param images - Frame/photo buffers; only the first 5 are sent.
+   * @returns The on-screen text, or `''` if none.
+   * @throws Error - On a non-2xx Groq response.
+   */
   async readFrames(images: Buffer[]): Promise<string> {
     const content = [
       { type: 'text', text: PROMPT },
@@ -43,15 +50,17 @@ export class GroqVision implements FrameReader {
   }
 }
 
-// Dev/test double: no network, no spend.
+/** Dev/test double: no network, no spend. */
 export class StubVision implements FrameReader {
   static readonly TEXT = 'Garlic Butter Chicken\n2 chicken breasts\n3 cloves garlic\n2 tbsp butter';
 
+  /** @returns Fixed on-screen text. */
   async readFrames(_images: Buffer[]): Promise<string> {
     return StubVision.TEXT;
   }
 }
 
+/** Groq if keyed, else the offline stub. */
 export function selectVision(): FrameReader {
   return env.GROQ_API_KEY ? GroqVision.create() : new StubVision();
 }

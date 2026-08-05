@@ -14,7 +14,11 @@ export const UserSchema = z.object({
 
 export type User = z.infer<typeof UserSchema>;
 
-// What we expose over the API — never key material.
+/**
+ * Projects a user to the API-safe shape — never key material or nonces.
+ * @param user - The domain user.
+ * @returns Only the id and phone.
+ */
 export function toPublicUser(user: User): { id: string; phone: string } {
   return { id: user.id, phone: user.phone };
 }

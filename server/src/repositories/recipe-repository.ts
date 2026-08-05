@@ -32,11 +32,17 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export class RecipeRepository {
   constructor(private readonly db: Database) {}
 
+  /** Wire dependencies from the shared singletons. */
   static create(): RecipeRepository {
     return new RecipeRepository(db);
   }
 
-  /** Inserts recipe + children + the cookbook join; returns the new recipeId. */
+  /**
+   * Inserts recipe + ingredients + steps + the cookbook join in one transaction.
+   * @param recipe - Parsed recipe the provider hands over to persist.
+   * @param userId - Owner to save the recipe for; the save is idempotent.
+   * @returns The new recipe id.
+   */
   async persist(recipe: RecipeInput, userId: string): Promise<string> {
     return this.db.transaction(async (tx) => {
       const recipeId = await this.insertRecipe(tx, recipe);
@@ -47,6 +53,12 @@ export class RecipeRepository {
     });
   }
 
+  /**
+   * Inserts the recipe row (confidence numeric is stringified for pg).
+   * @param tx - Active transaction client.
+   * @param recipe - Recipe to insert; absent optionals become null.
+   * @returns The new recipe id, parsed at the boundary.
+   */
   private async insertRecipe(tx: Tx, recipe: RecipeInput): Promise<string> {
     const [row] = await tx
       .insert(recipes)
@@ -63,6 +75,12 @@ export class RecipeRepository {
     return RecipeSchema.parse(row).id;
   }
 
+  /**
+   * Bulk-inserts ingredient rows, each tagged with an O-09 icon key; no-op if empty.
+   * @param tx - Active transaction client.
+   * @param recipeId - Parent recipe.
+   * @param lines - Ingredient text lines; array order becomes `position`.
+   */
   private async insertIngredients(tx: Tx, recipeId: string, lines: string[]): Promise<void> {
     if (lines.length === 0) return;
     await tx.insert(ingredients).values(
@@ -70,12 +88,24 @@ export class RecipeRepository {
     );
   }
 
+  /**
+   * Bulk-inserts step rows; no-op if empty.
+   * @param tx - Active transaction client.
+   * @param recipeId - Parent recipe.
+   * @param steps - Step text; array order becomes `position`.
+   */
   private async insertSteps(tx: Tx, recipeId: string, steps: string[]): Promise<void> {
     if (steps.length === 0) return;
     await tx.insert(recipeSteps).values(steps.map((text, i) => ({ recipeId, position: i, text })));
   }
 
-  /** Idempotent save: the unique (user_id, recipe_id) index swallows a re-save. */
+  /**
+   * Saves the recipe to the user's cookbook; the unique (user_id, recipe_id)
+   * index swallows a re-save, so this is idempotent.
+   * @param tx - Active transaction client.
+   * @param recipeId - Recipe to save.
+   * @param userId - Owner.
+   */
   private async saveForUser(tx: Tx, recipeId: string, userId: string): Promise<void> {
     await tx.insert(savedRecipes).values({ userId, recipeId }).onConflictDoNothing();
   }

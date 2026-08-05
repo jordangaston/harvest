@@ -42,6 +42,7 @@ export interface Material {
 
 /** A typed import failure carrying the machine error code the job records. */
 export class ImportError extends Error {
+  /** @param code - The machine error code the job records. */
   constructor(readonly code: string) {
     super(code);
     this.name = 'ImportError';
@@ -62,6 +63,15 @@ export class ImportError extends Error {
  * step (ffmpeg → Buffer → Whisper) and the checkpoint stays JSON-serializable.
  */
 export class ImportPipeline {
+  /**
+   * Deterministic orchestrator: try the structured shortcut, then the free
+   * caption, then escalate to ASR/vision on the media. Each stage it awaits is a
+   * memoized step, so a re-run skips the calls that already succeeded.
+   * @param input - The resolved source and its owner.
+   * @returns The persisted recipe id.
+   * @throws ImportError - `NO_RECIPE` when nothing usable is found; the failed
+   *   stage's code otherwise.
+   */
   static async run(input: ImportInput): Promise<string> {
     const material = await ImportPipeline.fetchSource(input);
     if (material.structured) return ImportPipeline.persistOrThrow({ ...material.structured, confidence: 1 }, input);
@@ -156,11 +166,23 @@ export class ImportPipeline {
     }
   }
 
+  /**
+   * Run the LLM extractor over the parse signals (its own network call, so its
+   * own step).
+   * @param ctx - Caption/transcript/vision text to extract from.
+   * @returns The structured recipe with a confidence score.
+   */
   @DBOS.step()
   static async extract(ctx: ParseContext): Promise<ExtractedRecipeData> {
     return extractor.extract(ctx);
   }
 
+  /**
+   * Persist the recipe for its owner (the final DB step).
+   * @param data - The extracted recipe.
+   * @param input - Carries the owning `userId` and source metadata.
+   * @returns The new recipe id.
+   */
   @DBOS.step()
   static async persist(data: ExtractedRecipeData, input: ImportInput): Promise<string> {
     return recipes.persist(toRecipeInput(data, input), input.userId);
@@ -178,6 +200,7 @@ function hasRecipe(data: ExtractedRecipeData): boolean {
   return Boolean(data.title) && data.ingredients.length > 0;
 }
 
+/** Maps an extracted recipe + its source onto the repository's insert shape. */
 function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
   return {
     title: data.title,
