@@ -2,7 +2,7 @@ import { cpus } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { createScheduler, createWorker, type Scheduler } from 'tesseract.js';
 import { env } from '../config/env.js';
-import { groqFetch } from './groq.js';
+import { fetchWithRetry } from './http.js';
 
 /**
  * Frame vision (O-05): read on-screen text off sampled video frames (or a photo).
@@ -45,7 +45,7 @@ export class GroqVision implements FrameReader {
         image_url: { url: `data:image/jpeg;base64,${img.toString('base64')}` },
       })),
     ];
-    const res = await groqFetch(GROQ_CHAT_URL, {
+    const res = await fetchWithRetry(GROQ_CHAT_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
       // Qwen-VL reasons before answering; `hidden` drops the <think> block so the

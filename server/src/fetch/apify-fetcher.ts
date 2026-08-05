@@ -99,8 +99,81 @@ export class StubApifyFetcher implements SourceFetcher {
   }
 }
 
-/** Real when APIFY_TOKEN is set, else the offline stub. Going live is an env swap. */
+/**
+ * HikerAPI (Instagram only): one authenticated call to Instagram's private media
+ * API by post URL returns the caption, video URL, and a carousel's ordered slide
+ * images in ~1-2s — versus a browser-scraping actor's 6-16s. Non-Instagram
+ * platforms delegate to the Apify fallback. Coded to the HikerAPI v1 docs.
+ */
+const HIKER_BASE = 'https://api.hikerapi.com';
+
+export class HikerFetcher implements SourceFetcher {
+  /**
+   * @param apiKey - HikerAPI access key (sent as `x-access-key`).
+   * @param fallback - Fetcher for non-Instagram platforms.
+   */
+  constructor(
+    private readonly apiKey: string,
+    private readonly fallback: SourceFetcher,
+  ) {}
+
+  /** Wire from HIKER_API_KEY; other platforms fall back to Apify (or the stub). */
+  static create(): HikerFetcher {
+    const fallback = env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
+    return new HikerFetcher(env.HIKER_API_KEY!, fallback);
+  }
+
+  /**
+   * Fetch a single Instagram post via HikerAPI; delegate other platforms.
+   * @param platform - Only `instagram` uses HikerAPI.
+   * @param url - The post URL to fetch.
+   * @returns The scraped post, normalized onto FetchedPost.
+   * @throws Error - On a non-2xx HikerAPI response.
+   */
+  async fetchPost(platform: ApifyPlatform, url: string): Promise<FetchedPost> {
+    if (platform !== 'instagram') return this.fallback.fetchPost(platform, url);
+    const endpoint = `${HIKER_BASE}/v1/media/by/url?url=${encodeURIComponent(url)}`;
+    // Bounded + one retry: a bare fetch has no timeout, so a stalled connection
+    // (e.g. HikerAPI throttling under load) would hang the workflow step forever.
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await fetch(endpoint, {
+          headers: { 'x-access-key': this.apiKey, accept: 'application/json' },
+          signal: AbortSignal.timeout(HIKER_TIMEOUT_MS),
+        });
+        if (!res.ok) throw new Error(`HikerAPI failed — HTTP ${res.status}`);
+        const body = (await res.json()) as Record<string, unknown>;
+        return mapHikerMedia((body.media as Record<string, unknown>) ?? body);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('HikerAPI request failed');
+  }
+}
+
+/** HikerAPI per-request timeout (~1-2s typical; a stall past this is retried once). */
+const HIKER_TIMEOUT_MS = 20000;
+
+/** Map HikerAPI's instagrapi Media object onto FetchedPost (album children →
+ * ordered slide images via each resource's `thumbnail_url`). */
+function mapHikerMedia(media: Record<string, unknown>): FetchedPost {
+  const resources = Array.isArray(media.resources) ? (media.resources as Record<string, unknown>[]) : [];
+  return {
+    caption: str(media.caption_text),
+    thumbnailUrl: str(media.thumbnail_url),
+    videoUrl: str(media.video_url),
+    images: strArray(resources.map((resource) => resource.thumbnail_url)),
+  };
+}
+
+/**
+ * Instagram via HikerAPI when keyed (fast private-media API); else the Apify
+ * actor when APIFY_TOKEN is set; else the offline stub. Going live is an env swap.
+ */
 export function selectSourceFetcher(): SourceFetcher {
+  if (env.HIKER_API_KEY) return HikerFetcher.create();
   return env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
 }
 
