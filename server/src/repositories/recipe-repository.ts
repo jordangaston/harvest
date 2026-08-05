@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import { db, type Database } from '../db/index.js';
 import { recipes, ingredients, recipeSteps, savedRecipes } from '../db/schema/index.js';
 import type { SourceType } from '../db/schema/enums.js';
-import { RecipeSchema } from '../models/recipe.js';
+import { RecipeSchema, type RecipeDetail } from '../models/recipe.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** What the parse provider hands the repository to persist. */
@@ -35,6 +36,29 @@ export class RecipeRepository {
   /** Wire dependencies from the shared singletons. */
   static create(): RecipeRepository {
     return new RecipeRepository(db);
+  }
+
+  /**
+   * Fetches one recipe with its ordered ingredients and steps. Recipes are shared
+   * (canonical) entities, so any caller can read any recipe — browsing isn't
+   * gated on having saved it.
+   * @param recipeId - Recipe to fetch.
+   * @returns The recipe aggregate, or null if no recipe has that id.
+   */
+  async findById(recipeId: string): Promise<RecipeDetail | null> {
+    const [row] = await this.db.select().from(recipes).where(eq(recipes.id, recipeId));
+    if (!row) return null;
+    const ings = await this.db
+      .select({ name: ingredients.name, icon: ingredients.icon })
+      .from(ingredients)
+      .where(eq(ingredients.recipeId, recipeId))
+      .orderBy(ingredients.position);
+    const steps = await this.db
+      .select({ text: recipeSteps.text })
+      .from(recipeSteps)
+      .where(eq(recipeSteps.recipeId, recipeId))
+      .orderBy(recipeSteps.position);
+    return { recipe: RecipeSchema.parse(row), ingredients: ings, steps: steps.map((s) => s.text) };
   }
 
   /**

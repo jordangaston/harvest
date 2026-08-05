@@ -9,6 +9,7 @@ import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema, crea
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
+import { RecipeService } from '../services/recipe-service.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -37,6 +38,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const users = UserService.create();
   const otps = OtpService.create();
   const imports = ImportService.create();
+  const recipes = RecipeService.create();
 
   /** GET /healthz — liveness probe. Public. 200 when the DB is reachable, else 503. */
   app.get('/healthz', async (_request, reply) => {
@@ -107,6 +109,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.get<{ Params: { id: string } }>('/v1/imports/:id', { preHandler: authGuard }, async (request) => {
     const job = await imports.get(request.authUserId!, request.params.id);
     return { job };
+  });
+
+  /**
+   * GET /v1/recipes/:id — fetches a recipe with its ingredients and steps.
+   * Requires bearer token; 401 without one. Not owner-scoped — recipes are shared,
+   * so any authenticated caller can open one while browsing. 404 if the id is unknown.
+   */
+  app.get<{ Params: { id: string } }>('/v1/recipes/:id', { preHandler: authGuard }, async (request) => {
+    const recipe = await recipes.get(request.params.id);
+    return { recipe };
   });
 
   registerErrorHandler(app);
