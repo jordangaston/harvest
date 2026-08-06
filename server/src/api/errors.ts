@@ -53,6 +53,13 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class CookbookExistsError extends AppError {
+  /** 409 COOKBOOK_EXISTS — the caller already owns a cookbook with that name. */
+  constructor() {
+    super('COOKBOOK_EXISTS', 409, 'you already have a cookbook with that name');
+  }
+}
+
 /**
  * Maps any thrown value to an AppError. InvalidPhoneError and ZodError become 400s;
  * anything unrecognized collapses to a 500 INTERNAL (details not leaked to the client).

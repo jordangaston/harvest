@@ -28,6 +28,23 @@ export const createImportSchema = z.object({
     ),
 });
 
+export const createCookbookSchema = z.object({
+  cookbook: z.object({ name: z.string().trim().min(1) }),
+});
+
+export const setMembershipSchema = z.object({
+  cookbook_ids: z.array(z.string().uuid()),
+});
+
+export const updateRecipeSchema = z
+  .object({
+    ingredients: z.array(z.string()).optional(),
+    steps: z.array(z.string()).optional(),
+  })
+  .refine((body) => body.ingredients !== undefined || body.steps !== undefined, {
+    message: 'provide ingredients and/or steps',
+  });
+
 export const signInSchema = z.object({
   auth: z
     .object({

@@ -39,6 +39,16 @@ const ICON = {
   walnuts: require("../../assets/ingredients/walnuts.jpg"),
 };
 
+/**
+ * Resolves a server icon key (from mapIngredientIcon) to a painterly asset, or
+ * null when there's no matching icon (the common `default` case, and anything
+ * outside the keyword set) — callers render a token placeholder instead.
+ */
+export function resolveIcon(key?: string | null): ImageSourcePropType | null {
+  if (!key) return null;
+  return (ICON as Record<string, ImageSourcePropType>)[key] ?? null;
+}
+
 // The sample recipe used by "Try with a sample recipe" (mirrors the demo).
 export const SAMPLE_RECIPE: Recipe = {
   id: "beef-bourguignon",

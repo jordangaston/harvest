@@ -8,6 +8,9 @@ import {
   createUserSchema,
   signInSchema,
   createImportSchema,
+  createCookbookSchema,
+  setMembershipSchema,
+  updateRecipeSchema,
 } from '../api/schemas.js';
 import { ImportJobSchema } from '../models/import-job.js';
 
@@ -22,10 +25,46 @@ const DEFAULT_PORT = 3000;
 
 const publicUser = z.object({ id: z.string().uuid(), phone: z.string() });
 
+const token = z.object({ jwt: z.string(), expires_at: z.number().int() });
+
 const session = z.object({
   user: publicUser,
-  auth: z.object({ access_token: z.string(), refresh_token: z.string() }),
+  auth: z.object({ access_token: token, refresh_token: token }),
   isNew: z.boolean(),
+});
+
+// ---- Cookbook + recipe response shapes (mirror the toPublic* projections) ----
+
+const publicCookbook = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  recipe_count: z.number().int(),
+  cover_image_url: z.string().optional(),
+});
+
+const publicIngredient = z.object({
+  name: z.string(),
+  icon: z.string().optional(),
+  quantity_text: z.string().optional(),
+  amount: z.string().optional(),
+  unit: z.string().optional(),
+});
+
+const publicRecipe = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  source_type: z.string(),
+  source_url: z.string().optional(),
+  servings: z.number().int().optional(),
+  total_minutes: z.number().int().optional(),
+  image_url: z.string().optional(),
+  ingredients: z.array(publicIngredient),
+  steps: z.array(z.string()),
+});
+
+const cookbookView = z.object({
+  cookbook: z.object({ id: z.string().uuid(), name: z.string() }),
+  recipes: z.array(z.object({ id: z.string().uuid(), title: z.string(), image_url: z.string().optional() })),
 });
 
 // Mirrors toPublicJob: snake_case, null error/recipe fields omitted. Status and
@@ -43,18 +82,19 @@ const errorEnvelope = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
 
-type ErrorStatus = 400 | 401 | 404 | 422 | 502;
+type ErrorStatus = 400 | 401 | 404 | 409 | 422 | 502;
 
 const ERROR_DESCRIPTIONS: Record<ErrorStatus, string> = {
   400: 'Validation error',
   401: 'Missing or invalid authentication',
   404: 'Resource not found',
+  409: 'Conflict',
   422: 'Unsupported import source',
   502: 'Upstream provider error',
 };
 
 interface RouteSpec {
-  method: 'get' | 'post';
+  method: 'get' | 'post' | 'put' | 'patch' | 'delete';
   /** OpenAPI-style path; path params use `{name}` (e.g. `/v1/imports/{id}`). */
   path: string;
   tag: string;
@@ -63,7 +103,8 @@ interface RouteSpec {
   body?: z.ZodType;
   pathParams?: { name: string; description: string }[];
   successStatus?: number;
-  successSchema: z.ZodType;
+  /** Omitted for no-content (204) responses. */
+  successSchema?: z.ZodType;
   successDescription: string;
   errors?: ErrorStatus[];
 }
@@ -131,6 +172,64 @@ const ROUTES: RouteSpec[] = [
     successDescription: 'The import job',
     errors: [401, 404],
   },
+  {
+    method: 'get', path: '/v1/recipes/{id}', tag: 'recipes', secured: true,
+    summary: 'Get a recipe with its ingredients and steps',
+    pathParams: [{ name: 'id', description: 'The recipe id' }],
+    successSchema: z.object({ recipe: publicRecipe }),
+    successDescription: 'The recipe',
+    errors: [401, 404],
+  },
+  {
+    method: 'patch', path: '/v1/recipes/{id}', tag: 'recipes', secured: true,
+    summary: "Edit the caller's copy of a recipe's ingredients/steps (copy-on-write)",
+    pathParams: [{ name: 'id', description: 'The recipe id' }],
+    body: updateRecipeSchema,
+    successSchema: z.object({ recipe: publicRecipe }),
+    successDescription: 'The edited recipe (possibly a new id if it forked)',
+    errors: [400, 401, 404],
+  },
+  {
+    method: 'delete', path: '/v1/recipes/{id}', tag: 'recipes', secured: true,
+    summary: "Remove a recipe from the caller's library and cookbooks",
+    pathParams: [{ name: 'id', description: 'The recipe id' }],
+    successStatus: 204,
+    successDescription: 'The recipe was removed',
+    errors: [401, 404],
+  },
+  {
+    method: 'put', path: '/v1/recipes/{id}/cookbooks', tag: 'recipes', secured: true,
+    summary: "Set which of the caller's cookbooks hold this recipe",
+    pathParams: [{ name: 'id', description: 'The recipe id' }],
+    body: setMembershipSchema,
+    successSchema: z.object({ cookbook_ids: z.array(z.string().uuid()) }),
+    successDescription: 'The applied cookbook ids',
+    errors: [400, 401, 404],
+  },
+  {
+    method: 'post', path: '/v1/cookbooks', tag: 'cookbooks', secured: true,
+    summary: 'Create a named cookbook',
+    body: createCookbookSchema,
+    successStatus: 201,
+    successSchema: z.object({ cookbook: publicCookbook }),
+    successDescription: 'The created cookbook',
+    errors: [400, 401, 409],
+  },
+  {
+    method: 'get', path: '/v1/cookbooks', tag: 'cookbooks', secured: true,
+    summary: "List the caller's cookbooks",
+    successSchema: z.object({ cookbooks: z.array(publicCookbook) }),
+    successDescription: 'The cookbooks with recipe counts and covers',
+    errors: [401],
+  },
+  {
+    method: 'get', path: '/v1/cookbooks/{id}', tag: 'cookbooks', secured: true,
+    summary: 'Get a cookbook and its recipes',
+    pathParams: [{ name: 'id', description: 'The cookbook id' }],
+    successSchema: cookbookView,
+    successDescription: 'The cookbook and its recipe cards',
+    errors: [401, 404],
+  },
 ];
 
 /** Read PORT straight from the environment; importing config/env.ts would validate the whole env and exit on missing keys. */
@@ -165,7 +264,7 @@ function buildOperation(route: RouteSpec): Record<string, unknown> {
   const responses: Record<string, unknown> = {
     [route.successStatus ?? 200]: {
       description: route.successDescription,
-      content: jsonContent(route.successSchema),
+      ...(route.successSchema ? { content: jsonContent(route.successSchema) } : {}),
     },
   };
   for (const status of route.errors ?? []) {

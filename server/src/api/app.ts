@@ -5,11 +5,21 @@ import { UserService, type Resolution } from '../services/user-service.js';
 import { OtpService } from '../services/otp-service.js';
 import { authGuard } from './middleware/auth-guard.js';
 import { registerErrorHandler, OtpRequestFailedError, InvalidOtpError } from './errors.js';
-import { createUserSchema, requestOtpSchema, signInSchema, verifyOtpSchema, createImportSchema } from './schemas.js';
+import {
+  createUserSchema,
+  requestOtpSchema,
+  signInSchema,
+  verifyOtpSchema,
+  createImportSchema,
+  createCookbookSchema,
+  setMembershipSchema,
+  updateRecipeSchema,
+} from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
 import { RecipeService } from '../services/recipe-service.js';
+import { CookbookService } from '../services/cookbook-service.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -39,6 +49,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const otps = OtpService.create();
   const imports = ImportService.create();
   const recipes = RecipeService.create();
+  const cookbooks = CookbookService.create();
 
   /** GET /healthz — liveness probe. Public. 200 when the DB is reachable, else 503. */
   app.get('/healthz', async (_request, reply) => {
@@ -119,6 +130,57 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.get<{ Params: { id: string } }>('/v1/recipes/:id', { preHandler: authGuard }, async (request) => {
     const recipe = await recipes.get(request.params.id);
     return { recipe };
+  });
+
+  /**
+   * PATCH /v1/recipes/:id — edits the caller's copy of a recipe's ingredients/steps
+   * (copy-on-write). Requires bearer token. 404 if the caller hasn't saved it.
+   */
+  app.patch<{ Params: { id: string } }>('/v1/recipes/:id', { preHandler: authGuard }, async (request) => {
+    const edit = updateRecipeSchema.parse(request.body);
+    const recipe = await recipes.update(request.authUserId!, request.params.id, edit);
+    return { recipe };
+  });
+
+  /**
+   * DELETE /v1/recipes/:id — removes the recipe from the caller's library and cookbooks
+   * (the shared recipe row remains). Requires bearer token; 404 if not saved; 204 on success.
+   */
+  app.delete<{ Params: { id: string } }>('/v1/recipes/:id', { preHandler: authGuard }, async (request, reply) => {
+    await recipes.remove(request.authUserId!, request.params.id);
+    return reply.code(204).send();
+  });
+
+  /**
+   * PUT /v1/recipes/:id/cookbooks — sets which of the caller's cookbooks hold this recipe
+   * (also ensures it's in the library). Requires bearer token; 404 if the recipe is unknown.
+   */
+  app.put<{ Params: { id: string } }>('/v1/recipes/:id/cookbooks', { preHandler: authGuard }, async (request) => {
+    const { cookbook_ids } = setMembershipSchema.parse(request.body);
+    const applied = await cookbooks.setMembership(request.authUserId!, request.params.id, cookbook_ids);
+    return { cookbook_ids: applied };
+  });
+
+  /** POST /v1/cookbooks — creates a named cookbook for the caller. Requires bearer token. */
+  app.post('/v1/cookbooks', { preHandler: authGuard }, async (request, reply) => {
+    const { cookbook } = createCookbookSchema.parse(request.body);
+    const created = await cookbooks.create(request.authUserId!, cookbook.name);
+    reply.code(201);
+    return { cookbook: created };
+  });
+
+  /** GET /v1/cookbooks — lists the caller's cookbooks with counts and covers. Requires bearer token. */
+  app.get('/v1/cookbooks', { preHandler: authGuard }, async (request) => {
+    const list = await cookbooks.list(request.authUserId!);
+    return { cookbooks: list };
+  });
+
+  /**
+   * GET /v1/cookbooks/:id — one of the caller's cookbooks with its recipe cards.
+   * Requires bearer token; 404 if it isn't the caller's.
+   */
+  app.get<{ Params: { id: string } }>('/v1/cookbooks/:id', { preHandler: authGuard }, async (request) => {
+    return cookbooks.get(request.authUserId!, request.params.id);
   });
 
   registerErrorHandler(app);

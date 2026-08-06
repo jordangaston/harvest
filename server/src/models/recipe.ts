@@ -17,15 +17,25 @@ export const RecipeSchema = z.object({
 
 export type Recipe = z.infer<typeof RecipeSchema>;
 
+/** An ingredient row as read from the DB (pg `numeric` amount comes back as a string). */
+export interface IngredientDetail {
+  name: string;
+  icon: string | null;
+  quantityText: string | null;
+  amount: string | null;
+  unit: string | null;
+}
+
 /** A recipe plus its ordered children — the aggregate a repository read returns. */
 export interface RecipeDetail {
   recipe: Recipe;
-  ingredients: { name: string; icon: string | null }[];
+  ingredients: IngredientDetail[];
   steps: string[];
 }
 
 /** The public recipe shape returned to clients: snake_case, null fields omitted,
- * internal columns (confidence) dropped. Ingredients and steps come pre-ordered. */
+ * internal columns (confidence) dropped. Ingredients and steps come pre-ordered.
+ * `amount` is a string (pg numeric), so the tap-in-step popover can show the exact amount. */
 export interface PublicRecipe {
   id: string;
   title: string;
@@ -34,7 +44,7 @@ export interface PublicRecipe {
   servings?: number;
   total_minutes?: number;
   image_url?: string;
-  ingredients: { name: string; icon?: string }[];
+  ingredients: { name: string; icon?: string; quantity_text?: string; amount?: string; unit?: string }[];
   steps: string[];
 }
 
@@ -50,7 +60,7 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
     id: recipe.id,
     title: recipe.title,
     source_type: recipe.sourceType,
-    ingredients: detail.ingredients.map((i) => (i.icon ? { name: i.name, icon: i.icon } : { name: i.name })),
+    ingredients: detail.ingredients.map(toPublicIngredient),
     steps: detail.steps,
   };
   if (recipe.sourceUrl) publicRecipe.source_url = recipe.sourceUrl;
@@ -58,4 +68,14 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
   if (recipe.totalMinutes != null) publicRecipe.total_minutes = recipe.totalMinutes;
   if (recipe.imageUrl) publicRecipe.image_url = recipe.imageUrl;
   return publicRecipe;
+}
+
+/** Projects one ingredient to its public shape, omitting null optionals. */
+function toPublicIngredient(ing: IngredientDetail): PublicRecipe['ingredients'][number] {
+  const out: PublicRecipe['ingredients'][number] = { name: ing.name };
+  if (ing.icon) out.icon = ing.icon;
+  if (ing.quantityText) out.quantity_text = ing.quantityText;
+  if (ing.amount) out.amount = ing.amount;
+  if (ing.unit) out.unit = ing.unit;
+  return out;
 }

@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
 import { LoadingScreen } from "../components/recime/LoadingScreen";
+import { ensureSession } from "../lib/api/auth";
 import {
   useFonts,
   Karla_400Regular,
@@ -33,7 +34,16 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, []);
 
-  if (!fontsLoaded || !minElapsed) {
+  // Silently provision (or restore) the API session before the app renders. A
+  // failure (server down) doesn't block the UI — screens surface their own errors.
+  const [sessionReady, setSessionReady] = React.useState(false);
+  React.useEffect(() => {
+    ensureSession()
+      .catch(() => {})
+      .finally(() => setSessionReady(true));
+  }, []);
+
+  if (!fontsLoaded || !minElapsed || !sessionReady) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>

@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db, type Database } from '../db/index.js';
-import { recipes, ingredients, recipeSteps, savedRecipes } from '../db/schema/index.js';
+import { recipes, ingredients, recipeSteps, savedRecipes, cookbooks, cookbookRecipes } from '../db/schema/index.js';
 import type { SourceType } from '../db/schema/enums.js';
 import { RecipeSchema, type RecipeDetail } from '../models/recipe.js';
 import { mapIngredientIcon } from '../parse/icons.js';
@@ -49,7 +49,13 @@ export class RecipeRepository {
     const [row] = await this.db.select().from(recipes).where(eq(recipes.id, recipeId));
     if (!row) return null;
     const ings = await this.db
-      .select({ name: ingredients.name, icon: ingredients.icon })
+      .select({
+        name: ingredients.name,
+        icon: ingredients.icon,
+        quantityText: ingredients.quantityText,
+        amount: ingredients.amount,
+        unit: ingredients.unit,
+      })
       .from(ingredients)
       .where(eq(ingredients.recipeId, recipeId))
       .orderBy(ingredients.position);
@@ -132,5 +138,152 @@ export class RecipeRepository {
    */
   private async saveForUser(tx: Tx, recipeId: string, userId: string): Promise<void> {
     await tx.insert(savedRecipes).values({ userId, recipeId }).onConflictDoNothing();
+  }
+
+  /**
+   * Whether the user has this recipe in their library.
+   * @param userId - Caller.
+   * @param recipeId - Recipe to check.
+   */
+  async isSavedBy(userId: string, recipeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: savedRecipes.id })
+      .from(savedRecipes)
+      .where(and(eq(savedRecipes.userId, userId), eq(savedRecipes.recipeId, recipeId)));
+    return Boolean(row);
+  }
+
+  /**
+   * Whether a canonical recipe with this id exists.
+   * @param recipeId - Recipe to check.
+   */
+  async exists(recipeId: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, recipeId));
+    return Boolean(row);
+  }
+
+  /**
+   * Edits a recipe's ingredients and/or steps for the caller, copy-on-write: if any
+   * other user also saved the recipe, the edit forks a private clone and repoints the
+   * caller's library + cookbook rows to it; otherwise it edits in place. One transaction.
+   * @param userId - Caller (already verified to have the recipe saved).
+   * @param recipeId - Recipe to edit.
+   * @param edit - New ingredient lines and/or step texts (full replacements).
+   * @returns The id of the edited recipe — the same id, or a new clone id if forked.
+   */
+  async updateContent(userId: string, recipeId: string, edit: { ingredients?: string[]; steps?: string[] }): Promise<string> {
+    return this.db.transaction(async (tx) => {
+      const savers = await this.countSavers(tx, recipeId);
+      let targetId = recipeId;
+      if (savers > 1) {
+        targetId = await this.cloneRecipe(tx, recipeId);
+        await this.repointUser(tx, userId, recipeId, targetId);
+      }
+      if (edit.ingredients) await this.replaceIngredients(tx, targetId, edit.ingredients);
+      if (edit.steps) await this.replaceSteps(tx, targetId, edit.steps);
+      return targetId;
+    });
+  }
+
+  /**
+   * Removes the recipe from the caller's library and their cookbooks. The shared
+   * `recipes` row is left intact for other savers. One transaction.
+   * @param userId - Caller.
+   * @param recipeId - Recipe to remove.
+   * @returns true if the caller had it saved (else the caller should 404).
+   */
+  async removeForUser(userId: string, recipeId: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const owned = await this.usersCookbookIds(tx, userId);
+      if (owned.length > 0) {
+        await tx
+          .delete(cookbookRecipes)
+          .where(and(eq(cookbookRecipes.recipeId, recipeId), inArray(cookbookRecipes.cookbookId, owned)));
+      }
+      const deleted = await tx
+        .delete(savedRecipes)
+        .where(and(eq(savedRecipes.userId, userId), eq(savedRecipes.recipeId, recipeId)))
+        .returning({ id: savedRecipes.id });
+      return deleted.length > 0;
+    });
+  }
+
+  /** Counts how many users have this recipe saved. */
+  private async countSavers(tx: Tx, recipeId: string): Promise<number> {
+    const rows = await tx.select({ id: savedRecipes.id }).from(savedRecipes).where(eq(savedRecipes.recipeId, recipeId));
+    return rows.length;
+  }
+
+  /** Deep-copies a recipe (row + ingredients + steps) to a new id. */
+  private async cloneRecipe(tx: Tx, recipeId: string): Promise<string> {
+    const [orig] = await tx.select().from(recipes).where(eq(recipes.id, recipeId));
+    const [clone] = await tx
+      .insert(recipes)
+      .values({
+        title: orig.title,
+        sourceType: orig.sourceType,
+        sourceUrl: orig.sourceUrl,
+        servings: orig.servings,
+        totalMinutes: orig.totalMinutes,
+        imageUrl: orig.imageUrl,
+        confidence: orig.confidence,
+      })
+      .returning();
+    const origIngs = await tx.select().from(ingredients).where(eq(ingredients.recipeId, recipeId)).orderBy(ingredients.position);
+    if (origIngs.length > 0) {
+      await tx.insert(ingredients).values(
+        origIngs.map((i) => ({
+          recipeId: clone.id,
+          position: i.position,
+          name: i.name,
+          quantityText: i.quantityText,
+          amount: i.amount,
+          unit: i.unit,
+          icon: i.icon,
+        })),
+      );
+    }
+    const origSteps = await tx.select().from(recipeSteps).where(eq(recipeSteps.recipeId, recipeId)).orderBy(recipeSteps.position);
+    if (origSteps.length > 0) {
+      await tx.insert(recipeSteps).values(origSteps.map((s) => ({ recipeId: clone.id, position: s.position, text: s.text })));
+    }
+    return clone.id;
+  }
+
+  /** Repoints the caller's library + cookbook rows from `origId` to the clone. */
+  private async repointUser(tx: Tx, userId: string, origId: string, cloneId: string): Promise<void> {
+    await tx
+      .update(savedRecipes)
+      .set({ recipeId: cloneId })
+      .where(and(eq(savedRecipes.userId, userId), eq(savedRecipes.recipeId, origId)));
+    const owned = await this.usersCookbookIds(tx, userId);
+    if (owned.length > 0) {
+      await tx
+        .update(cookbookRecipes)
+        .set({ recipeId: cloneId })
+        .where(and(eq(cookbookRecipes.recipeId, origId), inArray(cookbookRecipes.cookbookId, owned)));
+    }
+  }
+
+  /** The caller's cookbook ids (for scoping membership writes). */
+  private async usersCookbookIds(tx: Tx, userId: string): Promise<string[]> {
+    const rows = await tx.select({ id: cookbooks.id }).from(cookbooks).where(eq(cookbooks.userId, userId));
+    return rows.map((r) => r.id);
+  }
+
+  /** Replaces a recipe's ingredient rows from raw lines, re-resolving icons. */
+  private async replaceIngredients(tx: Tx, recipeId: string, lines: string[]): Promise<void> {
+    await tx.delete(ingredients).where(eq(ingredients.recipeId, recipeId));
+    if (lines.length > 0) {
+      await tx.insert(ingredients).values(lines.map((name, i) => ({ recipeId, position: i, name, icon: mapIngredientIcon(name) })));
+    }
+  }
+
+  /** Replaces a recipe's step rows from texts. */
+  private async replaceSteps(tx: Tx, recipeId: string, steps: string[]): Promise<void> {
+    await tx.delete(recipeSteps).where(eq(recipeSteps.recipeId, recipeId));
+    if (steps.length > 0) {
+      await tx.insert(recipeSteps).values(steps.map((text, i) => ({ recipeId, position: i, text })));
+    }
   }
 }

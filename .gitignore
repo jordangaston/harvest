@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# large local demo recordings (kept out of git history; linked from the post-mortem)
+docs/**/recordings/
+
 # typescript
 *.tsbuildinfo
 
