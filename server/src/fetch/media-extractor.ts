@@ -20,8 +20,8 @@ export class MediaExtractor {
    * @returns The WAV audio as a Buffer
    * @throws If ffmpeg exits non-zero
    */
-  async audio(videoUrl: string): Promise<Buffer> {
-    return runFfmpegToBuffer(audioArgs(videoUrl));
+  async audio(videoUrl: string, headers?: VideoHeaders): Promise<Buffer> {
+    return runFfmpegToBuffer(audioArgs(videoUrl, headers));
   }
 
   /**
@@ -34,18 +34,21 @@ export class MediaExtractor {
    * @returns The frame file paths
    * @throws If ffmpeg exits non-zero
    */
-  async frames(videoUrl: string, outDir: string, max = 12): Promise<string[]> {
-    await runFfmpeg(framesArgs(videoUrl, outDir, max));
+  async frames(videoUrl: string, outDir: string, max = 12, headers?: VideoHeaders): Promise<string[]> {
+    await runFfmpeg(framesArgs(videoUrl, outDir, max, headers));
     return framePaths(outDir, max);
   }
 }
+
+/** Extra HTTP headers ffmpeg must send to fetch a protected video (e.g. TikTok). */
+export type VideoHeaders = Record<string, string>;
 
 /** Dev/test double: fixed outputs, no ffmpeg process. */
 export class StubMediaExtractor {
   static readonly AUDIO = Buffer.from('stub-wav-bytes');
 
   /** @returns The fixed stub WAV buffer (no ffmpeg). */
-  async audio(_videoUrl: string): Promise<Buffer> {
+  async audio(_videoUrl: string, _headers?: VideoHeaders): Promise<Buffer> {
     return StubMediaExtractor.AUDIO;
   }
 
@@ -55,7 +58,7 @@ export class StubMediaExtractor {
    * @param max - Number of paths to return (default 12)
    * @returns The would-be frame paths.
    */
-  async frames(_videoUrl: string, outDir: string, max = 12): Promise<string[]> {
+  async frames(_videoUrl: string, outDir: string, max = 12, _headers?: VideoHeaders): Promise<string[]> {
     return framePaths(outDir, max);
   }
 }
@@ -74,9 +77,21 @@ function framePaths(outDir: string, max: number): string[] {
   return Array.from({ length: max }, (_, i) => `${outDir}/frame-${String(i + 1).padStart(3, '0')}.jpg`);
 }
 
+/** `-headers` input option (before `-i`) so ffmpeg sends `headers` when fetching
+ * a protected video URL; empty when no headers are needed. */
+function headerArgs(headers?: VideoHeaders): string[] {
+  if (!headers || Object.keys(headers).length === 0) return [];
+  const lines = Object.entries(headers)
+    // ffmpeg can't decode a compressed HTTP body — let it request identity.
+    .filter(([key]) => key.toLowerCase() !== 'accept-encoding')
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\r\n');
+  return ['-headers', `${lines}\r\n`];
+}
+
 /** ffmpeg args for a mono 16 kHz WAV on stdout (exported for arg-only tests). */
-export function audioArgs(videoUrl: string): string[] {
-  return ['-i', videoUrl, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'];
+export function audioArgs(videoUrl: string, headers?: VideoHeaders): string[] {
+  return [...headerArgs(headers), '-i', videoUrl, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'];
 }
 
 /**
@@ -84,8 +99,9 @@ export function audioArgs(videoUrl: string): string[] {
  * keeps scene cuts, the `1 fps` fallback guarantees coverage on a static clip,
  * and `-frames:v max` bounds the count/cost.
  */
-export function framesArgs(videoUrl: string, outDir: string, max: number): string[] {
+export function framesArgs(videoUrl: string, outDir: string, max: number, headers?: VideoHeaders): string[] {
   return [
+    ...headerArgs(headers),
     '-i',
     videoUrl,
     '-vf',

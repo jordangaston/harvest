@@ -37,6 +37,9 @@ const envSchema = z.object({
   // DeepSeek API key (optional). Present → real recipe extraction (deepseek-v4-flash);
   // absent → the offline stub.
   DEEPSEEK_API_KEY: z.string().optional(),
+  // LamaTok access key (optional). Present → TikTok posts fetch via LamaTok's
+  // private-media API; absent → the caption-only oEmbed (or the stub).
+  LAMATOK_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

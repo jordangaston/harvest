@@ -4,16 +4,15 @@ import { join } from 'node:path';
 import { DBOS } from '@dbos-inc/dbos-sdk';
 import type { SourceType } from '../db/schema/enums.js';
 import { selectWebsiteFetcher, type ExtractedRecipe } from '../fetch/website.js';
-import { selectTikTokOembed } from '../fetch/tiktok-oembed.js';
+import { selectTikTokFetcher } from '../fetch/lamatok-fetcher.js';
 import { selectSourceFetcher, type ApifyPlatform } from '../fetch/apify-fetcher.js';
-import { selectMediaExtractor, scaleImage } from '../fetch/media-extractor.js';
+import { selectMediaExtractor, scaleImage, type VideoHeaders } from '../fetch/media-extractor.js';
 import { selectTranscriber } from '../parse/asr.js';
 import { selectVision } from '../parse/vision.js';
 import { selectExtractor, type ParseContext, type ExtractedRecipeData } from '../parse/extractor.js';
 import { RecipeRepository, type RecipeInput } from '../repositories/recipe-repository.js';
 
 const website = selectWebsiteFetcher();
-const tiktok = selectTikTokOembed();
 const media = selectMediaExtractor();
 const transcriber = selectTranscriber();
 const vision = selectVision();
@@ -36,6 +35,8 @@ export interface ImportInput {
 export interface Material {
   caption?: string;
   videoUrl?: string;
+  /** Extra HTTP headers ffmpeg must send to read `videoUrl` (TikTok's CDN). */
+  videoHeaders?: VideoHeaders;
   imageRef?: string;
   /** Ordered slide image URLs of a carousel post — several recipes, one per slide. */
   imageUrls?: string[];
@@ -98,8 +99,8 @@ export class ImportPipeline {
     // The caption fell short — escalate to the media (O-04/O-05).
     if (material.videoUrl) {
       const ctx: ParseContext = { caption: material.caption };
-      ctx.transcript = await ImportPipeline.transcribe(material.videoUrl);
-      ctx.visionText = await ImportPipeline.describeVideo(material.videoUrl);
+      ctx.transcript = await ImportPipeline.transcribe(material.videoUrl, material.videoHeaders);
+      ctx.visionText = await ImportPipeline.describeVideo(material.videoUrl, material.videoHeaders);
       return [await ImportPipeline.persistOrThrow(withThumbnail(await ImportPipeline.extractOrThrow(ctx), material.thumbnailUrl), input)];
     }
     if (material.imageRef) {
@@ -157,7 +158,7 @@ export class ImportPipeline {
         case 'website':
           return { structured: await website.fetch(input.sourceRef) };
         case 'tiktok':
-          return { caption: (await tiktok.fetch(input.sourceRef))?.caption };
+          return ImportPipeline.fromTikTok(input.sourceRef);
         case 'photo':
           return { imageRef: input.sourceRef };
         default:
@@ -174,6 +175,20 @@ export class ImportPipeline {
     const post = await selectSourceFetcher().fetchPost(platform, url);
     if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
     return { caption: post.caption, videoUrl: post.videoUrl, imageUrls: post.images, thumbnailUrl: post.thumbnailUrl };
+  }
+
+  /** TikTok via LamaTok: caption + a slideshow's images, or a video (its URL
+   * carries the headers ffmpeg needs). An outbound link → website (Q-01). */
+  private static async fromTikTok(url: string): Promise<Material> {
+    const post = await selectTikTokFetcher().fetchPost('tiktok', url);
+    if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
+    return {
+      caption: post.caption,
+      videoUrl: post.videoUrl,
+      videoHeaders: post.videoHeaders,
+      imageUrls: post.images,
+      thumbnailUrl: post.thumbnailUrl,
+    };
   }
 
   /**
@@ -209,9 +224,9 @@ export class ImportPipeline {
 
   /** Pull the audio track and transcribe it (ffmpeg → Buffer → Whisper, in-step). */
   @DBOS.step()
-  static async transcribe(videoUrl: string): Promise<string> {
+  static async transcribe(videoUrl: string, headers?: VideoHeaders): Promise<string> {
     try {
-      return await transcriber.transcribe(await media.audio(videoUrl));
+      return await transcriber.transcribe(await media.audio(videoUrl, headers));
     } catch {
       throw new ImportError('MEDIA_UNAVAILABLE');
     }
@@ -219,10 +234,10 @@ export class ImportPipeline {
 
   /** Sample frames and read their on-screen text (ffmpeg → Buffers → vision, in-step). */
   @DBOS.step()
-  static async describeVideo(videoUrl: string): Promise<string> {
+  static async describeVideo(videoUrl: string, headers?: VideoHeaders): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'harvest-frames-'));
     try {
-      const paths = await media.frames(videoUrl, dir);
+      const paths = await media.frames(videoUrl, dir, 12, headers);
       return await vision.readFrames(await Promise.all(paths.map((p) => readFile(p))));
     } catch {
       throw new ImportError('MEDIA_UNAVAILABLE');
