@@ -5,6 +5,7 @@ export const sourceTypeEnum = pgEnum('source_type', [
   'tiktok',
   'facebook',
   'pinterest',
+  'youtube',
   'website',
   'photo',
 ]);

@@ -104,6 +104,8 @@ const HOST_PLATFORMS: Array<{ host: string; platform: SourceType; shortLink?: bo
   { host: 'fb.com', platform: 'facebook', shortLink: true },
   { host: 'pinterest.com', platform: 'pinterest' },
   { host: 'pin.it', platform: 'pinterest', shortLink: true },
+  { host: 'youtube.com', platform: 'youtube' },
+  { host: 'youtu.be', platform: 'youtube', shortLink: true },
 ];
 
 /** Path prefixes on a canonical platform host that carry a post (not a profile). */
@@ -112,6 +114,7 @@ const POST_PATH_PATTERNS: Partial<Record<SourceType, RegExp[]>> = {
   instagram: [/^\/(p|reel|reels|tv)\/[\w-]+/],
   facebook: [/\/(videos|posts|reel|share|watch)\b/, /story_fbid=/, /^\/\d+$/],
   pinterest: [/^\/pin\/\d+/],
+  youtube: [/^\/shorts\/[\w-]+/, /^\/live\/[\w-]+/, /^\/watch\b/, /[?&]v=[\w-]+/],
 };
 
 /**

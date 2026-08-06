@@ -7,6 +7,9 @@ describe('detectSource', () => {
     expect(detectSource('https://www.instagram.com/reel/Dbi_VuygdfS/')).toBe('instagram');
     expect(detectSource('https://fb.watch/abc123/')).toBe('facebook');
     expect(detectSource('https://www.pinterest.com/pin/68750145082/')).toBe('pinterest');
+    expect(detectSource('https://youtube.com/shorts/WwSJhSpdnr0?is=v0p8')).toBe('youtube');
+    expect(detectSource('https://www.youtube.com/watch?v=79gZLSXINAU')).toBe('youtube');
+    expect(detectSource('https://youtu.be/79gZLSXINAU')).toBe('youtube');
   });
 
   it('treats an unknown http host as a website', () => {

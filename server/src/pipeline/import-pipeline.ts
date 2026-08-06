@@ -6,6 +6,7 @@ import type { SourceType } from '../db/schema/enums.js';
 import { selectWebsiteFetcher, type ExtractedRecipe } from '../fetch/website.js';
 import { selectTikTokFetcher } from '../fetch/lamatok-fetcher.js';
 import { PinterestFetcher } from '../fetch/pinterest-fetcher.js';
+import { YouTubeFetcher } from '../fetch/youtube-fetcher.js';
 import { selectSourceFetcher, type ApifyPlatform } from '../fetch/apify-fetcher.js';
 import { selectMediaExtractor, scaleImage, type VideoHeaders } from '../fetch/media-extractor.js';
 import { selectTranscriber } from '../parse/asr.js';
@@ -39,6 +40,9 @@ export interface Material {
   /** Extra HTTP headers ffmpeg must send to read `videoUrl` (TikTok's CDN). */
   videoHeaders?: VideoHeaders;
   imageRef?: string;
+  /** A link to follow for the recipe when the caption falls short (a YouTube
+   * description that links out to the printable recipe). Tried before the media. */
+  outboundLink?: string;
   /** Ordered slide image URLs of a carousel post — several recipes, one per slide. */
   imageUrls?: string[];
   /** The post's cover image, featured as a single recipe's thumbnail. */
@@ -100,6 +104,17 @@ export class ImportPipeline {
         if (hasRecipe(fromCaption)) return [await ImportPipeline.persist(withThumbnail(fromCaption, material.thumbnailUrl), input)];
       } catch {
         // fall through to the media path
+      }
+    }
+
+    // The caption pointed elsewhere — follow the linked recipe (a YouTube
+    // description linking out to the printable recipe). Best-effort.
+    if (material.outboundLink) {
+      try {
+        const structured = await ImportPipeline.fetchLinkedRecipe(material.outboundLink);
+        return [await ImportPipeline.persistOrThrow(withThumbnail({ ...structured, confidence: 1 }, material.thumbnailUrl), input)];
+      } catch {
+        // no recipe at the link — fall through
       }
     }
 
@@ -168,6 +183,8 @@ export class ImportPipeline {
           return ImportPipeline.fromTikTok(input.sourceRef);
         case 'pinterest':
           return ImportPipeline.fromPinterest(input.sourceRef);
+        case 'youtube':
+          return ImportPipeline.fromYouTube(input.sourceRef);
         case 'photo':
           return { imageRef: input.sourceRef };
         default:
@@ -184,6 +201,21 @@ export class ImportPipeline {
     const post = await selectSourceFetcher().fetchPost(platform, url);
     if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
     return { caption: post.caption, videoUrl: post.videoUrl, imageUrls: post.images, thumbnailUrl: post.thumbnailUrl };
+  }
+
+  /** YouTube via InnerTube (~150ms–1s). The recipe is in the description, the
+   * pinned comment, or a blog the description links to — gather the text as the
+   * caption and expose the link for the caption-then-link path in `run`. */
+  private static async fromYouTube(url: string): Promise<Material> {
+    const video = await YouTubeFetcher.create().fetch(url);
+    const caption = [video.description, video.pinnedComment].filter(Boolean).join('\n\n');
+    return { caption: caption || undefined, outboundLink: video.outboundLink, thumbnailUrl: video.thumbnailUrl };
+  }
+
+  /** Fetch and extract a linked recipe page's JSON-LD (throws if it has none). */
+  @DBOS.step()
+  static async fetchLinkedRecipe(url: string): Promise<ExtractedRecipe> {
+    return website.fetch(url);
   }
 
   /** Pinterest via the public pidgets endpoint (~150ms). A video pin → its clip

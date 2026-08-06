@@ -8,7 +8,7 @@ export const ImportJobSchema = z.object({
   userId: z.string().uuid(),
   status: z.enum(['queued', 'running', 'ready', 'failed']),
   progress: z.number().int(),
-  sourceType: z.enum(['instagram', 'tiktok', 'facebook', 'pinterest', 'website', 'photo']),
+  sourceType: z.enum(['instagram', 'tiktok', 'facebook', 'pinterest', 'youtube', 'website', 'photo']),
   sourceRef: z.string(),
   recipeId: z.string().uuid().nullable(),
   errorCode: z.string().nullable(),

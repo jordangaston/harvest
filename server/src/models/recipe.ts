@@ -6,7 +6,7 @@ import { z } from 'zod';
 export const RecipeSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
-  sourceType: z.enum(['instagram', 'tiktok', 'facebook', 'pinterest', 'website', 'photo']),
+  sourceType: z.enum(['instagram', 'tiktok', 'facebook', 'pinterest', 'youtube', 'website', 'photo']),
   sourceUrl: z.string().nullable(),
   servings: z.number().int().nullable(),
   totalMinutes: z.number().int().nullable(),
