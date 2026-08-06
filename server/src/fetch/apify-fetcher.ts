@@ -18,6 +18,9 @@ export interface FetchedPost {
   /** Ordered slide image URLs of a carousel/sidecar post (Instagram); absent for
    * single-media posts. Drives the multi-recipe slideshow path. */
   images?: string[];
+  /** Extra HTTP headers ffmpeg must send to fetch `videoUrl` (TikTok's CDN blocks
+   * bare requests). Absent when the video URL needs no special headers. */
+  videoHeaders?: Record<string, string>;
 }
 
 /** Platforms an Apify actor exists for. Website/photo never route here. */
@@ -217,12 +220,12 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
 }
 
 /** The value if it's a non-empty string, else undefined. */
-function str(value: unknown): string | undefined {
+export function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /** The non-empty string elements of an array, or undefined when there are none. */
-function strArray(value: unknown): string[] | undefined {
+export function strArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const urls = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
   return urls.length > 0 ? urls : undefined;
