@@ -5,6 +5,7 @@ import { DBOS } from '@dbos-inc/dbos-sdk';
 import type { SourceType } from '../db/schema/enums.js';
 import { selectWebsiteFetcher, type ExtractedRecipe } from '../fetch/website.js';
 import { selectTikTokFetcher } from '../fetch/lamatok-fetcher.js';
+import { PinterestFetcher } from '../fetch/pinterest-fetcher.js';
 import { selectSourceFetcher, type ApifyPlatform } from '../fetch/apify-fetcher.js';
 import { selectMediaExtractor, scaleImage, type VideoHeaders } from '../fetch/media-extractor.js';
 import { selectTranscriber } from '../parse/asr.js';
@@ -90,10 +91,16 @@ export class ImportPipeline {
     if ((material.imageUrls?.length ?? 0) > 1) return ImportPipeline.extractCarousel(material.imageUrls!, input);
 
     // Caption-first: the free caption is often the whole recipe — try it before
-    // spending ASR/vision on the media.
+    // spending ASR/vision on the media. Best-effort: a caption that yields no
+    // recipe (or an extract that transiently errors) falls through to the media
+    // rather than failing an import that has a video/slides to fall back on.
     if (material.caption) {
-      const fromCaption = await ImportPipeline.extractOrThrow({ caption: material.caption });
-      if (hasRecipe(fromCaption)) return [await ImportPipeline.persist(withThumbnail(fromCaption, material.thumbnailUrl), input)];
+      try {
+        const fromCaption = await ImportPipeline.extract({ caption: material.caption });
+        if (hasRecipe(fromCaption)) return [await ImportPipeline.persist(withThumbnail(fromCaption, material.thumbnailUrl), input)];
+      } catch {
+        // fall through to the media path
+      }
     }
 
     // The caption fell short — escalate to the media (O-04/O-05).
@@ -159,6 +166,8 @@ export class ImportPipeline {
           return { structured: await website.fetch(input.sourceRef) };
         case 'tiktok':
           return ImportPipeline.fromTikTok(input.sourceRef);
+        case 'pinterest':
+          return ImportPipeline.fromPinterest(input.sourceRef);
         case 'photo':
           return { imageRef: input.sourceRef };
         default:
@@ -175,6 +184,25 @@ export class ImportPipeline {
     const post = await selectSourceFetcher().fetchPost(platform, url);
     if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
     return { caption: post.caption, videoUrl: post.videoUrl, imageUrls: post.images, thumbnailUrl: post.thumbnailUrl };
+  }
+
+  /** Pinterest via the public pidgets endpoint (~150ms). A video pin → its clip
+   * (ASR); else the outbound link → the full recipe website (Q-01); else the
+   * pin's own structured recipe (ingredients); else its description. */
+  private static async fromPinterest(url: string): Promise<Material> {
+    const pin = await PinterestFetcher.create().fetchPin(url);
+    if (pin.videoUrl) {
+      return { caption: pin.description, videoUrl: pin.videoUrl, videoHeaders: pin.videoHeaders, thumbnailUrl: pin.thumbnailUrl };
+    }
+    if (pin.link) {
+      try {
+        return { structured: await website.fetch(pin.link) };
+      } catch {
+        // The link had no JSON-LD recipe — fall back to the pin's own data.
+      }
+    }
+    if (pin.recipe) return { structured: pin.recipe };
+    return { caption: pin.description, thumbnailUrl: pin.thumbnailUrl };
   }
 
   /** TikTok via LamaTok: caption + a slideshow's images, or a video (its URL
