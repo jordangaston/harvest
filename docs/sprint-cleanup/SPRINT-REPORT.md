@@ -33,7 +33,7 @@ Whole server suite green: **100 passed (25 files)**, offline (no network; provid
 - Delegating the specs, the curated `foods.json`, and the mobile wiring to subagents kept the lead context focused on the tightly-coupled backend core.
 
 ## What to improve / follow-ups
-- **OpenAPI `publicRecipe` schema** doesn't yet include the new nutrition/`servings_estimated` fields (doc-generation only; not a runtime contract). Fast follow.
+- ~~**OpenAPI `publicRecipe` schema** doesn't yet include the new nutrition/`servings_estimated` fields~~ — **Done** (follow-up): added `servings_estimated` + an optional `nutrition` object (source enum + the 8 string macros) to `server/src/openapi/document.ts`; regenerated `openapi.json` + `postman_collection.json`. Shape matches the `toPublicRecipe` wire output (nested, nulls omitted).
 - **Matcher accuracy** is the residual risk: generic-name → USDA is lossy even with the curated seed; the coverage floor + `nutrition.unmatched_ingredient` logs keep it honest but expect alias/threshold tuning once real recipes flow. `foods.json` macros are USDA-sourced and hand-curated — rebuild from the SR Legacy bulk CSV via `build-foods-seed.ts` when the CSV is available.
 - **`GET /v1/recipes`** (owned list) is intentionally not exposed; `listOwned` exists for when a screen needs it (Wave-2 Profile/Meal Planning).
 

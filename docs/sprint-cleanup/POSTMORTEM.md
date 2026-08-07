@@ -43,9 +43,12 @@ Opened Phase 0. Decisions/blockers logged as they happen. Newest at the bottom o
 - **D5 — `nutrition_source` enum type lands in migration 0007, its column in 0008.** Drizzle emits `CREATE TYPE`
   where the enum is first defined in the schema; the column add is in 0008. Harmless (type before use); still
   three migrations 0006/0007/0008, no 0009. Logged so the reviewer isn't surprised the type appears "early".
-- **D6 — OpenAPI `publicRecipe` schema left minimal (follow-up).** I corrected the stale "copy-on-write" PATCH
-  summary, but did not expand the OpenAPI `publicRecipe` zod with the new nutrition/servings_estimated fields —
-  doc-generation only, not a runtime/contract path and not test-gating. Follow-up in the sprint report.
+- **D6 — OpenAPI `publicRecipe` schema — RESOLVED (follow-up).** Expanded the OpenAPI doc zod
+  (`server/src/openapi/document.ts`) with `servings_estimated: z.boolean()` and an optional `nutrition` object
+  (`source` enum `parsed|computed` + the 8 label-core macros as optional strings). Chose the **wire-accurate
+  nested shape with nulls omitted** (matching `toPublicRecipe` and the existing `.optional()` convention) over
+  flat-nullable fields, so the doc reflects the real response. Regenerated `openapi.json` +
+  `postman_collection.json`; typecheck clean; whole suite still green (100/100).
 - **D7 — DESIGN migration table vs. built order.** DESIGN's table said 0007 drops `onboarding`; the built split
   keeps it through 0007 and drops it in 0008 (see D1) to stay non-interactive. Same end state; noted here rather
   than editing the approved design artifact.

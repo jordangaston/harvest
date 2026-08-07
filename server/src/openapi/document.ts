@@ -50,16 +50,33 @@ const publicIngredient = z.object({
   unit: z.string().optional(),
 });
 
+// C5: the Nutrition-Facts label core, per serving. Macros are strings (pg numeric),
+// present only when known; `source` says whether they were parsed or computed. The
+// whole object is omitted from a recipe when nutrition is unknown.
+const publicNutrition = z.object({
+  source: z.enum(['parsed', 'computed']),
+  calories: z.string().optional(),
+  grams_of_fat: z.string().optional(),
+  grams_of_saturated_fat: z.string().optional(),
+  grams_of_carbohydrate: z.string().optional(),
+  grams_of_fiber: z.string().optional(),
+  grams_of_sugar: z.string().optional(),
+  grams_of_protein: z.string().optional(),
+  milligrams_of_sodium: z.string().optional(),
+});
+
 const publicRecipe = z.object({
   id: z.string().uuid(),
   title: z.string(),
   source_type: z.string(),
   source_url: z.string().optional(),
   servings: z.number().int().optional(),
+  servings_estimated: z.boolean(),
   total_minutes: z.number().int().optional(),
   image_url: z.string().optional(),
   ingredients: z.array(publicIngredient),
   steps: z.array(z.string()),
+  nutrition: publicNutrition.optional(),
 });
 
 const cookbookView = z.object({

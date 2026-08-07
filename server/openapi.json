@@ -309,7 +309,98 @@
                       "phone_number": {
                         "type": "string"
                       },
-                      "onboarding": {}
+                      "onboarding": {
+                        "type": "object",
+                        "properties": {
+                          "goals": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "eat_healthier",
+                                "save_money",
+                                "improve_cooking",
+                                "organize_recipes",
+                                "plan_meals",
+                                "meal_prepping",
+                                "try_new_cuisines"
+                              ]
+                            }
+                          },
+                          "recipe_sources": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "social_media",
+                                "recipe_websites",
+                                "printed_handwritten"
+                              ]
+                            }
+                          },
+                          "cook_days": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "mon",
+                                "tue",
+                                "wed",
+                                "thu",
+                                "fri",
+                                "sat",
+                                "sun"
+                              ]
+                            }
+                          },
+                          "when_cook": {
+                            "type": "string",
+                            "enum": [
+                              "morning_plan_ahead",
+                              "lunchtime",
+                              "evening_ready",
+                              "weekly_schedule",
+                              "meal_prep"
+                            ]
+                          },
+                          "cook_time": {
+                            "type": "string",
+                            "enum": [
+                              "before_5pm",
+                              "from_5_to_6pm",
+                              "from_6_to_7pm",
+                              "from_7_to_8pm",
+                              "after_8pm"
+                            ]
+                          },
+                          "how_heard": {
+                            "type": "string",
+                            "enum": [
+                              "tiktok",
+                              "google_search",
+                              "youtube",
+                              "instagram",
+                              "pinterest",
+                              "email_newsletter",
+                              "app_store_search",
+                              "facebook",
+                              "friend",
+                              "other"
+                            ]
+                          },
+                          "age": {
+                            "type": "string",
+                            "enum": [
+                              "under_24",
+                              "from_25_to_34",
+                              "from_35_to_44",
+                              "from_45_to_54",
+                              "over_55"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
                     },
                     "required": [
                       "phone_number"
@@ -1154,6 +1245,9 @@
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
+                        "servings_estimated": {
+                          "type": "boolean"
+                        },
                         "total_minutes": {
                           "type": "integer",
                           "minimum": -9007199254740991,
@@ -1194,12 +1288,53 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "nutrition": {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "parsed",
+                                "computed"
+                              ]
+                            },
+                            "calories": {
+                              "type": "string"
+                            },
+                            "grams_of_fat": {
+                              "type": "string"
+                            },
+                            "grams_of_saturated_fat": {
+                              "type": "string"
+                            },
+                            "grams_of_carbohydrate": {
+                              "type": "string"
+                            },
+                            "grams_of_fiber": {
+                              "type": "string"
+                            },
+                            "grams_of_sugar": {
+                              "type": "string"
+                            },
+                            "grams_of_protein": {
+                              "type": "string"
+                            },
+                            "milligrams_of_sodium": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "source"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "id",
                         "title",
                         "source_type",
+                        "servings_estimated",
                         "ingredients",
                         "steps"
                       ],
@@ -1284,7 +1419,7 @@
         "tags": [
           "recipes"
         ],
-        "summary": "Edit the caller's copy of a recipe's ingredients/steps (copy-on-write)",
+        "summary": "Edit a recipe's ingredients/steps in place — owner only",
         "security": [
           {
             "bearerAuth": []
@@ -1328,7 +1463,7 @@
         },
         "responses": {
           "200": {
-            "description": "The edited recipe (possibly a new id if it forked)",
+            "description": "The edited recipe",
             "content": {
               "application/json": {
                 "schema": {
@@ -1355,6 +1490,9 @@
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
+                        },
+                        "servings_estimated": {
+                          "type": "boolean"
                         },
                         "total_minutes": {
                           "type": "integer",
@@ -1396,12 +1534,53 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "nutrition": {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "parsed",
+                                "computed"
+                              ]
+                            },
+                            "calories": {
+                              "type": "string"
+                            },
+                            "grams_of_fat": {
+                              "type": "string"
+                            },
+                            "grams_of_saturated_fat": {
+                              "type": "string"
+                            },
+                            "grams_of_carbohydrate": {
+                              "type": "string"
+                            },
+                            "grams_of_fiber": {
+                              "type": "string"
+                            },
+                            "grams_of_sugar": {
+                              "type": "string"
+                            },
+                            "grams_of_protein": {
+                              "type": "string"
+                            },
+                            "milligrams_of_sodium": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "source"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "id",
                         "title",
                         "source_type",
+                        "servings_estimated",
                         "ingredients",
                         "steps"
                       ],
