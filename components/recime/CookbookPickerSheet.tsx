@@ -13,14 +13,17 @@ import type { ApiCookbook } from "../../lib/api/types";
  */
 export function CookbookPickerSheet({
   visible,
-  recipeId,
+  recipeIds,
   onClose,
   onSaved,
 }: {
   visible: boolean;
-  recipeId: string;
+  /** One or more recipes to file into the chosen cookbook(s). */
+  recipeIds: string[];
   onClose: () => void;
-  onSaved: () => void;
+  /** Called after filing, with the names of the chosen cookbook(s) — the caller
+   * uses them for the "Saved to <name>" confirmation. */
+  onSaved: (cookbookNames: string[]) => void;
 }) {
   const [cookbooks, setCookbooks] = React.useState<ApiCookbook[]>([]);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -29,6 +32,11 @@ export function CookbookPickerSheet({
 
   React.useEffect(() => {
     if (!visible) return;
+    // Fresh selection + idle state each time the sheet opens — the same instance is
+    // reused for each recipe in a carousel, so neither the previous recipe's pick nor
+    // its post-save busy flag must carry over.
+    setSelected(new Set());
+    setBusy(false);
     listCookbooks()
       .then(setCookbooks)
       .catch(() => setCookbooks([]));
@@ -44,8 +52,9 @@ export function CookbookPickerSheet({
   const save = async () => {
     setBusy(true);
     try {
-      await setRecipeCookbooks(recipeId, [...selected]);
-      onSaved();
+      const ids = [...selected];
+      await Promise.all(recipeIds.map((recipeId) => setRecipeCookbooks(recipeId, ids)));
+      onSaved(cookbooks.filter((cb) => selected.has(cb.id)).map((cb) => cb.name));
     } catch {
       setBusy(false);
     }
@@ -56,7 +65,7 @@ export function CookbookPickerSheet({
       <Pressable className="flex-1 bg-black/30" onPress={onClose}>
         <View className="mt-auto">
           <Pressable onPress={() => {}}>
-            <Box className="rounded-t-3xl bg-card px-5 pb-10 pt-4">
+            <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-4">
               <View className="mb-4 h-1.5 w-10 self-center rounded-full bg-hairline" />
               <HStack className="mb-4 items-center justify-between">
                 <Text className="text-xl font-bold text-ink">Save to</Text>
@@ -83,7 +92,9 @@ export function CookbookPickerSheet({
                     <Pressable
                       key={cb.id}
                       onPress={() => toggle(cb.id)}
-                      className="flex-row items-center justify-between rounded-2xl px-2 py-3"
+                      className={`mb-2 flex-row items-center justify-between rounded-2xl border px-3.5 py-3 ${
+                        selected.has(cb.id) ? "border-brand bg-brand-light" : "border-hairline bg-card"
+                      }`}
                     >
                       <VStack>
                         <Text className="text-base font-semibold text-ink">{cb.name}</Text>

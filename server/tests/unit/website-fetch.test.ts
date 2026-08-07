@@ -44,6 +44,23 @@ describe('WebsiteFetcher.parse', () => {
     expect(recipe.rating).toEqual({ value: '4.8', count: '212' });
   });
 
+  it('explodes a single collapsed numbered HowToStep into discrete ordered steps', () => {
+    // WP Recipe Maker themes (e.g. Half Baked Harvest) emit the whole method as ONE
+    // HowToStep whose text is "1. … 2. … 3. …". Numbers inside a step ("375° F",
+    // "2 tablespoons") must NOT trigger a split — only the "N. " list markers do.
+    // "golden.4." glues a marker to the previous sentence with no space — still splits.
+    const html = `<script type="application/ld+json">{"@type":"Recipe","name":"Croissant French Toast",
+      "recipeIngredient":["4 croissants"],
+      "recipeInstructions":[{"@type":"HowToStep","text":"1. Preheat the oven to 375° F. 2. Whisk 2 tablespoons of the eggs and milk. 3. Bake for 20-25 minutes until golden.4. Serve warm."}]}</script>`;
+    const recipe = WebsiteFetcher.parse(html);
+    expect(recipe.steps).toEqual([
+      'Preheat the oven to 375° F.',
+      'Whisk 2 tablespoons of the eggs and milk.',
+      'Bake for 20-25 minutes until golden.',
+      'Serve warm.',
+    ]);
+  });
+
   it('throws distinctly when no Recipe node is present', () => {
     expect(() => WebsiteFetcher.parse('<html><body>No recipe here</body></html>', 'https://example.com/x')).toThrow(
       /No schema.org Recipe/,

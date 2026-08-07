@@ -1,5 +1,5 @@
 import React from "react";
-import { View, ScrollView, Modal } from "react-native";
+import { View, ScrollView, Modal, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -19,20 +19,15 @@ import {
 } from "../../components/ui";
 import { StepText } from "../../components/recime/StepText";
 import { CookbookPickerSheet } from "../../components/recime/CookbookPickerSheet";
-import { SuccessCelebration } from "../../components/recime/SuccessCelebration";
 import { resolveIcon } from "../../components/recime/recipes";
 import { getRecipe, updateRecipe, deleteRecipe } from "../../lib/api/recipes";
+import { setSavedToast } from "../../lib/savedToast";
 import type { ApiRecipe, ApiIngredient } from "../../lib/api/types";
 
-/** Small square ingredient icon, or a token placeholder when there's no asset. */
+/** Small square ingredient icon — a painterly asset, falling back to the branded
+ * Harvest-H (resolveIcon never returns null). */
 function IngredientIcon({ icon, size = 40 }: { icon?: string; size?: number }) {
-  const asset = resolveIcon(icon);
-  if (asset) return <Image source={asset} contentFit="cover" style={{ width: size, height: size, borderRadius: 10 }} />;
-  return (
-    <Center className="rounded-[10px] bg-brand-light" style={{ width: size, height: size }}>
-      <Icon name="nutrition-outline" size={size * 0.5} color="#A85E2B" />
-    </Center>
-  );
+  return <Image source={resolveIcon(icon)} contentFit="cover" style={{ width: size, height: size, borderRadius: 10 }} />;
 }
 
 export default function RecipeDetail() {
@@ -43,10 +38,10 @@ export default function RecipeDetail() {
 
   const [recipe, setRecipe] = React.useState<ApiRecipe | null>(null);
   const [loadFailed, setLoadFailed] = React.useState(false);
+  const [imageFailed, setImageFailed] = React.useState(false);
   const [popIng, setPopIng] = React.useState<ApiIngredient | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
-  const [celebrate, setCelebrate] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   const [editing, setEditing] = React.useState(false);
@@ -129,8 +124,19 @@ export default function RecipeDetail() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
         {/* hero */}
         <View>
-          {recipe.image_url ? (
-            <Image source={{ uri: recipe.image_url }} contentFit="cover" style={{ width: "100%", height: 300 }} transition={200} />
+          {recipe.image_url && !imageFailed ? (
+            // Blur-fill: a blurred cover backdrop fills the frame (any aspect ratio),
+            // the contained image sits on top so nothing — incl. a 9:16 Short — is cut off.
+            <View className="bg-brand-light" style={{ width: "100%", height: 300 }}>
+              <Image source={{ uri: recipe.image_url }} contentFit="cover" blurRadius={28} style={StyleSheet.absoluteFill} />
+              <Image
+                source={{ uri: recipe.image_url }}
+                contentFit="contain"
+                transition={200}
+                onError={() => setImageFailed(true)}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
           ) : (
             <Center className="bg-brand-light" style={{ width: "100%", height: 260 }}>
               <Icon name="restaurant-outline" size={64} color="#A85E2B" />
@@ -259,9 +265,9 @@ export default function RecipeDetail() {
             <ButtonText className="ml-2">Save to cookbook</ButtonText>
           </Button>
         ) : (
-          <Button action="light" className="w-full" onPress={startEditing}>
-            <Icon name="create-outline" size={18} color="#2E2419" />
-            <ButtonText className="ml-2 text-ink">Edit recipe</ButtonText>
+          <Button className="w-full" onPress={startEditing}>
+            <Icon name="create-outline" size={18} color="#fff" />
+            <ButtonText className="ml-2">Edit recipe</ButtonText>
           </Button>
         )}
       </View>
@@ -270,7 +276,7 @@ export default function RecipeDetail() {
       <Modal visible={popIng !== null} transparent animationType="fade" onRequestClose={() => setPopIng(null)}>
         <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setPopIng(null)}>
           <Pressable onPress={() => {}}>
-            <View className="rounded-t-3xl bg-card px-6 pb-10 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
+            <View className="rounded-t-3xl bg-cream px-6 pb-10 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
               <View className="mb-4 h-1.5 w-10 self-center rounded-full bg-hairline" />
               <HStack className="items-center" space={14}>
                 <IngredientIcon icon={popIng?.icon} size={56} />
@@ -293,7 +299,7 @@ export default function RecipeDetail() {
         <Pressable className="absolute inset-0 bg-black/30" onPress={() => setMenuOpen(false)}>
           <View className="absolute inset-x-0 bottom-0">
             <Pressable onPress={() => {}}>
-              <View className="rounded-t-3xl bg-card px-5 pb-10 pt-6" style={{ paddingBottom: insets.bottom + 16 }}>
+              <View className="rounded-t-3xl bg-cream px-5 pb-10 pt-6" style={{ paddingBottom: insets.bottom + 16 }}>
                 <Pressable onPress={startEditing} className="flex-row items-center py-3.5">
                   <Icon name="create-outline" size={22} color="#2E2419" />
                   <Text className="ml-3 text-base font-semibold text-ink">Edit recipe</Text>
@@ -317,7 +323,7 @@ export default function RecipeDetail() {
       {/* delete confirm */}
       <Modal visible={confirmDelete} transparent animationType="fade">
         <Center className="flex-1 bg-black/40 px-10">
-          <View className="w-full rounded-3xl bg-card px-6 py-6">
+          <View className="w-full rounded-3xl bg-cream px-6 py-6">
             <Text className="mb-2 text-center text-xl font-bold text-ink">Delete this recipe?</Text>
             <Text className="mb-6 text-center text-muted">It will be removed from your recipes and cookbooks.</Text>
             <Button className="w-full bg-error" onPress={onDelete}>
@@ -330,25 +336,15 @@ export default function RecipeDetail() {
         </Center>
       </Modal>
 
-      {/* save-to-cookbook flow */}
+      {/* save-to-cookbook flow — no success modal; land home with a brief toast */}
       <CookbookPickerSheet
         visible={pickerOpen}
-        recipeId={recipe.id}
+        recipeIds={[recipe.id]}
         onClose={() => setPickerOpen(false)}
-        onSaved={() => {
+        onSaved={(names) => {
           setPickerOpen(false);
-          setCelebrate(true);
-        }}
-      />
-      <SuccessCelebration
-        visible={celebrate}
-        onView={() => {
-          setCelebrate(false);
-          router.replace(`/recipe/${recipe.id}`);
-        }}
-        onSaveAnother={() => {
-          setCelebrate(false);
-          router.replace("/import");
+          setSavedToast(names.length === 1 ? names[0] : `${names.length} cookbooks`);
+          router.replace("/(app)/recipes");
         }}
       />
     </View>

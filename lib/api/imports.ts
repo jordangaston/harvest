@@ -7,9 +7,10 @@ const POLL_BUDGET_MS = 120_000; // imports (esp. video/carousel) can take minute
 // Job error_code meaning "this link has no recipe" vs. a transient failure.
 const NO_RECIPE_CODES = new Set(["NO_RECIPE"]);
 
-/** Terminal outcome of an import, already mapped to the app's two error buckets. */
+/** Terminal outcome of an import, already mapped to the app's two error buckets.
+ * `recipeIds` holds every recipe the import produced (a slideshow yields several). */
 export type ImportOutcome =
-  | { status: "ready"; recipeId: string }
+  | { status: "ready"; recipeIds: string[] }
   | { status: "no_recipe" } // → "We don't think this contains a recipe"
   | { status: "failed" }; // → "Oops let's try that again"
 
@@ -50,7 +51,10 @@ export async function runImport(url: string, onProgress?: (progress: number) => 
       return { status: "failed" };
     }
     onProgress?.(current.progress);
-    if (current.status === "ready" && current.recipe_id) return { status: "ready", recipeId: current.recipe_id };
+    if (current.status === "ready") {
+      const ids = current.recipe_ids?.length ? current.recipe_ids : current.recipe_id ? [current.recipe_id] : [];
+      if (ids.length) return { status: "ready", recipeIds: ids };
+    }
     if (current.status === "failed") {
       return { status: current.error_code && NO_RECIPE_CODES.has(current.error_code) ? "no_recipe" : "failed" };
     }

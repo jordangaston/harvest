@@ -63,7 +63,7 @@ export function NewCookbookSheet({
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
           <Pressable onPress={() => {}}>
-            <Box className="rounded-t-3xl bg-card px-5 pb-10 pt-4">
+            <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-4">
               <View className="mb-4 h-1.5 w-10 self-center rounded-full bg-hairline" />
               <HStack className="mb-4 items-center justify-between">
                 <Text className="text-xl font-bold text-ink">New cookbook</Text>

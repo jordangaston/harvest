@@ -10,6 +10,8 @@ export type ImportJob = {
   source_type: SourceType;
   error_code?: string;
   recipe_id?: string;
+  /** All recipes an import produced, in order (a slideshow yields several). */
+  recipe_ids?: string[];
 };
 
 export type ApiIngredient = {

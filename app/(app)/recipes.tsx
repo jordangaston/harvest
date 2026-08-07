@@ -7,6 +7,7 @@ import { Backdrop } from "../../components/recime/Backdrop";
 import { Logo } from "../../components/recime/Logo";
 import { NewCookbookSheet } from "../../components/recime/NewCookbookSheet";
 import { listCookbooks } from "../../lib/api/cookbooks";
+import { takeSavedToast } from "../../lib/savedToast";
 import type { ApiCookbook } from "../../lib/api/types";
 import { Box, VStack, HStack, Center, Text, Pressable, Icon } from "../../components/ui";
 
@@ -15,6 +16,7 @@ export default function Recipes() {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [newCookbookOpen, setNewCookbookOpen] = React.useState(false);
   const [cookbooks, setCookbooks] = React.useState<ApiCookbook[] | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
     listCookbooks()
@@ -22,8 +24,22 @@ export default function Recipes() {
       .catch(() => setCookbooks([]));
   }, []);
 
-  // Refetch whenever the screen regains focus (after creating/importing).
-  useFocusEffect(load);
+  // On focus: refetch cookbooks, and show a brief toast if a save just happened
+  // (read-once, so it never re-fires on a later focus).
+  useFocusEffect(
+    React.useCallback(() => {
+      load();
+      const saved = takeSavedToast();
+      if (saved) setToast(saved);
+    }, [load]),
+  );
+
+  // Auto-dismiss the toast a beat after it appears.
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const startImport = () => {
     setMenuOpen(false);
@@ -111,7 +127,7 @@ export default function Recipes() {
         <Pressable className="absolute inset-0 bg-black/30" onPress={() => setMenuOpen(false)}>
           <View className="absolute inset-x-0 bottom-0">
             <Pressable onPress={() => {}}>
-              <Box className="rounded-t-3xl bg-card px-5 pb-10 pt-6">
+              <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={12}>
                   <Pressable onPress={startImport} className="flex-row items-center rounded-2xl bg-brand px-4 py-4">
                     <Text className="text-2xl">🔗</Text>
@@ -138,6 +154,15 @@ export default function Recipes() {
       ) : null}
 
       <NewCookbookSheet visible={newCookbookOpen} onClose={() => setNewCookbookOpen(false)} onCreated={load} />
+
+      {toast ? (
+        <View className="absolute inset-x-0 items-center" style={{ bottom: 96 }} pointerEvents="none">
+          <HStack className="items-center rounded-full bg-ink px-4 py-2.5 shadow-lg" space={8}>
+            <Icon name="checkmark-circle" size={18} color="#F1E6D2" />
+            <Text className="font-semibold text-cream">Saved to {toast}</Text>
+          </HStack>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
