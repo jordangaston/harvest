@@ -37,7 +37,52 @@ const ICON = {
   cinnamon: require("../../assets/ingredients/cinnamon.jpg"),
   vanilla: require("../../assets/ingredients/vanilla.jpg"),
   walnuts: require("../../assets/ingredients/walnuts.jpg"),
+  // Expanded common-ingredient set (painterly golden-hour, matches the above).
+  chicken: require("../../assets/ingredients/chicken.jpg"),
+  pork: require("../../assets/ingredients/pork.jpg"),
+  fish: require("../../assets/ingredients/fish.jpg"),
+  shrimp: require("../../assets/ingredients/shrimp.jpg"),
+  cheese: require("../../assets/ingredients/cheese.jpg"),
+  rice: require("../../assets/ingredients/rice.jpg"),
+  pasta: require("../../assets/ingredients/pasta.jpg"),
+  potato: require("../../assets/ingredients/potato.jpg"),
+  tomato: require("../../assets/ingredients/tomato.jpg"),
+  cream: require("../../assets/ingredients/cream.jpg"),
+  milk: require("../../assets/ingredients/milk.jpg"),
+  sugar: require("../../assets/ingredients/sugar.jpg"),
+  honey: require("../../assets/ingredients/honey.jpg"),
+  soySauce: require("../../assets/ingredients/soy-sauce.jpg"),
+  lemon: require("../../assets/ingredients/lemon.jpg"),
+  lime: require("../../assets/ingredients/lime.jpg"),
+  ginger: require("../../assets/ingredients/ginger.jpg"),
+  scallion: require("../../assets/ingredients/scallion.jpg"),
+  chili: require("../../assets/ingredients/chili.jpg"),
+  mushroom: require("../../assets/ingredients/mushroom.jpg"),
+  parsley: require("../../assets/ingredients/parsley.jpg"),
+  basil: require("../../assets/ingredients/basil.jpg"),
+  bellPepper: require("../../assets/ingredients/bell-pepper.jpg"),
+  broccoli: require("../../assets/ingredients/broccoli.jpg"),
+  spinach: require("../../assets/ingredients/spinach.jpg"),
+  stock: require("../../assets/ingredients/stock.jpg"),
+  paprika: require("../../assets/ingredients/paprika.jpg"),
+  cumin: require("../../assets/ingredients/cumin.jpg"),
+  oregano: require("../../assets/ingredients/oregano.jpg"),
+  mustard: require("../../assets/ingredients/mustard.jpg"),
+  sesameOil: require("../../assets/ingredients/sesame-oil.jpg"),
+  cornstarch: require("../../assets/ingredients/cornstarch.jpg"),
+  // Branded generic fallback — the Harvest "H" in the same painterly style.
+  harvestH: require("../../assets/ingredients/harvest-h.jpg"),
 };
+
+/**
+ * Resolves a server icon key (from mapIngredientIcon) to a painterly asset. Falls
+ * back to the branded Harvest-H icon for the `default` key and anything outside the
+ * set, so every ingredient always shows a real painterly icon (never a blank).
+ */
+export function resolveIcon(key?: string | null): ImageSourcePropType {
+  const asset = key ? (ICON as Record<string, ImageSourcePropType>)[key] : undefined;
+  return asset ?? ICON.harvestH;
+}
 
 // The sample recipe used by "Try with a sample recipe" (mirrors the demo).
 export const SAMPLE_RECIPE: Recipe = {

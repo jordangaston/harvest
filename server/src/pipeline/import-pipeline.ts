@@ -10,7 +10,7 @@ import { YouTubeFetcher } from '../fetch/youtube-fetcher.js';
 import { selectSourceFetcher, type ApifyPlatform } from '../fetch/apify-fetcher.js';
 import { selectMediaExtractor, scaleImage, type VideoHeaders } from '../fetch/media-extractor.js';
 import { selectTranscriber } from '../parse/asr.js';
-import { selectVision } from '../parse/vision.js';
+import { selectVision, selectVisionEscalation } from '../parse/vision.js';
 import { selectExtractor, type ParseContext, type ExtractedRecipeData } from '../parse/extractor.js';
 import { RecipeRepository, type RecipeInput } from '../repositories/recipe-repository.js';
 
@@ -18,6 +18,9 @@ const website = selectWebsiteFetcher();
 const media = selectMediaExtractor();
 const transcriber = selectTranscriber();
 const vision = selectVision();
+// A VLM to re-read a carousel slide when Tesseract half-reads it (ingredients but
+// no method). Null when unkeyed/under test — then the Tesseract read stands.
+const slideEscalation = selectVisionEscalation();
 const extractor = selectExtractor();
 const recipes = RecipeRepository.create();
 
@@ -101,7 +104,13 @@ export class ImportPipeline {
     if (material.caption) {
       try {
         const fromCaption = await ImportPipeline.extract({ caption: material.caption });
-        if (hasRecipe(fromCaption)) return [await ImportPipeline.persist(withThumbnail(fromCaption, material.thumbnailUrl), input)];
+        // Accept the caption recipe when it's complete (has steps), or when there's
+        // no media to escalate to (a "link in bio" recipe that keeps its method
+        // off-caption). A steps-less caption WITH a video/slides to fall back on
+        // escalates instead, so we don't ship an instructions-less recipe.
+        if (hasRecipe(fromCaption) && (fromCaption.steps.length > 0 || !hasMediaFallback(material))) {
+          return [await ImportPipeline.persist(withThumbnail(fromCaption, material.thumbnailUrl), input)];
+        }
       } catch {
         // fall through to the media path
       }
@@ -208,7 +217,9 @@ export class ImportPipeline {
    * caption and expose the link for the caption-then-link path in `run`. */
   private static async fromYouTube(url: string): Promise<Material> {
     const video = await YouTubeFetcher.create().fetch(url);
-    const caption = [video.description, video.pinnedComment].filter(Boolean).join('\n\n');
+    // Include the video's transcript: a Short's caption may hold only the
+    // ingredients while the cooking method is spoken in the video.
+    const caption = [video.description, video.pinnedComment, video.transcript].filter(Boolean).join('\n\n');
     return { caption: caption || undefined, outboundLink: video.outboundLink, thumbnailUrl: video.thumbnailUrl };
   }
 
@@ -262,11 +273,18 @@ export class ImportPipeline {
    */
   @DBOS.step()
   static async readSlideRecipe(url: string): Promise<ExtractedRecipeData | null> {
-    let text: string;
+    let image: Buffer;
     try {
       const res = await fetch(url, { headers: { 'user-agent': IMAGE_FETCH_USER_AGENT } });
       if (!res.ok) throw new Error(`image fetch ${url} — HTTP ${res.status}`);
-      text = await vision.readFrames([await scaleImage(Buffer.from(await res.arrayBuffer()))]);
+      image = await scaleImage(Buffer.from(await res.arrayBuffer()));
+    } catch {
+      return null;
+    }
+    // Tesseract first — fast, local, and it reliably finds the recipe-card slides.
+    let text: string;
+    try {
+      text = await vision.readFrames([image]);
     } catch {
       return null;
     }
@@ -275,10 +293,28 @@ export class ImportPipeline {
     // hasRecipe is the real filter. Retune if a layout puts a short recipe alone.
     if (text.length < CAROUSEL_RECIPE_MIN_CHARS) return null;
     try {
-      const data = await extractor.extract({ visionText: text });
+      let data = await extractor.extract({ visionText: text });
+      // Tesseract can read a dense stylized card's ingredients but garble/miss its
+      // method → a steps-less recipe. Re-read just that card with the VLM (keyed
+      // only), so we recover the steps without spending a VLM call on every slide.
+      if (slideEscalation && hasRecipe(data) && data.steps.length === 0) {
+        data = await ImportPipeline.escalateSlide(image, data);
+      }
       return hasRecipe(data) ? data : null;
     } catch {
       return null;
+    }
+  }
+
+  /** Re-read a slide with the VLM and re-extract; keep the richer result only when
+   * it actually recovers steps (else the original Tesseract recipe stands). */
+  private static async escalateSlide(image: Buffer, fallback: ExtractedRecipeData): Promise<ExtractedRecipeData> {
+    try {
+      const text = await slideEscalation!.readFrames([image]);
+      const better = await extractor.extract({ visionText: text });
+      return hasRecipe(better) && better.steps.length > 0 ? better : fallback;
+    } catch {
+      return fallback;
     }
   }
 
@@ -350,6 +386,12 @@ function hasRecipe(data: ExtractedRecipeData): boolean {
   return Boolean(data.title) && data.ingredients.length > 0;
 }
 
+/** Whether the material has media (a video/photo/slides) to escalate to when a
+ * caption yields a recipe with no cooking steps. */
+function hasMediaFallback(material: Material): boolean {
+  return Boolean(material.videoUrl || material.imageRef || material.imageUrls?.length);
+}
+
 /** Feature the post's cover as the recipe thumbnail when the parse found none. */
 function withThumbnail(data: ExtractedRecipeData, thumbnailUrl?: string): ExtractedRecipeData {
   return data.imageUrl || !thumbnailUrl ? data : { ...data, imageUrl: thumbnailUrl };
@@ -372,7 +414,26 @@ function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInp
     totalMinutes: data.totalMinutes,
     imageUrl: data.imageUrl,
     confidence: data.confidence,
-    ingredients: data.ingredients,
-    steps: data.steps,
+    ingredients: stripSectionLabels(data.ingredients),
+    steps: stripSectionLabels(data.steps),
   };
+}
+
+/** A bare ingredient-section header ("For the base", "To finish", "For the sauce:")
+ * that some sources list among the ingredients or steps. Conservative on purpose:
+ * only a short, number-free line that starts with a grouping phrase (or is just a
+ * trailing-colon heading) — so a real step like "To finish, stir in the cream and
+ * Parmesan…" (too long) or "Fresh basil to garnish" ("to" not at the start) stays. */
+export function isSectionLabel(text: string): boolean {
+  const line = text.trim();
+  const words = line.split(/\s+/);
+  if (words.length > 6 || /\d/.test(line)) return false;
+  return /^(for the\b|to (finish|serve|assemble|garnish|top|decorate|make|prepare)\b)/i.test(line) || /:$/.test(line);
+}
+
+/** Drop bare section headers, but never empty a non-empty list (a strip that would
+ * zero it out is a no-op — better a header slips through than a recipe vanishes). */
+export function stripSectionLabels(list: string[]): string[] {
+  const kept = list.filter((item) => !isSectionLabel(item));
+  return kept.length ? kept : list;
 }

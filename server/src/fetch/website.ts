@@ -150,7 +150,9 @@ function mapRecipe(node: Record<string, unknown>): ExtractedRecipe {
 }
 
 /** Flatten `recipeInstructions` — strings, `HowToStep` objects, or `HowToSection`s
- * nesting an `itemListElement` array — to step texts. */
+ * nesting an `itemListElement` array — to step texts. Some sites (e.g. WP Recipe
+ * Maker themes) collapse the whole method into ONE `HowToStep` whose text is a
+ * numbered blob ("1. … 2. … 3. …") — explode that into discrete ordered steps. */
 function mapInstructions(raw: unknown): string[] {
   const steps: string[] = [];
   const visit = (value: unknown): void => {
@@ -174,7 +176,37 @@ function mapInstructions(raw: unknown): string[] {
     }
   };
   visit(raw);
-  return steps;
+
+  // A single collapsed blob → explode it. Multiple steps are already segmented,
+  // but still split any one that embeds its own numbered list.
+  if (steps.length === 1) return explodeStep(steps[0]);
+  return steps.flatMap((step) => numberedSplit(step) ?? [step]);
+}
+
+/** Split a numbered blob ("1. A 2. B 3. C") into its steps, or null if it has
+ * fewer than two numbered markers. `\d+\.\s` matches list markers only — not
+ * "2 tablespoons" (no dot), "375° F" (no dot after the digit), or "1.5 cups".
+ * Sources sometimes glue a marker to the previous sentence ("…crisp.7. Toss…"),
+ * so first insert a space after a period that directly precedes a marker. */
+function numberedSplit(text: string): string[] | null {
+  const normalized = text.replace(/\.(?=\d+\.\s)/g, '. ');
+  if ((normalized.match(/(?:^|\s)\d+\.\s/g) ?? []).length < 2) return null;
+  return normalized
+    .split(/\s+(?=\d+\.\s)/)
+    .map((part) => part.replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean);
+}
+
+/** Explode one collapsed method blob into ordered steps: numbered markers first,
+ * else sentence boundaries when it's clearly multi-sentence; otherwise leave it. */
+function explodeStep(text: string): string[] {
+  const numbered = numberedSplit(text);
+  if (numbered) return numbered;
+  if (text.length > 200) {
+    const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean);
+    if (sentences.length >= 2) return sentences;
+  }
+  return [text];
 }
 
 /** Convert an ISO-8601 duration (`PT1H15M`) to whole minutes, or undefined. */

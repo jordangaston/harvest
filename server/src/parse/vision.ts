@@ -16,7 +16,10 @@ const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // ponytail: model id from the Groq vision docs at build time; swap if Groq
 // renames it — it's the only knob, no code change needed.
 const QWEN_VL_MODEL = 'qwen/qwen3.6-27b';
-const PROMPT = 'Transcribe every piece of on-screen text in these recipe video frames. Text only.';
+const PROMPT =
+  'Transcribe every piece of on-screen text in these recipe video frames — including ingredient ' +
+  'names and amounts, cooking times, temperatures, heat settings, and any timers or measurements ' +
+  'shown on screen. Preserve all numbers and units exactly. Text only.';
 
 export interface FrameReader {
   readFrames(images: Buffer[]): Promise<string>;
@@ -181,4 +184,14 @@ export class StubVision implements FrameReader {
 export function selectVision(): FrameReader {
   if (env.NODE_ENV === 'test') return new StubVision();
   return hasNativeTesseract() ? new NativeTesseractReader() : new TesseractReader();
+}
+
+/** A more capable reader to fall back to when Tesseract half-reads a dense,
+ * stylized carousel slide — it reads the ingredient list but garbles/misses the
+ * method, yielding a steps-less recipe. The Qwen-VL VLM reads the whole card,
+ * method included. Used only for the few slides that need recovery (not every
+ * slide — 11 parallel VLM calls exceed the model's token-per-minute cap and drop
+ * recipes), so `null` when unkeyed or under test disables the escalation. */
+export function selectVisionEscalation(): FrameReader | null {
+  return env.NODE_ENV !== 'test' && env.GROQ_API_KEY ? GroqVision.create() : null;
 }

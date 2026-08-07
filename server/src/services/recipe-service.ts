@@ -25,4 +25,30 @@ export class RecipeService {
     if (!detail) throw new NotFoundError();
     return toPublicRecipe(detail);
   }
+
+  /**
+   * Edits the caller's copy of a recipe's ingredients and/or steps (copy-on-write:
+   * forks a private clone if others also saved it, else edits in place).
+   * @param userId - Caller.
+   * @param recipeId - Recipe to edit.
+   * @param edit - New ingredient lines and/or step texts.
+   * @returns The edited recipe (possibly under a new id if it forked).
+   * @throws {NotFoundError} 404 if the caller hasn't saved this recipe.
+   */
+  async update(userId: string, recipeId: string, edit: { ingredients?: string[]; steps?: string[] }): Promise<PublicRecipe> {
+    if (!(await this.recipes.isSavedBy(userId, recipeId))) throw new NotFoundError();
+    const targetId = await this.recipes.updateContent(userId, recipeId, edit);
+    return this.get(targetId);
+  }
+
+  /**
+   * Removes a recipe from the caller's library and cookbooks (leaves the shared row).
+   * @param userId - Caller.
+   * @param recipeId - Recipe to remove.
+   * @throws {NotFoundError} 404 if the caller hadn't saved it.
+   */
+  async remove(userId: string, recipeId: string): Promise<void> {
+    const removed = await this.recipes.removeForUser(userId, recipeId);
+    if (!removed) throw new NotFoundError();
+  }
 }

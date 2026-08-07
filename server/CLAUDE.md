@@ -18,6 +18,9 @@ and `~/workspace/trimbox/trimbox-server` + `~/workspace/phonetastic/phonetastic-
   create()`** factory that wires their singletons: `static create() { return new UserRepository(db); }`.
 - **Model the domain; one job per function.** Don't conflate concepts (a `source` is an enum, not a
   URL-plus-enum grab-bag). Hide a variant behind one interface — the caller shouldn't `if` on it.
+- **Enforce cross-cutting invariants once, at the shared boundary** every caller routes through — not in
+  each path. (E.g. the "drop bare ingredient section-headers" filter lives in `toRecipeInput`, the single
+  point all sources persist through, not in each extractor.)
 
 ## Domain models (Zod)
 - Each entity is a **Zod schema** (`UserSchema`, `RecipeSchema`, …), distinct from the Drizzle table.
@@ -38,6 +41,10 @@ and `~/workspace/trimbox/trimbox-server` + `~/workspace/phonetastic/phonetastic-
   re-runs only the failed stage. All non-deterministic code lives in a step; the workflow only awaits
   steps/transactions.
 - **Unit-test the workflow by mocking its steps.** Never test DBOS's own guarantees (recovery).
+- **Tiered fallback over blanket premium use.** Default to the cheap/reliable path (local OCR) and
+  escalate to the rate-limited/expensive provider (a VLM) only on the specific failure signature — don't
+  route every item through it. Running all carousel slides through Groq in parallel hit the ~8k TPM cap
+  and dropped recipes; Tesseract-primary + escalate-only-the-failing-card kept them all.
 
 ## HTTP APIs
 - **List endpoints are cursor-paginated;** the token is `page_token` everywhere (query param, response

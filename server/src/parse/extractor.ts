@@ -33,8 +33,14 @@ export interface RecipeExtractor {
 const SYSTEM_PROMPT =
   'Extract a recipe as JSON with keys: title (string), ingredients (string[]), ' +
   'steps (string[]), servings (string, optional), totalMinutes (number, optional), ' +
-  'imageUrl (string, optional), confidence (number 0-1). Use only the given text; ' +
-  'set confidence low when the text is thin or ambiguous.';
+  'imageUrl (string, optional), confidence (number 0-1). Use only the given text. ' +
+  'Write steps a cook can actually follow: preserve every cooking detail present in the source — ' +
+  'exact times, temperatures, heat levels, quantities, pan/tool, and the visual or textural doneness ' +
+  'cues that tell the cook when a step is done (e.g. "sear 3-4 min per side until deep golden brown ' +
+  'and the edges crisp"). Do not summarize, shorten, or merge steps; keep each distinct action as its ' +
+  'own step, in order. Never output an ingredient-section header (e.g. "For the base", "To finish", ' +
+  '"For the sauce") as a step or as an ingredient — those group the list, they are not instructions or ' +
+  'ingredients; omit them. Set confidence low when the text is thin or ambiguous.';
 
 /** Flattens a ParseContext into one prompt string for the LLM. */
 function contextText(ctx: ParseContext): string {

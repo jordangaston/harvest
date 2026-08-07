@@ -145,6 +145,8 @@ describe('Instagram import — multi-recipe slideshow carousel', () => {
       expectComplete(recipe);
       // The thumbnail is the dish photo on the slide before the instructions.
       expect(recipe.image_url, `thumbnail for "${recipe.title}"`).toMatch(/^https?:\/\//);
+      // Carousel recipe cards carry their method — every recipe has cooking steps.
+      expect(recipe.steps.length, `steps for "${recipe.title}"`).toBeGreaterThan(0);
     }
   });
 
@@ -154,6 +156,7 @@ describe('Instagram import — multi-recipe slideshow carousel', () => {
     for (const recipe of recipes) {
       expectComplete(recipe);
       expect(recipe.image_url, `thumbnail for "${recipe.title}"`).toMatch(/^https?:\/\//);
+      expect(recipe.steps.length, `steps for "${recipe.title}"`).toBeGreaterThan(0);
     }
   });
 });

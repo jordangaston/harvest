@@ -19,6 +19,9 @@ const VIDEO_ID_RE = /(?:youtu\.be\/|\/shorts\/|\/live\/|[?&]v=)([\w-]{6,})/;
 export interface YouTubeVideo {
   description?: string;
   pinnedComment?: string;
+  /** The video's spoken content (timed-text captions), when it has a caption track.
+   * Carries cooking steps that live in the video, not the description. */
+  transcript?: string;
   /** First non-YouTube link in the description — usually the printable recipe. */
   outboundLink?: string;
   thumbnailUrl?: string;
@@ -42,18 +45,51 @@ export class YouTubeFetcher {
       this.player(id),
       this.pinnedComment(id).catch(() => undefined),
     ]);
+    const transcript = await this.transcript(player.captionBaseUrl);
     return {
       description: player.description,
       pinnedComment,
+      transcript,
       outboundLink: firstOutboundLink(player.description),
-      thumbnailUrl: player.thumbnailUrl,
+      // videoDetails.thumbnail is often absent under the WEB context; derive a valid
+      // thumbnail from the id so every video/Short gets a hero image.
+      thumbnailUrl: player.thumbnailUrl ?? `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
     };
   }
 
-  private async player(id: string): Promise<{ description?: string; thumbnailUrl?: string }> {
+  private async player(id: string): Promise<{ description?: string; thumbnailUrl?: string; captionBaseUrl?: string }> {
     const body = await this.post<PlayerResponse>(PLAYER, { videoId: id });
     const thumbs = body.videoDetails?.thumbnail?.thumbnails ?? [];
-    return { description: str(body.videoDetails?.shortDescription), thumbnailUrl: thumbs[thumbs.length - 1]?.url };
+    const tracks = body.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+    const track = tracks.find((t) => t.languageCode?.startsWith('en')) ?? tracks[0];
+    return {
+      description: str(body.videoDetails?.shortDescription),
+      thumbnailUrl: thumbs[thumbs.length - 1]?.url,
+      captionBaseUrl: track?.baseUrl,
+    };
+  }
+
+  /**
+   * Fetch and flatten the video's timed-text transcript (json3). Best-effort — the
+   * caller falls back to the caption when a video has no caption track.
+   * @param baseUrl - The caption track's baseUrl from the player response.
+   * @returns The transcript text, or undefined when absent/unreadable.
+   */
+  private async transcript(baseUrl?: string): Promise<string | undefined> {
+    if (!baseUrl) return undefined;
+    try {
+      const res = await fetch(`${baseUrl}&fmt=json3`, { signal: AbortSignal.timeout(YT_TIMEOUT_MS) });
+      if (!res.ok) return undefined;
+      const body = (await res.json()) as { events?: Array<{ segs?: Array<{ utf8?: string }> }> };
+      const text = (body.events ?? [])
+        .flatMap((event) => (event.segs ?? []).map((seg) => seg.utf8 ?? ''))
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return text || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** The pinned comment's text, or undefined when the video has none. */
@@ -82,6 +118,9 @@ export class YouTubeFetcher {
 
 interface PlayerResponse {
   videoDetails?: { shortDescription?: string; thumbnail?: { thumbnails?: Array<{ url?: string }> } };
+  captions?: {
+    playerCaptionsTracklistRenderer?: { captionTracks?: Array<{ baseUrl?: string; languageCode?: string }> };
+  };
 }
 type InnerTubeResponse = Record<string, unknown>;
 
