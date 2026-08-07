@@ -1,5 +1,5 @@
 import React from "react";
-import { View } from "react-native";
+import { View, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { Box, VStack, HStack, Center, Text, Heading, Pressable, Button, ButtonText, Input, Icon, Image } from "../../components/ui";
@@ -40,9 +40,9 @@ export default function Groceries() {
         <Icon name="add" size={30} color="#fff" />
       </Pressable>
 
-      {addOpen ? (
-        <Pressable className="absolute inset-0 bg-black/30" onPress={() => setAddOpen(false)}>
-          <View className="absolute inset-x-0 bottom-0">
+      <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
+        <Pressable className="flex-1 bg-black/30" onPress={() => setAddOpen(false)}>
+          <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={16}>
@@ -56,11 +56,11 @@ export default function Groceries() {
             </Pressable>
           </View>
         </Pressable>
-      ) : null}
+      </Modal>
 
-      {storeOpen ? (
-        <Pressable className="absolute inset-0 bg-black/30" onPress={() => setStoreOpen(false)}>
-          <View className="absolute inset-x-0 bottom-0">
+      <Modal visible={storeOpen} transparent animationType="slide" onRequestClose={() => setStoreOpen(false)}>
+        <Pressable className="flex-1 bg-black/30" onPress={() => setStoreOpen(false)}>
+          <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={12}>
@@ -86,7 +86,7 @@ export default function Groceries() {
             </Pressable>
           </View>
         </Pressable>
-      ) : null}
+      </Modal>
     </SafeAreaView>
   );
 }

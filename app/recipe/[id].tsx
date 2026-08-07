@@ -295,9 +295,9 @@ export default function RecipeDetail() {
       </Modal>
 
       {/* ⋯ menu */}
-      {menuOpen ? (
-        <Pressable className="absolute inset-0 bg-black/30" onPress={() => setMenuOpen(false)}>
-          <View className="absolute inset-x-0 bottom-0">
+      <Modal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable className="flex-1 bg-black/30" onPress={() => setMenuOpen(false)}>
+          <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <View className="rounded-t-3xl bg-cream px-5 pb-10 pt-6" style={{ paddingBottom: insets.bottom + 16 }}>
                 <Pressable onPress={startEditing} className="flex-row items-center py-3.5">
@@ -318,7 +318,7 @@ export default function RecipeDetail() {
             </Pressable>
           </View>
         </Pressable>
-      ) : null}
+      </Modal>
 
       {/* delete confirm */}
       <Modal visible={confirmDelete} transparent animationType="fade">

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, ScrollView } from "react-native";
+import { View, ScrollView, Modal, Animated, AccessibilityInfo } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Image } from "expo-image";
@@ -8,6 +8,7 @@ import { Logo } from "../../components/recime/Logo";
 import { NewCookbookSheet } from "../../components/recime/NewCookbookSheet";
 import { listCookbooks } from "../../lib/api/cookbooks";
 import { takeSavedToast } from "../../lib/savedToast";
+import { EASE, TOAST } from "../../lib/motion";
 import type { ApiCookbook } from "../../lib/api/types";
 import { Box, VStack, HStack, Center, Text, Pressable, Icon } from "../../components/ui";
 
@@ -17,6 +18,14 @@ export default function Recipes() {
   const [newCookbookOpen, setNewCookbookOpen] = React.useState(false);
   const [cookbooks, setCookbooks] = React.useState<ApiCookbook[] | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
+  const toastAnim = React.useRef(new Animated.Value(0)).current;
+  const reduceMotion = React.useRef(false);
+
+  React.useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => (reduceMotion.current = on));
+    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", (on) => (reduceMotion.current = on));
+    return () => sub.remove();
+  }, []);
 
   const load = React.useCallback(() => {
     listCookbooks()
@@ -34,12 +43,30 @@ export default function Recipes() {
     }, [load]),
   );
 
-  // Auto-dismiss the toast a beat after it appears.
+  // Rise the toast in (slower), hold, then drop it out (quicker) before clearing —
+  // opens are an invitation, closes get out of the way. Instant when Reduce Motion is on.
   React.useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
+    const rm = reduceMotion.current;
+    toastAnim.setValue(rm ? 1 : 0);
+    // JS driver (not native): a freshly-mounted view's native node isn't ready when
+    // start() fires, so a native-driven entrance silently stalls at opacity 0.
+    Animated.timing(toastAnim, {
+      toValue: 1,
+      duration: rm ? 0 : TOAST.inMs,
+      easing: EASE.smoothOut,
+      useNativeDriver: false,
+    }).start();
+    const hold = setTimeout(() => {
+      Animated.timing(toastAnim, {
+        toValue: 0,
+        duration: rm ? 0 : TOAST.outMs,
+        easing: EASE.smoothOut,
+        useNativeDriver: false,
+      }).start(({ finished }) => finished && setToast(null));
+    }, 2200);
+    return () => clearTimeout(hold);
+  }, [toast, toastAnim]);
 
   const startImport = () => {
     setMenuOpen(false);
@@ -123,9 +150,9 @@ export default function Recipes() {
         <Icon name="add" size={30} color="#fff" />
       </Pressable>
 
-      {menuOpen ? (
-        <Pressable className="absolute inset-0 bg-black/30" onPress={() => setMenuOpen(false)}>
-          <View className="absolute inset-x-0 bottom-0">
+      <Modal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable className="flex-1 bg-black/30" onPress={() => setMenuOpen(false)}>
+          <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <Box className="rounded-t-3xl bg-cream px-5 pb-10 pt-6">
                 <VStack space={12}>
@@ -151,17 +178,28 @@ export default function Recipes() {
             </Pressable>
           </View>
         </Pressable>
-      ) : null}
+      </Modal>
 
       <NewCookbookSheet visible={newCookbookOpen} onClose={() => setNewCookbookOpen(false)} onCreated={load} />
 
       {toast ? (
-        <View className="absolute inset-x-0 items-center" style={{ bottom: 96 }} pointerEvents="none">
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 96,
+            alignItems: "center",
+            opacity: toastAnim,
+            transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [TOAST.rise, 0] }) }],
+          }}
+        >
           <HStack className="items-center rounded-full bg-ink px-4 py-2.5 shadow-lg" space={8}>
             <Icon name="checkmark-circle" size={18} color="#F1E6D2" />
-            <Text className="font-semibold text-cream">Saved to {toast}</Text>
+            <Text className="font-semibold" style={{ color: "#F1E6D2" }}>Saved to {toast}</Text>
           </HStack>
-        </View>
+        </Animated.View>
       ) : null}
     </SafeAreaView>
   );
