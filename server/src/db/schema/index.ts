@@ -1,7 +1,6 @@
 export * from './enums.js';
 export * from './users.js';
 export * from './recipes.js';
-export * from './saved-recipes.js';
 export * from './cookbooks.js';
 export * from './cookbook-recipes.js';
 export * from './ingredients.js';

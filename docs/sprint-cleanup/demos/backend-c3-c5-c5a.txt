@@ -1,0 +1,33 @@
+
+=== C3 · parseIngredientLine — measurement separated from the display line ===
+2 cups flour                 → {"name":"flour","amount":"2","unit":"cup","quantityText":"2 cups flour"}
+1 lb chicken breast          → {"name":"chicken breast","amount":"1","unit":"pound","quantityText":"1 lb chicken breast"}
+1/2 teaspoon salt            → {"name":"salt","amount":"0.5","unit":"teaspoon","quantityText":"1/2 teaspoon salt"}
+3 large eggs                 → {"name":"large eggs","amount":"3","unit":null,"quantityText":"3 large eggs"}
+1 tbsp plus 1 tsp butter     → {"name":"1 tbsp plus 1 tsp butter","amount":null,"unit":null,"quantityText":"1 tbsp plus 1 tsp butter"}
+6-8 chicken wings            → {"name":"6-8 chicken wings","amount":null,"unit":null,"quantityText":"6-8 chicken wings"}
+
+=== C5a · FoodCatalog.matchFood (lexical + alias + Dice≥0.8, NOT embeddings) ===
+heavy whipping cream     → heavy cream
+extra virgin olive oil   → olive oil
+finely chopped garlic    → garlic
+tomatoes                 → tomato
+cream                    → null (unmatched — logged)
+quinoa                   → null (unmatched — logged)
+
+=== C5a · toGrams — weight direct / volume via portion / water-like fallback ===
+2 cup flour   → 250 g
+1 pound flour → 453.592 g
+1 cup water   → 236.6 g (water-like fallback)
+
+=== C5 · NutritionService.compute — per-serving label core (computed) ===
+ingredients: [ 'chicken breasts', 'cloves garlic, minced', 'heavy cream' ]
+computed (servings 4): {"source":"computed","values":{"calories":"311.2","grams_of_fat":"23.7","grams_of_saturated_fat":"14.2","grams_of_carbohydrate":"2.7","grams_of_fiber":"0.1","grams_of_sugar":"1.8","grams_of_protein":"21.5","milligrams_of_sodium":"55.7"}}
+{"event":"nutrition.unmatched_ingredient","name":"xyzzy"}
+{"event":"nutrition.unmatched_ingredient","name":"blorp"}
+below floor (1 real + 2 unknown): null
+
+=== C5 · parsed nutrition from schema.org NutritionInformation ===
+parsed: {"calories":"250","grams_of_fat":"9","grams_of_saturated_fat":"3","grams_of_carbohydrate":"30","grams_of_fiber":"2","grams_of_sugar":"5","grams_of_protein":"8","milligrams_of_sodium":"150"}
+
+OK — C3/C5/C5a demonstrated on real code, offline.

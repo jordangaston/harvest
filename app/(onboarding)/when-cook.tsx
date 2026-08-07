@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { OptionRow } from "../../components/recime/OptionRow";
 import { VStack, Text, Heading } from "../../components/ui";
+import { setWhenCook } from "../../lib/onboarding";
 
 const OPTIONS = [
   { label: "In the morning, I like to plan ahead", image: require("../../assets/when-morning.png") },
@@ -22,6 +23,7 @@ export default function WhenCook() {
   const [selected, setSelected] = React.useState<string | null>(null);
 
   const onContinue = () => {
+    if (selected) setWhenCook(selected);
     if (selected === TIME_FOLLOWUP) {
       router.push("/(onboarding)/cook-time?mode=time");
     } else if (selected && DAY_FOLLOWUP.includes(selected)) {

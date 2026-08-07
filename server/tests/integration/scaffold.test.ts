@@ -33,24 +33,45 @@ describe('migrations create the schema', () => {
         'ingredients',
         'recipe_steps',
         'recipes',
-        'saved_recipes',
+        'cookbooks',
+        'cookbook_recipes',
         'users',
       ]),
     );
+    // C6: saved_recipes is dropped; C5a: the food catalog is in-memory, not a table.
+    expect(names).not.toContain('saved_recipes');
+    expect(names).not.toContain('foods');
+    expect(names).not.toContain('food_portions');
   });
 
-  it('has the phone unique index, cookbook index, and enums', async () => {
+  it('has the phone unique index, the recipe owner index, and enums', async () => {
     await withClient(async (c) => {
       const idx = await c.query(
         `select indexname from pg_indexes where schemaname='public'
-         and indexname in ('users_phone_uidx','saved_recipes_user_idx','import_jobs_user_idx')`,
+         and indexname in ('users_phone_uidx','recipes_user_idx','import_jobs_user_idx')`,
       );
       expect(idx.rowCount).toBe(3);
 
-      const enums = await c.query<{ typname: string }>(
-        `select typname from pg_type where typname in ('source_type','import_job_status')`,
+      // C6: recipes carry an owner column; C5a: no pg_trgm extension.
+      const owner = await c.query(
+        `select 1 from information_schema.columns where table_name='recipes' and column_name='user_id'`,
       );
-      expect(enums.rows.map((r) => r.typname).sort()).toEqual(['import_job_status', 'source_type']);
+      expect(owner.rowCount).toBe(1);
+      const trgm = await c.query(`select 1 from pg_extension where extname='pg_trgm'`);
+      expect(trgm.rowCount).toBe(0);
+
+      // C2 onboarding + C5 nutrition enum types exist; the old jsonb column is gone.
+      const enums = await c.query<{ typname: string }>(
+        `select typname from pg_type where typname in
+           ('source_type','import_job_status','goal','age_band','nutrition_source')`,
+      );
+      expect(enums.rows.map((r) => r.typname).sort()).toEqual(
+        ['age_band', 'goal', 'import_job_status', 'nutrition_source', 'source_type'],
+      );
+      const onboarding = await c.query(
+        `select 1 from information_schema.columns where table_name='users' and column_name='onboarding'`,
+      );
+      expect(onboarding.rowCount).toBe(0);
     });
   });
 

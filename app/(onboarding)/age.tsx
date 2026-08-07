@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { VStack, Text, Heading, Pressable } from "../../components/ui";
+import { setAge } from "../../lib/onboarding";
 
 const OPTIONS = ["24 and under", "25-34", "35-44", "45-54", "55+"];
 
@@ -15,7 +16,10 @@ export default function Age() {
       progress={0.78}
       ctaLabel="Continue"
       ctaDisabled={selected === null}
-      onCta={() => router.push("/(onboarding)/setting-up")}
+      onCta={() => {
+        if (selected) setAge(selected);
+        router.push("/(onboarding)/setting-up");
+      }}
     >
       <View>
         <Heading className="text-2xl">How old are you?</Heading>

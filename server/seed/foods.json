@@ -1,0 +1,272 @@
+[
+  {
+    "name": "all-purpose flour",
+    "aliases": ["flour", "plain flour", "white flour", "wheat flour"],
+    "per100g": { "calories": 364, "grams_of_fat": 0.98, "grams_of_saturated_fat": 0.155, "grams_of_carbohydrate": 76.3, "grams_of_fiber": 2.7, "grams_of_sugar": 0.27, "grams_of_protein": 10.3, "milligrams_of_sodium": 2 },
+    "portions": [ { "unit": "cup", "grams": 125 }, { "unit": "tablespoon", "grams": 7.8 } ]
+  },
+  {
+    "name": "granulated sugar",
+    "aliases": ["sugar", "white sugar", "cane sugar"],
+    "per100g": { "calories": 387, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 100, "grams_of_fiber": 0, "grams_of_sugar": 99.8, "grams_of_protein": 0, "milligrams_of_sodium": 1 },
+    "portions": [ { "unit": "cup", "grams": 200 }, { "unit": "tablespoon", "grams": 12.5 }, { "unit": "teaspoon", "grams": 4.2 } ]
+  },
+  {
+    "name": "brown sugar",
+    "aliases": ["light brown sugar", "dark brown sugar", "packed brown sugar"],
+    "per100g": { "calories": 380, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 98.1, "grams_of_fiber": 0, "grams_of_sugar": 97, "grams_of_protein": 0.12, "milligrams_of_sodium": 28 },
+    "portions": [ { "unit": "cup", "grams": 220 }, { "unit": "tablespoon", "grams": 13.8 } ]
+  },
+  {
+    "name": "salt",
+    "aliases": ["table salt", "kosher salt", "sea salt", "fine salt"],
+    "per100g": { "calories": 0, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 38758 },
+    "portions": [ { "unit": "teaspoon", "grams": 6 }, { "unit": "tablespoon", "grams": 18 } ]
+  },
+  {
+    "name": "black pepper",
+    "aliases": ["ground black pepper", "pepper", "ground pepper"],
+    "per100g": { "calories": 251, "grams_of_fat": 3.26, "grams_of_saturated_fat": 1.39, "grams_of_carbohydrate": 63.9, "grams_of_fiber": 25.3, "grams_of_sugar": 0.64, "grams_of_protein": 10.4, "milligrams_of_sodium": 20 },
+    "portions": [ { "unit": "teaspoon", "grams": 2.3 }, { "unit": "tablespoon", "grams": 6.9 } ]
+  },
+  {
+    "name": "butter",
+    "aliases": ["salted butter", "stick of butter"],
+    "per100g": { "calories": 717, "grams_of_fat": 81.1, "grams_of_saturated_fat": 51.4, "grams_of_carbohydrate": 0.06, "grams_of_fiber": 0, "grams_of_sugar": 0.06, "grams_of_protein": 0.85, "milligrams_of_sodium": 643 },
+    "portions": [ { "unit": "cup", "grams": 227 }, { "unit": "tablespoon", "grams": 14.2 }, { "unit": "teaspoon", "grams": 4.7 } ]
+  },
+  {
+    "name": "unsalted butter",
+    "aliases": ["sweet butter", "unsalted stick butter"],
+    "per100g": { "calories": 717, "grams_of_fat": 81.1, "grams_of_saturated_fat": 51.4, "grams_of_carbohydrate": 0.06, "grams_of_fiber": 0, "grams_of_sugar": 0.06, "grams_of_protein": 0.85, "milligrams_of_sodium": 11 },
+    "portions": [ { "unit": "cup", "grams": 227 }, { "unit": "tablespoon", "grams": 14.2 }, { "unit": "teaspoon", "grams": 4.7 } ]
+  },
+  {
+    "name": "olive oil",
+    "aliases": ["extra virgin olive oil", "evoo", "virgin olive oil"],
+    "per100g": { "calories": 884, "grams_of_fat": 100, "grams_of_saturated_fat": 13.8, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 2 },
+    "portions": [ { "unit": "cup", "grams": 216 }, { "unit": "tablespoon", "grams": 13.5 }, { "unit": "teaspoon", "grams": 4.5 } ]
+  },
+  {
+    "name": "vegetable oil",
+    "aliases": ["canola oil", "cooking oil", "sunflower oil"],
+    "per100g": { "calories": 884, "grams_of_fat": 100, "grams_of_saturated_fat": 7.4, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 0 },
+    "portions": [ { "unit": "cup", "grams": 218 }, { "unit": "tablespoon", "grams": 13.6 }, { "unit": "teaspoon", "grams": 4.5 } ]
+  },
+  {
+    "name": "garlic",
+    "aliases": ["garlic clove", "fresh garlic", "minced garlic"],
+    "per100g": { "calories": 149, "grams_of_fat": 0.5, "grams_of_saturated_fat": 0.089, "grams_of_carbohydrate": 33.1, "grams_of_fiber": 2.1, "grams_of_sugar": 1, "grams_of_protein": 6.36, "milligrams_of_sodium": 17 },
+    "portions": [ { "unit": "count", "grams": 3 }, { "unit": "teaspoon", "grams": 2.8 }, { "unit": "tablespoon", "grams": 8.4 } ]
+  },
+  {
+    "name": "yellow onion",
+    "aliases": ["onion", "brown onion", "cooking onion"],
+    "per100g": { "calories": 40, "grams_of_fat": 0.1, "grams_of_saturated_fat": 0.042, "grams_of_carbohydrate": 9.34, "grams_of_fiber": 1.7, "grams_of_sugar": 4.24, "grams_of_protein": 1.1, "milligrams_of_sodium": 4 },
+    "portions": [ { "unit": "count", "grams": 110 }, { "unit": "cup", "grams": 160 } ]
+  },
+  {
+    "name": "tomato",
+    "aliases": ["tomatoes", "roma tomato", "fresh tomato"],
+    "per100g": { "calories": 18, "grams_of_fat": 0.2, "grams_of_saturated_fat": 0.028, "grams_of_carbohydrate": 3.89, "grams_of_fiber": 1.2, "grams_of_sugar": 2.63, "grams_of_protein": 0.88, "milligrams_of_sodium": 5 },
+    "portions": [ { "unit": "count", "grams": 123 }, { "unit": "cup", "grams": 180 } ]
+  },
+  {
+    "name": "eggplant",
+    "aliases": ["aubergine", "brinjal"],
+    "per100g": { "calories": 25, "grams_of_fat": 0.18, "grams_of_saturated_fat": 0.034, "grams_of_carbohydrate": 5.88, "grams_of_fiber": 3, "grams_of_sugar": 3.53, "grams_of_protein": 0.98, "milligrams_of_sodium": 2 },
+    "portions": [ { "unit": "count", "grams": 458 }, { "unit": "cup", "grams": 82 } ]
+  },
+  {
+    "name": "cilantro",
+    "aliases": ["coriander", "fresh coriander", "coriander leaves", "chinese parsley"],
+    "per100g": { "calories": 23, "grams_of_fat": 0.52, "grams_of_saturated_fat": 0.014, "grams_of_carbohydrate": 3.67, "grams_of_fiber": 2.8, "grams_of_sugar": 0.87, "grams_of_protein": 2.13, "milligrams_of_sodium": 46 },
+    "portions": [ { "unit": "cup", "grams": 16 }, { "unit": "tablespoon", "grams": 1 } ]
+  },
+  {
+    "name": "chickpea",
+    "aliases": ["garbanzo", "garbanzo bean", "chickpeas", "chick pea"],
+    "per100g": { "calories": 164, "grams_of_fat": 2.59, "grams_of_saturated_fat": 0.269, "grams_of_carbohydrate": 27.4, "grams_of_fiber": 7.6, "grams_of_sugar": 4.8, "grams_of_protein": 8.86, "milligrams_of_sodium": 7 },
+    "portions": [ { "unit": "cup", "grams": 164 } ]
+  },
+  {
+    "name": "heavy cream",
+    "aliases": ["heavy whipping cream", "whipping cream", "double cream"],
+    "per100g": { "calories": 340, "grams_of_fat": 36, "grams_of_saturated_fat": 23, "grams_of_carbohydrate": 2.84, "grams_of_fiber": 0, "grams_of_sugar": 2.92, "grams_of_protein": 2.84, "milligrams_of_sodium": 27 },
+    "portions": [ { "unit": "cup", "grams": 238 }, { "unit": "tablespoon", "grams": 14.9 } ]
+  },
+  {
+    "name": "whole milk",
+    "aliases": ["milk", "full fat milk", "3.25% milk"],
+    "per100g": { "calories": 61, "grams_of_fat": 3.25, "grams_of_saturated_fat": 1.86, "grams_of_carbohydrate": 4.78, "grams_of_fiber": 0, "grams_of_sugar": 5.05, "grams_of_protein": 3.15, "milligrams_of_sodium": 43 },
+    "portions": [ { "unit": "cup", "grams": 244 }, { "unit": "tablespoon", "grams": 15.3 } ]
+  },
+  {
+    "name": "large egg",
+    "aliases": ["egg", "eggs", "whole egg", "chicken egg"],
+    "per100g": { "calories": 143, "grams_of_fat": 9.51, "grams_of_saturated_fat": 3.13, "grams_of_carbohydrate": 0.72, "grams_of_fiber": 0, "grams_of_sugar": 0.37, "grams_of_protein": 12.6, "milligrams_of_sodium": 142 },
+    "portions": [ { "unit": "count", "grams": 50 } ]
+  },
+  {
+    "name": "white rice",
+    "aliases": ["rice", "long grain rice", "long-grain white rice"],
+    "per100g": { "calories": 365, "grams_of_fat": 0.66, "grams_of_saturated_fat": 0.18, "grams_of_carbohydrate": 80, "grams_of_fiber": 1.3, "grams_of_sugar": 0.12, "grams_of_protein": 7.13, "milligrams_of_sodium": 5 },
+    "portions": [ { "unit": "cup", "grams": 185 } ]
+  },
+  {
+    "name": "chicken breast",
+    "aliases": ["chicken breasts", "boneless skinless chicken breast", "chicken"],
+    "per100g": { "calories": 120, "grams_of_fat": 2.62, "grams_of_saturated_fat": 0.564, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 22.5, "milligrams_of_sodium": 45 },
+    "portions": [ { "unit": "count", "grams": 174 }, { "unit": "cup", "grams": 140 } ]
+  },
+  {
+    "name": "ground beef",
+    "aliases": ["minced beef", "hamburger", "beef mince", "80/20 ground beef"],
+    "per100g": { "calories": 254, "grams_of_fat": 20, "grams_of_saturated_fat": 7.62, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 17.2, "milligrams_of_sodium": 66 },
+    "portions": [ { "unit": "cup", "grams": 226 } ]
+  },
+  {
+    "name": "water",
+    "aliases": ["cold water", "warm water", "hot water"],
+    "per100g": { "calories": 0, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 0 },
+    "portions": []
+  },
+  {
+    "name": "scallion",
+    "aliases": ["green onion", "green onions", "spring onion", "scallions"],
+    "per100g": { "calories": 32, "grams_of_fat": 0.19, "grams_of_saturated_fat": 0.032, "grams_of_carbohydrate": 7.34, "grams_of_fiber": 2.6, "grams_of_sugar": 2.33, "grams_of_protein": 1.83, "milligrams_of_sodium": 16 },
+    "portions": [ { "unit": "count", "grams": 15 }, { "unit": "cup", "grams": 100 } ]
+  },
+  {
+    "name": "carrot",
+    "aliases": ["carrots", "fresh carrot"],
+    "per100g": { "calories": 41, "grams_of_fat": 0.24, "grams_of_saturated_fat": 0.037, "grams_of_carbohydrate": 9.58, "grams_of_fiber": 2.8, "grams_of_sugar": 4.74, "grams_of_protein": 0.93, "milligrams_of_sodium": 69 },
+    "portions": [ { "unit": "count", "grams": 61 }, { "unit": "cup", "grams": 128 } ]
+  },
+  {
+    "name": "celery",
+    "aliases": ["celery stalk", "celery rib"],
+    "per100g": { "calories": 14, "grams_of_fat": 0.17, "grams_of_saturated_fat": 0.042, "grams_of_carbohydrate": 2.97, "grams_of_fiber": 1.6, "grams_of_sugar": 1.34, "grams_of_protein": 0.69, "milligrams_of_sodium": 80 },
+    "portions": [ { "unit": "count", "grams": 40 }, { "unit": "cup", "grams": 101 } ]
+  },
+  {
+    "name": "bell pepper",
+    "aliases": ["red bell pepper", "green bell pepper", "capsicum", "sweet pepper"],
+    "per100g": { "calories": 31, "grams_of_fat": 0.3, "grams_of_saturated_fat": 0.058, "grams_of_carbohydrate": 6.03, "grams_of_fiber": 2.1, "grams_of_sugar": 4.2, "grams_of_protein": 0.99, "milligrams_of_sodium": 4 },
+    "portions": [ { "unit": "count", "grams": 119 }, { "unit": "cup", "grams": 149 } ]
+  },
+  {
+    "name": "potato",
+    "aliases": ["potatoes", "russet potato", "white potato"],
+    "per100g": { "calories": 77, "grams_of_fat": 0.09, "grams_of_saturated_fat": 0.026, "grams_of_carbohydrate": 17.5, "grams_of_fiber": 2.1, "grams_of_sugar": 0.82, "grams_of_protein": 2.05, "milligrams_of_sodium": 6 },
+    "portions": [ { "unit": "count", "grams": 173 }, { "unit": "cup", "grams": 150 } ]
+  },
+  {
+    "name": "cheddar cheese",
+    "aliases": ["cheddar", "shredded cheddar", "sharp cheddar"],
+    "per100g": { "calories": 403, "grams_of_fat": 33.1, "grams_of_saturated_fat": 21, "grams_of_carbohydrate": 1.28, "grams_of_fiber": 0, "grams_of_sugar": 0.52, "grams_of_protein": 22.9, "milligrams_of_sodium": 653 },
+    "portions": [ { "unit": "cup", "grams": 113 }, { "unit": "tablespoon", "grams": 7 } ]
+  },
+  {
+    "name": "parmesan",
+    "aliases": ["parmesan cheese", "parmigiano reggiano", "grated parmesan"],
+    "per100g": { "calories": 431, "grams_of_fat": 28.6, "grams_of_saturated_fat": 19, "grams_of_carbohydrate": 4.06, "grams_of_fiber": 0, "grams_of_sugar": 0.8, "grams_of_protein": 38.5, "milligrams_of_sodium": 1529 },
+    "portions": [ { "unit": "cup", "grams": 100 }, { "unit": "tablespoon", "grams": 5 } ]
+  },
+  {
+    "name": "baking soda",
+    "aliases": ["sodium bicarbonate", "bicarbonate of soda"],
+    "per100g": { "calories": 0, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 0, "grams_of_fiber": 0, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 27360 },
+    "portions": [ { "unit": "teaspoon", "grams": 4.8 }, { "unit": "tablespoon", "grams": 14.4 } ]
+  },
+  {
+    "name": "baking powder",
+    "aliases": ["double-acting baking powder"],
+    "per100g": { "calories": 53, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 27.7, "grams_of_fiber": 0.2, "grams_of_sugar": 0, "grams_of_protein": 0, "milligrams_of_sodium": 10600 },
+    "portions": [ { "unit": "teaspoon", "grams": 4.6 }, { "unit": "tablespoon", "grams": 13.8 } ]
+  },
+  {
+    "name": "vanilla extract",
+    "aliases": ["vanilla", "pure vanilla extract"],
+    "per100g": { "calories": 288, "grams_of_fat": 0.06, "grams_of_saturated_fat": 0.01, "grams_of_carbohydrate": 12.7, "grams_of_fiber": 0, "grams_of_sugar": 12.7, "grams_of_protein": 0.06, "milligrams_of_sodium": 9 },
+    "portions": [ { "unit": "teaspoon", "grams": 4.2 }, { "unit": "tablespoon", "grams": 13 } ]
+  },
+  {
+    "name": "honey",
+    "aliases": ["raw honey", "pure honey"],
+    "per100g": { "calories": 304, "grams_of_fat": 0, "grams_of_saturated_fat": 0, "grams_of_carbohydrate": 82.4, "grams_of_fiber": 0.2, "grams_of_sugar": 82.1, "grams_of_protein": 0.3, "milligrams_of_sodium": 4 },
+    "portions": [ { "unit": "cup", "grams": 339 }, { "unit": "tablespoon", "grams": 21 }, { "unit": "teaspoon", "grams": 7 } ]
+  },
+  {
+    "name": "maple syrup",
+    "aliases": ["pure maple syrup"],
+    "per100g": { "calories": 260, "grams_of_fat": 0.06, "grams_of_saturated_fat": 0.007, "grams_of_carbohydrate": 67, "grams_of_fiber": 0, "grams_of_sugar": 60.5, "grams_of_protein": 0.04, "milligrams_of_sodium": 12 },
+    "portions": [ { "unit": "cup", "grams": 322 }, { "unit": "tablespoon", "grams": 20 }, { "unit": "teaspoon", "grams": 6.7 } ]
+  },
+  {
+    "name": "soy sauce",
+    "aliases": ["shoyu", "light soy sauce", "tamari"],
+    "per100g": { "calories": 53, "grams_of_fat": 0.57, "grams_of_saturated_fat": 0.077, "grams_of_carbohydrate": 4.93, "grams_of_fiber": 0.8, "grams_of_sugar": 0.4, "grams_of_protein": 8.14, "milligrams_of_sodium": 5493 },
+    "portions": [ { "unit": "tablespoon", "grams": 16 }, { "unit": "teaspoon", "grams": 5.3 } ]
+  },
+  {
+    "name": "lemon",
+    "aliases": ["lemons", "fresh lemon", "lemon juice"],
+    "per100g": { "calories": 29, "grams_of_fat": 0.3, "grams_of_saturated_fat": 0.039, "grams_of_carbohydrate": 9.32, "grams_of_fiber": 2.8, "grams_of_sugar": 2.5, "grams_of_protein": 1.1, "milligrams_of_sodium": 2 },
+    "portions": [ { "unit": "count", "grams": 58 }, { "unit": "tablespoon", "grams": 15 } ]
+  },
+  {
+    "name": "lime",
+    "aliases": ["limes", "fresh lime", "lime juice"],
+    "per100g": { "calories": 30, "grams_of_fat": 0.2, "grams_of_saturated_fat": 0.022, "grams_of_carbohydrate": 10.5, "grams_of_fiber": 2.8, "grams_of_sugar": 1.69, "grams_of_protein": 0.7, "milligrams_of_sodium": 2 },
+    "portions": [ { "unit": "count", "grams": 67 }, { "unit": "tablespoon", "grams": 15 } ]
+  },
+  {
+    "name": "ginger",
+    "aliases": ["fresh ginger", "ginger root", "grated ginger"],
+    "per100g": { "calories": 80, "grams_of_fat": 0.75, "grams_of_saturated_fat": 0.203, "grams_of_carbohydrate": 17.8, "grams_of_fiber": 2, "grams_of_sugar": 1.7, "grams_of_protein": 1.82, "milligrams_of_sodium": 13 },
+    "portions": [ { "unit": "teaspoon", "grams": 2.4 }, { "unit": "tablespoon", "grams": 6 } ]
+  },
+  {
+    "name": "basil",
+    "aliases": ["fresh basil", "sweet basil"],
+    "per100g": { "calories": 23, "grams_of_fat": 0.64, "grams_of_saturated_fat": 0.041, "grams_of_carbohydrate": 2.65, "grams_of_fiber": 1.6, "grams_of_sugar": 0.3, "grams_of_protein": 3.15, "milligrams_of_sodium": 4 },
+    "portions": [ { "unit": "cup", "grams": 24 }, { "unit": "tablespoon", "grams": 1.5 } ]
+  },
+  {
+    "name": "oregano",
+    "aliases": ["dried oregano", "fresh oregano"],
+    "per100g": { "calories": 265, "grams_of_fat": 4.28, "grams_of_saturated_fat": 1.55, "grams_of_carbohydrate": 68.9, "grams_of_fiber": 42.5, "grams_of_sugar": 4.09, "grams_of_protein": 9, "milligrams_of_sodium": 25 },
+    "portions": [ { "unit": "teaspoon", "grams": 1 }, { "unit": "tablespoon", "grams": 3 } ]
+  },
+  {
+    "name": "cumin",
+    "aliases": ["ground cumin", "cumin seed"],
+    "per100g": { "calories": 375, "grams_of_fat": 22.3, "grams_of_saturated_fat": 1.54, "grams_of_carbohydrate": 44.2, "grams_of_fiber": 10.5, "grams_of_sugar": 2.25, "grams_of_protein": 17.8, "milligrams_of_sodium": 168 },
+    "portions": [ { "unit": "teaspoon", "grams": 2.1 }, { "unit": "tablespoon", "grams": 6 } ]
+  },
+  {
+    "name": "paprika",
+    "aliases": ["smoked paprika", "sweet paprika"],
+    "per100g": { "calories": 282, "grams_of_fat": 12.9, "grams_of_saturated_fat": 2.14, "grams_of_carbohydrate": 53.9, "grams_of_fiber": 34.9, "grams_of_sugar": 10.3, "grams_of_protein": 14.1, "milligrams_of_sodium": 68 },
+    "portions": [ { "unit": "teaspoon", "grams": 2.3 }, { "unit": "tablespoon", "grams": 6.8 } ]
+  },
+  {
+    "name": "cinnamon",
+    "aliases": ["ground cinnamon"],
+    "per100g": { "calories": 247, "grams_of_fat": 1.24, "grams_of_saturated_fat": 0.345, "grams_of_carbohydrate": 80.6, "grams_of_fiber": 53.1, "grams_of_sugar": 2.17, "grams_of_protein": 3.99, "milligrams_of_sodium": 10 },
+    "portions": [ { "unit": "teaspoon", "grams": 2.6 }, { "unit": "tablespoon", "grams": 7.8 } ]
+  },
+  {
+    "name": "spinach",
+    "aliases": ["baby spinach", "fresh spinach"],
+    "per100g": { "calories": 23, "grams_of_fat": 0.39, "grams_of_saturated_fat": 0.063, "grams_of_carbohydrate": 3.63, "grams_of_fiber": 2.2, "grams_of_sugar": 0.42, "grams_of_protein": 2.86, "milligrams_of_sodium": 79 },
+    "portions": [ { "unit": "cup", "grams": 30 } ]
+  },
+  {
+    "name": "mushroom",
+    "aliases": ["mushrooms", "white mushroom", "button mushroom", "cremini"],
+    "per100g": { "calories": 22, "grams_of_fat": 0.34, "grams_of_saturated_fat": 0.05, "grams_of_carbohydrate": 3.26, "grams_of_fiber": 1, "grams_of_sugar": 1.98, "grams_of_protein": 3.09, "milligrams_of_sodium": 5 },
+    "portions": [ { "unit": "count", "grams": 18 }, { "unit": "cup", "grams": 70 } ]
+  }
+]

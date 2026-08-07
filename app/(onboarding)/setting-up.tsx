@@ -4,11 +4,16 @@ import { useRouter } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { CookingLoaderText } from "../../components/recime/CookingLoaderText";
 import { VStack, Heading, Center } from "../../components/ui";
+import { ensureSession } from "../../lib/api/auth";
 
 export default function SettingUp() {
   const router = useRouter();
 
   React.useEffect(() => {
+    // End of onboarding: provision the account now, so its signup POST carries the
+    // collected onboarding payload (C2). The 2.5s loader plays while it runs; a
+    // failure doesn't block the app (client.ts re-provisions on the next call).
+    ensureSession().catch(() => {});
     const timeout = setTimeout(() => {
       router.replace("/(app)/recipes");
     }, 2500);

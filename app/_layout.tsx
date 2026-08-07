@@ -5,7 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
 import { LoadingScreen } from "../components/recime/LoadingScreen";
-import { ensureSession } from "../lib/api/auth";
+import { getSession } from "../lib/api/session";
 import {
   useFonts,
   Karla_400Regular,
@@ -34,11 +34,12 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, []);
 
-  // Silently provision (or restore) the API session before the app renders. A
-  // failure (server down) doesn't block the UI — screens surface their own errors.
+  // Restore an existing session before the app renders — but do NOT provision a
+  // new user here: the account is created at the end of onboarding so its signup
+  // POST carries the onboarding payload (C2). A failure doesn't block the UI.
   const [sessionReady, setSessionReady] = React.useState(false);
   React.useEffect(() => {
-    ensureSession()
+    getSession()
       .catch(() => {})
       .finally(() => setSessionReady(true));
   }, []);

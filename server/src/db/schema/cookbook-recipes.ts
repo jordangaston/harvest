@@ -3,9 +3,9 @@ import { pgTable, uuid, timestamp, uniqueIndex, index } from 'drizzle-orm/pg-cor
 import { cookbooks } from './cookbooks.js';
 import { recipes } from './recipes.js';
 
-// Which (canonical) recipe sits in which cookbook. A recipe can belong to many
-// cookbooks; the unique (cookbook_id, recipe_id) keeps a re-add idempotent. The
-// recipe stays shared — this is organization, not ownership (that's saved_recipes).
+// Which (canonical) recipe sits in which cookbook — the save mechanism. A recipe
+// can belong to many cookbooks; the unique (cookbook_id, recipe_id) keeps a re-add
+// idempotent. This is saving/organization; the recipe's creator is `recipes.user_id`.
 export const cookbookRecipes = pgTable(
   'cookbook_recipes',
   {

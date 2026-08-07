@@ -12,6 +12,9 @@ import { selectMediaExtractor, scaleImage, type VideoHeaders } from '../fetch/me
 import { selectTranscriber } from '../parse/asr.js';
 import { selectVision, selectVisionEscalation } from '../parse/vision.js';
 import { selectExtractor, type ParseContext, type ExtractedRecipeData } from '../parse/extractor.js';
+import { parseIngredientLine, type StructuredIngredient } from '../parse/ingredient.js';
+import { NutritionService } from '../services/nutrition-service.js';
+import type { Nutrition } from '../nutrition/label-core.js';
 import { RecipeRepository, type RecipeInput } from '../repositories/recipe-repository.js';
 
 const website = selectWebsiteFetcher();
@@ -23,6 +26,7 @@ const vision = selectVision();
 const slideEscalation = selectVisionEscalation();
 const extractor = selectExtractor();
 const recipes = RecipeRepository.create();
+const nutrition = NutritionService.create();
 
 /** What the pipeline needs to import a job: the resolved source + its owner. */
 export interface ImportInput {
@@ -88,7 +92,7 @@ export class ImportPipeline {
   static async run(input: ImportInput): Promise<string[]> {
     const material = await ImportPipeline.fetchSource(input);
     if (material.structured) {
-      const data = withThumbnail({ ...material.structured, confidence: 1 }, material.thumbnailUrl);
+      const data = withThumbnail(toExtractedData(material.structured, 1), material.thumbnailUrl);
       return [await ImportPipeline.persistOrThrow(data, input)];
     }
 
@@ -121,7 +125,7 @@ export class ImportPipeline {
     if (material.outboundLink) {
       try {
         const structured = await ImportPipeline.fetchLinkedRecipe(material.outboundLink);
-        return [await ImportPipeline.persistOrThrow(withThumbnail({ ...structured, confidence: 1 }, material.thumbnailUrl), input)];
+        return [await ImportPipeline.persistOrThrow(withThumbnail(toExtractedData(structured, 1), material.thumbnailUrl), input)];
       } catch {
         // no recipe at the link — fall through
       }
@@ -404,19 +408,52 @@ const CAROUSEL_RECIPE_MIN_CHARS = 800;
 const IMAGE_FETCH_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-/** Maps an extracted recipe + its source onto the repository's insert shape. */
+/**
+ * Promotes a JSON-LD `ExtractedRecipe` (raw string ingredients) to the structured
+ * `ExtractedRecipeData` the rest of the pipeline uses — the single point C3's
+ * `parseIngredientLine` runs for the LLM-free path (Architect M1). Carries the
+ * parsed nutrition through.
+ */
+function toExtractedData(structured: ExtractedRecipe, confidence: number): ExtractedRecipeData {
+  const { ingredients, ...rest } = structured;
+  return { ...rest, ingredients: ingredients.map(parseIngredientLine), confidence };
+}
+
+/** Maps an extracted recipe + its source onto the repository's insert shape. The
+ * single chokepoint: strips section-labels, applies the C4 servings estimate, and
+ * sets C5 nutrition (parsed passthrough, else computed from the food catalog). */
 function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
+  const ingredients = stripIngredientSections(data.ingredients);
+  const parsed = data.servings ? parseInt(data.servings, 10) : NaN;
+  const hasServings = Number.isFinite(parsed) && parsed > 0;
+  const servings = hasServings ? parsed : 4;
   return {
     title: data.title,
     sourceType: input.sourceType,
     sourceUrl: input.sourceType === 'photo' ? undefined : input.sourceRef,
-    servings: data.servings ? parseInt(data.servings, 10) || undefined : undefined,
+    servings,
+    servingsEstimated: !hasServings,
     totalMinutes: data.totalMinutes,
     imageUrl: data.imageUrl,
     confidence: data.confidence,
-    ingredients: stripSectionLabels(data.ingredients),
+    ingredients,
     steps: stripSectionLabels(data.steps),
+    nutrition: resolveNutrition(data, ingredients, servings),
   };
+}
+
+/** Parsed nutrition when the source carried it, else computed from the catalog
+ * (null below the coverage floor). */
+function resolveNutrition(data: ExtractedRecipeData, ingredients: StructuredIngredient[], servings: number): Nutrition | null {
+  if (data.nutrition) return { source: 'parsed', values: data.nutrition };
+  return nutrition.compute(ingredients, servings);
+}
+
+/** Drop bare ingredient section-headers, filtering structured items by their
+ * verbatim line; never empty a non-empty list (mirrors `stripSectionLabels`). */
+function stripIngredientSections(list: StructuredIngredient[]): StructuredIngredient[] {
+  const kept = list.filter((item) => !isSectionLabel(item.quantityText || item.name));
+  return kept.length ? kept : list;
 }
 
 /** A bare ingredient-section header ("For the base", "To finish", "For the sauce:")

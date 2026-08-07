@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OnboardingSchema } from '../models/user.js';
 
 export const requestOtpSchema = z.object({
   otp: z.object({ phone_number: z.string() }),
@@ -11,7 +12,7 @@ export const verifyOtpSchema = z.object({
 export const createUserSchema = z.object({
   user: z.object({
     phone_number: z.string(),
-    onboarding: z.unknown().optional(),
+    onboarding: OnboardingSchema.optional(),
   }),
 });
 

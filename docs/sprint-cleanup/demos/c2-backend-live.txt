@@ -1,0 +1,24 @@
+C2 — live backend demo (this worktree's server on :3001, real migrated `harvest` DB)
+
+$ curl -X POST http://localhost:3001/v1/users -d '{"user":{"phone_number":"+15550007336",
+    "onboarding":{"age":"from_25_to_34","goals":["eat_healthier","plan_meals"],
+    "recipe_sources":["social_media"],"cook_days":["mon","wed","fri"],
+    "when_cook":"evening_ready","cook_time":"from_6_to_7pm","how_heard":"tiktok"}}}'
+
+→ 200 { user:{id,phone}, auth:{access_token,refresh_token}, isNew:true }
+
+Persisted row (psql select from users):
+  age                     | from_25_to_34
+  goals                   | {eat_healthier,plan_meals}
+  recipe_sources          | {social_media}
+  cook_days               | {mon,wed,fri}
+  when_cook               | evening_ready
+  cook_time               | from_6_to_7pm
+  how_heard               | tiktok
+  onboarding_completed_at | 2026-08-07 18:06:48.536-05
+
+Proves: the typed enum onboarding payload is accepted by createUserSchema, mapped
+to the pg enum / enum[] columns, and stamped with onboarding_completed_at — end to
+end through the real Cleanup server code against the migrated schema (no jsonb).
+An INTERNAL error from the OTHER worktree's pre-Cleanup server on :3000 (same shared
+DB) confirms this behavior is specific to the new code, not the DB alone.

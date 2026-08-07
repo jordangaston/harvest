@@ -3,9 +3,9 @@ import { pgTable, uuid, text, timestamp, uniqueIndex, index } from 'drizzle-orm/
 import { users } from './users.js';
 
 // A named cookbook owned by one user. The recipes it holds live in
-// `cookbook_recipes`; ownership of the (shared, canonical) recipes stays in
-// `saved_recipes`. The unique (user_id, name) index enforces per-user name
-// uniqueness — a re-used name surfaces as a 409, not a duplicate row.
+// `cookbook_recipes`; a recipe's creator/owner is `recipes.user_id`, and saving
+// is the `cookbook_recipes` join. The unique (user_id, name) index enforces
+// per-user name uniqueness — a re-used name surfaces as a 409, not a duplicate row.
 export const cookbooks = pgTable(
   'cookbooks',
   {

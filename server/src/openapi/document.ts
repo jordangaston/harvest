@@ -182,11 +182,11 @@ const ROUTES: RouteSpec[] = [
   },
   {
     method: 'patch', path: '/v1/recipes/{id}', tag: 'recipes', secured: true,
-    summary: "Edit the caller's copy of a recipe's ingredients/steps (copy-on-write)",
+    summary: "Edit a recipe's ingredients/steps in place — owner only",
     pathParams: [{ name: 'id', description: 'The recipe id' }],
     body: updateRecipeSchema,
     successSchema: z.object({ recipe: publicRecipe }),
-    successDescription: 'The edited recipe (possibly a new id if it forked)',
+    successDescription: 'The edited recipe',
     errors: [400, 401, 404],
   },
   {

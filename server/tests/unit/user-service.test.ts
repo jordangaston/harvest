@@ -6,6 +6,7 @@ import { AuthService } from '../../src/services/auth-service.js';
 import { StubOtpProvider } from '../../src/providers/otp-provider.js';
 import { InvalidOtpError, RefreshInvalidError } from '../../src/api/errors.js';
 import { UserSchema, type User } from '../../src/models/user.js';
+import type { NewUser } from '../../src/db/schema/index.js';
 import type { UserRepository } from '../../src/repositories/user-repository.js';
 
 class FakeUserRepository {
@@ -17,16 +18,23 @@ class FakeUserRepository {
   async findById(id: string): Promise<User | null> {
     return this.rows.get(id) ?? null;
   }
-  async insert(values: { phone: string; jwtPrivateKey: string; jwtPublicKey: string; onboarding?: unknown }): Promise<User> {
+  async insert(values: NewUser): Promise<User> {
+    // Drop undefined so the null defaults stand (drizzle ignores undefined too).
+    const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined));
     const user = UserSchema.parse({
       id: randomUUID(),
-      phone: values.phone,
-      jwtPrivateKey: values.jwtPrivateKey,
-      jwtPublicKey: values.jwtPublicKey,
       accessTokenNonce: 0,
       refreshTokenNonce: 0,
-      onboarding: values.onboarding ?? null,
+      goals: null,
+      recipeSources: null,
+      cookDays: null,
+      whenCook: null,
+      cookTime: null,
+      howHeard: null,
+      age: null,
+      onboardingCompletedAt: null,
       createdAt: new Date(),
+      ...defined,
     });
     this.rows.set(user.id, user);
     return user;
@@ -54,9 +62,10 @@ beforeEach(() => {
 
 describe('UserService', () => {
   it('creates a new user (isNew) then reuses it for the same phone (not new)', async () => {
-    const first = await service.createUser({ phoneNumber: '+15555550123', onboarding: { age: '25-34' } });
+    const first = await service.createUser({ phoneNumber: '+15555550123', onboarding: { age: 'from_25_to_34' } });
     expect(first.isNew).toBe(true);
-    expect(first.user.onboarding).toEqual({ age: '25-34' });
+    expect(first.user.age).toBe('from_25_to_34');
+    expect(first.user.onboardingCompletedAt).toBeInstanceOf(Date);
     expect(auth.verify(first.tokens.access_token.jwt, first.user.jwtPublicKey, 'access').sub).toBe(first.user.id);
 
     const second = await service.createUser({ phoneNumber: '+15555550123' });

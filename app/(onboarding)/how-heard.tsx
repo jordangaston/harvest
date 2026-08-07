@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { VStack, HStack, Text, Heading, Pressable } from "../../components/ui";
+import { setHowHeard } from "../../lib/onboarding";
 
 type Source = {
   label: string;
@@ -34,7 +35,10 @@ export default function HowHeard() {
       progress={0.45}
       ctaLabel="Continue"
       ctaDisabled={!selected}
-      onCta={() => router.push("/(onboarding)/recipe-sources")}
+      onCta={() => {
+        if (selected) setHowHeard(selected);
+        router.push("/(onboarding)/recipe-sources");
+      }}
     >
       <VStack space={4}>
         <Heading>How did you hear about us?</Heading>

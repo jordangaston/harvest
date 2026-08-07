@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { db, pool } from '../../src/db/index.js';
-import { users, importJobs, savedRecipes } from '../../src/db/schema/index.js';
+import { users, importJobs, recipes } from '../../src/db/schema/index.js';
 import { UserRepository } from '../../src/repositories/user-repository.js';
 import { buildApp } from '../../src/api/app.js';
 
@@ -13,7 +13,7 @@ let app: FastifyInstance;
 
 beforeEach(async () => {
   await db.delete(importJobs); // FK dependents before users
-  await db.delete(savedRecipes);
+  await db.delete(recipes);
   await db.delete(users);
   app = buildApp();
 });
@@ -25,7 +25,7 @@ function createAccount() {
   return app.inject({
     method: 'POST',
     url: '/v1/users',
-    payload: { user: { phone_number: PHONE, onboarding: { age: '25-34' } } },
+    payload: { user: { phone_number: PHONE, onboarding: { age: 'from_25_to_34', goals: ['eat_healthier'] } } },
   });
 }
 
@@ -73,7 +73,10 @@ describe('phone-auth (StubOtpProvider selected)', () => {
 
     const rows = await db.select().from(users);
     expect(rows).toHaveLength(1);
-    expect(rows[0].onboarding).toEqual({ age: '25-34' });
+    // C2: onboarding lands in typed enum columns + a completion stamp.
+    expect(rows[0].age).toBe('from_25_to_34');
+    expect(rows[0].goals).toEqual(['eat_healthier']);
+    expect(rows[0].onboardingCompletedAt).toBeInstanceOf(Date);
   });
 
   it('signs in an existing user by OTP (isNew:false, same id)', async () => {

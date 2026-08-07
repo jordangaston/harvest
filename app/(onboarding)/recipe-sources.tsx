@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { VStack, HStack, Text, Heading, Pressable } from "../../components/ui";
+import { setRecipeSources } from "../../lib/onboarding";
 
 function SocialCluster() {
   return (
@@ -53,7 +54,10 @@ export default function RecipeSources() {
     <OnboardingScreen
       progress={0.5}
       ctaLabel="Continue"
-      onCta={() => router.push("/(onboarding)/awesome")}
+      onCta={() => {
+        setRecipeSources(selected);
+        router.push("/(onboarding)/awesome");
+      }}
     >
       <VStack space={8}>
         <Heading>Where do you get your recipes from?</Heading>

@@ -4,10 +4,12 @@
  * Adapted from heb-bot; the `parse` half is pure so it unit-tests offline.
  */
 import { env } from '../config/env.js';
+import { LABEL_CORE_KEYS, type LabelCoreText } from '../nutrition/label-core.js';
 
 /** A recipe extracted from a page's JSON-LD. `title`/`ingredients`/`steps` are
  * always present (possibly empty); the rest appear only when the source carried
- * them — we never invent a value. */
+ * them — we never invent a value. Ingredients stay raw strings here; the
+ * `toExtractedData` adapter structures them (C3). */
 export interface ExtractedRecipe {
   title: string;
   ingredients: string[];
@@ -18,6 +20,39 @@ export interface ExtractedRecipe {
   cookMinutes?: number;
   imageUrl?: string;
   rating?: { value: string; count?: string };
+  /** C5 parsed path: per-serving label core from schema.org NutritionInformation. */
+  nutrition?: LabelCoreText;
+}
+
+/** schema.org NutritionInformation field → our label-core key. */
+const NUTRITION_FIELDS: Record<(typeof LABEL_CORE_KEYS)[number], string> = {
+  calories: 'calories',
+  grams_of_fat: 'fatContent',
+  grams_of_saturated_fat: 'saturatedFatContent',
+  grams_of_carbohydrate: 'carbohydrateContent',
+  grams_of_fiber: 'fiberContent',
+  grams_of_sugar: 'sugarContent',
+  grams_of_protein: 'proteinContent',
+  milligrams_of_sodium: 'sodiumContent',
+};
+
+/** Map a schema.org `NutritionInformation` node to the label core, or undefined
+ * when it carries none of the fields. Values like "9 g"/"150 mg" → the number. */
+function mapNutrition(node: unknown): LabelCoreText | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  const record = node as Record<string, unknown>;
+  const out = {} as LabelCoreText;
+  let any = false;
+  for (const key of LABEL_CORE_KEYS) {
+    const match = /[\d.]+/.exec(asString(record[NUTRITION_FIELDS[key]]));
+    if (match) {
+      out[key] = match[0];
+      any = true;
+    } else {
+      out[key] = '0';
+    }
+  }
+  return any ? out : undefined;
 }
 
 export class WebsiteFetcher {
@@ -135,6 +170,9 @@ function mapRecipe(node: Record<string, unknown>): ExtractedRecipe {
 
   const imageUrl = firstImageUrl(node.image);
   if (imageUrl) recipe.imageUrl = imageUrl;
+
+  const nutrition = mapNutrition(node.nutrition);
+  if (nutrition) recipe.nutrition = nutrition;
 
   const rating = node.aggregateRating;
   if (rating && typeof rating === 'object') {

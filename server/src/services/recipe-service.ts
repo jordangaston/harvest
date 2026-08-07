@@ -1,4 +1,5 @@
 import { RecipeRepository } from '../repositories/recipe-repository.js';
+import { parseIngredientLine } from '../parse/ingredient.js';
 import { toPublicRecipe, type PublicRecipe } from '../models/recipe.js';
 import { NotFoundError } from '../api/errors.js';
 
@@ -27,28 +28,31 @@ export class RecipeService {
   }
 
   /**
-   * Edits the caller's copy of a recipe's ingredients and/or steps (copy-on-write:
-   * forks a private clone if others also saved it, else edits in place).
-   * @param userId - Caller.
+   * Edits a recipe's ingredients and/or steps in place — owner only (C6). Edited
+   * ingredient lines are re-parsed so scaling survives an edit (C3).
+   * @param userId - Caller; must be the recipe's creator.
    * @param recipeId - Recipe to edit.
    * @param edit - New ingredient lines and/or step texts.
-   * @returns The edited recipe (possibly under a new id if it forked).
-   * @throws {NotFoundError} 404 if the caller hasn't saved this recipe.
+   * @returns The edited recipe.
+   * @throws {NotFoundError} 404 if the recipe is unknown or not the caller's (we
+   *   don't leak existence to a non-owner).
    */
   async update(userId: string, recipeId: string, edit: { ingredients?: string[]; steps?: string[] }): Promise<PublicRecipe> {
-    if (!(await this.recipes.isSavedBy(userId, recipeId))) throw new NotFoundError();
-    const targetId = await this.recipes.updateContent(userId, recipeId, edit);
-    return this.get(targetId);
+    if ((await this.recipes.findOwner(recipeId)) !== userId) throw new NotFoundError();
+    await this.recipes.updateContent(recipeId, {
+      ingredients: edit.ingredients?.map(parseIngredientLine),
+      steps: edit.steps,
+    });
+    return this.get(recipeId);
   }
 
   /**
-   * Removes a recipe from the caller's library and cookbooks (leaves the shared row).
-   * @param userId - Caller.
-   * @param recipeId - Recipe to remove.
-   * @throws {NotFoundError} 404 if the caller hadn't saved it.
+   * Deletes a recipe — owner only (C6). Children cascade.
+   * @param userId - Caller; must be the recipe's creator.
+   * @param recipeId - Recipe to delete.
+   * @throws {NotFoundError} 404 if the recipe is unknown or not the caller's.
    */
   async remove(userId: string, recipeId: string): Promise<void> {
-    const removed = await this.recipes.removeForUser(userId, recipeId);
-    if (!removed) throw new NotFoundError();
+    if (!(await this.recipes.deleteOwned(userId, recipeId))) throw new NotFoundError();
   }
 }

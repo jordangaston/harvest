@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, type Database } from '../db/index.js';
-import { users } from '../db/schema/index.js';
+import { users, type NewUser } from '../db/schema/index.js';
 import { UserSchema, type User } from '../models/user.js';
 
 export class UserRepository {
@@ -33,10 +33,10 @@ export class UserRepository {
 
   /**
    * Inserts a new user row.
-   * @param values - Phone, the user's JWT key pair, and optional onboarding blob.
+   * @param values - Phone, the user's JWT key pair, and optional typed onboarding columns.
    * @returns The inserted row, parsed into the domain model.
    */
-  async insert(values: { phone: string; jwtPrivateKey: string; jwtPublicKey: string; onboarding?: unknown }): Promise<User> {
+  async insert(values: NewUser): Promise<User> {
     const [row] = await this.db.insert(users).values(values).returning();
     return UserSchema.parse(row);
   }
