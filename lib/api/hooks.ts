@@ -1,7 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { listCookbooks, createCookbook } from "./cookbooks";
-import { getRecipe } from "./recipes";
+import { getRecipe, listRecipes } from "./recipes";
+import { listMealPlan, addMealPlanEntry, removeMealPlanEntry } from "./meal-plan";
+import { listCommonIngredients } from "./ingredients";
+import type { ApiMealPlanEntry, MealSlot } from "./types";
 
 /**
  * Read hooks — the reference pattern for Wave 2. A `useQuery` wraps an existing
@@ -25,5 +28,61 @@ export function useCreateCookbook() {
   return useMutation({
     mutationFn: createCookbook,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.cookbooks }),
+  });
+}
+
+/* ---------- Meal plan ---------- */
+
+/** The caller's entries for the Mon–Sun week starting at `weekStart` (YYYY-MM-DD). */
+export function useMealPlanWeek(weekStart: string, endDate: string) {
+  return useQuery({
+    queryKey: queryKeys.mealPlan(weekStart),
+    queryFn: () => listMealPlan(weekStart, endDate),
+    enabled: !!weekStart,
+  });
+}
+
+/** The whole library as cards (expanded), for the add-recipe sheet. */
+export function useLibraryCards() {
+  return useQuery({ queryKey: queryKeys.recipes, queryFn: () => listRecipes() });
+}
+
+/** The Popular common-ingredient list (endpoint + hard-coded fallback). */
+export function useCommonIngredients() {
+  return useQuery({ queryKey: queryKeys.commonIngredients, queryFn: listCommonIngredients });
+}
+
+/**
+ * Adds a meal-plan entry. Invalidates the whole `mealPlan` key space so any cached
+ * week refetches — the entry's week may not be the one currently shown (add-from-recipe).
+ */
+export function useAddMealPlanEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ date, meal, recipeId }: { date: string; meal: MealSlot; recipeId: string }) =>
+      addMealPlanEntry(date, meal, recipeId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["mealPlan"] }),
+  });
+}
+
+/**
+ * Removes an entry from the shown week, optimistically. Snapshots the week's cache,
+ * drops the row immediately, restores it on error, and reconciles on settle.
+ */
+export function useRemoveMealPlanEntry(weekStart: string) {
+  const qc = useQueryClient();
+  const key = queryKeys.mealPlan(weekStart);
+  return useMutation({
+    mutationFn: (entryId: string) => removeMealPlanEntry(entryId),
+    onMutate: async (entryId: string) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<ApiMealPlanEntry[]>(key);
+      qc.setQueryData<ApiMealPlanEntry[]>(key, (old) => (old ?? []).filter((e) => e.id !== entryId));
+      return { previous };
+    },
+    onError: (_err, _entryId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["mealPlan"] }),
   });
 }

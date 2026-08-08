@@ -14,12 +14,17 @@ import {
   createCookbookSchema,
   setMembershipSchema,
   updateRecipeSchema,
+  listRecipesQuerySchema,
+  createMealPlanEntrySchema,
+  mealPlanRangeQuerySchema,
 } from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
 import { RecipeService } from '../services/recipe-service.js';
 import { CookbookService } from '../services/cookbook-service.js';
+import { MealPlanService } from '../services/meal-plan-service.js';
+import { InvalidRangeError } from './errors.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -50,6 +55,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const imports = ImportService.create();
   const recipes = RecipeService.create();
   const cookbooks = CookbookService.create();
+  const mealPlan = MealPlanService.create();
 
   /** GET /healthz — liveness probe. Public. 200 when the DB is reachable, else 503. */
   app.get('/healthz', async (_request, reply) => {
@@ -120,6 +126,50 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.get<{ Params: { id: string } }>('/v1/imports/:id', { preHandler: authGuard }, async (request) => {
     const job = await imports.get(request.authUserId!, request.params.id);
     return { job };
+  });
+
+  /**
+   * GET /v1/recipes — the caller's library (owned ∪ cookbook recipes), deduped and
+   * cursor-paginated (`page_token`). `expand=ingredient_names,cookbook_ids` opts into
+   * those per-card fields. Requires bearer token; 401 without one.
+   */
+  app.get('/v1/recipes', { preHandler: authGuard }, async (request) => {
+    const { page_token, page_size, expand } = listRecipesQuerySchema.parse(request.query);
+    const expandSet = new Set((expand ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    return recipes.listCards(request.authUserId!, { pageSize: page_size, cursor: page_token, expand: expandSet });
+  });
+
+  /**
+   * GET /v1/meal-plan?start&end — the caller's entries in an inclusive date range,
+   * each with its recipe card. Requires bearer token. 400 if the range is missing,
+   * malformed, or wider than 31 days.
+   */
+  app.get('/v1/meal-plan', { preHandler: authGuard }, async (request) => {
+    const { start, end } = mealPlanRangeQuerySchema.parse(request.query);
+    const days = (Date.parse(end) - Date.parse(start)) / 86_400_000;
+    if (!(days >= 0 && days <= 31)) throw new InvalidRangeError();
+    const entries = await mealPlan.listRange(request.authUserId!, start, end);
+    return { entries };
+  });
+
+  /**
+   * POST /v1/meal-plan — assigns a recipe to a (date, meal) slot, appended to the
+   * slot. Requires bearer token. 201 with the entry; 404 if the recipe is unknown.
+   */
+  app.post('/v1/meal-plan', { preHandler: authGuard }, async (request, reply) => {
+    const { entry } = createMealPlanEntrySchema.parse(request.body);
+    const created = await mealPlan.add(request.authUserId!, entry.date, entry.meal, entry.recipe_id);
+    reply.code(201);
+    return { entry: created };
+  });
+
+  /**
+   * DELETE /v1/meal-plan/:id — removes one of the caller's entries. Requires bearer
+   * token; 404 if the entry isn't the caller's; 204 on success.
+   */
+  app.delete<{ Params: { id: string } }>('/v1/meal-plan/:id', { preHandler: authGuard }, async (request, reply) => {
+    await mealPlan.remove(request.authUserId!, request.params.id);
+    return reply.code(204).send();
   });
 
   /**
