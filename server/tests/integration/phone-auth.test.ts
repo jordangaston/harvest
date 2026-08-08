@@ -6,6 +6,7 @@ import { UserRepository } from '../../src/repositories/user-repository.js';
 import { buildApp } from '../../src/api/app.js';
 
 const PHONE = '+15555550123';
+const NAME = 'Jordan';
 const GOOD_CODE = '123456';
 const BAD_CODE = '000000';
 
@@ -25,7 +26,14 @@ function createAccount() {
   return app.inject({
     method: 'POST',
     url: '/v1/users',
-    payload: { user: { phone_number: PHONE, onboarding: { age: 'from_25_to_34', goals: ['eat_healthier'] } } },
+    payload: {
+      user: {
+        phone_number: PHONE,
+        code: GOOD_CODE,
+        name: NAME,
+        onboarding: { age: 'from_25_to_34', goals: ['eat_healthier'] },
+      },
+    },
   });
 }
 
@@ -67,16 +75,28 @@ describe('phone-auth (StubOtpProvider selected)', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.isNew).toBe(true);
-    expect(body.user).toEqual({ id: expect.any(String), phone: PHONE });
+    expect(body.user).toEqual({ id: expect.any(String), phone: PHONE, name: NAME });
     expect(body.auth.access_token.jwt).toBeTruthy();
     expect(JSON.stringify(body)).not.toContain('PRIVATE KEY');
 
     const rows = await db.select().from(users);
     expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe(NAME);
     // C2: onboarding lands in typed enum columns + a completion stamp.
     expect(rows[0].age).toBe('from_25_to_34');
     expect(rows[0].goals).toEqual(['eat_healthier']);
     expect(rows[0].onboardingCompletedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects account creation with a bad code and creates no user', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/users',
+      payload: { user: { phone_number: PHONE, code: BAD_CODE, name: NAME } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('INVALID_OTP');
+    expect(await db.select().from(users)).toHaveLength(0);
   });
 
   it('signs in an existing user by OTP (isNew:false, same id)', async () => {
@@ -112,7 +132,7 @@ describe('phone-auth (StubOtpProvider selected)', () => {
 
     const ok = await app.inject({ method: 'GET', url: '/v1/users/me', headers: { authorization: `Bearer ${access}` } });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toEqual({ user: { id: created.user.id, phone: PHONE } });
+    expect(ok.json()).toEqual({ user: { id: created.user.id, phone: PHONE, name: NAME } });
 
     expect((await app.inject({ method: 'GET', url: '/v1/users/me' })).statusCode).toBe(401);
 

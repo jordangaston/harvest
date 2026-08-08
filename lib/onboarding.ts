@@ -3,6 +3,7 @@
 // POST drains it once. Screens pass their DISPLAY labels; we map them to the
 // server's snake_case enum values so screens never hardcode wire values.
 type Payload = {
+  name?: string;
   goals?: string[];
   recipe_sources?: string[];
   cook_days?: string[];
@@ -92,6 +93,9 @@ const enums = (map: Map<string, string>, labels: string[]): string[] =>
 
 const one = (map: Map<string, string>, label: string): string | undefined => map.get(norm(label));
 
+export function setName(name: string): void {
+  payload.name = name.trim();
+}
 export function setGoals(labels: string[]): void {
   payload.goals = enums(GOALS, labels);
 }

@@ -15,6 +15,7 @@ export const users = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     phone: text('phone').notNull(),
+    name: text('name'),
     jwtPrivateKey: text('jwt_private_key').notNull(),
     jwtPublicKey: text('jwt_public_key').notNull(),
     accessTokenNonce: integer('access_token_nonce').notNull().default(0),
