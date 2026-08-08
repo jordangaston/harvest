@@ -18,7 +18,7 @@ export default function Age() {
       ctaDisabled={selected === null}
       onCta={() => {
         if (selected) setAge(selected);
-        router.push("/(onboarding)/setting-up");
+        router.push("/(onboarding)/name");
       }}
     >
       <View>

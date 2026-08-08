@@ -67,7 +67,7 @@ export default function Welcome() {
             </Button>
             <Pressable
               className="flex-row justify-center"
-              onPress={() => router.push("/(app)/recipes")}
+              onPress={() => router.push("/(onboarding)/phone?mode=signin")}
             >
               <Text style={{ color: "#EADFCB" }}>Already have an account? </Text>
               <Text style={{ color: "#FBF6EC", fontFamily: "Karla_600SemiBold" }}>Log in</Text>
