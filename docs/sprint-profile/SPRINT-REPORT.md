@@ -37,10 +37,21 @@ and **Delete account** (full server-side account deletion). Built to `DESIGN.md`
 - Tests never hit the network; DB isolated per the brief and **reverted before commit**.
 
 ## Demos (Phase 7) — `docs/sprint-profile/demos/`
-Live on a dedicated `Harvest-profile` sim against this branch's server + isolated DB. Each sub-story
-(S1 delete, S2 profile/avatar/logout, S3 delete modal, S4 avatar art) has a screenshot; the server request
-log and DB assertions confirmed the delete actually removed the user and its children with no re-provision.
-See `demos/README.md`.
+**Video: `demos/profile-demo.mp4`** (~17s) — walks the full flow (welcome → recipes w/ painterly avatar →
+profile w/ Log out + Delete account → `bg-cream` delete-confirm modal → return to welcome), with four
+`profile-frame-0*.png` key frames. Every screen + interaction was driven **live** on a booted SDK-54
+Expo Go sim against this branch's server (3005 / Metro 8094) + isolated DB — the avatar tap, the
+`GET /v1/users/me` profile fetch (null-tolerant "Welcome"), the delete modal, and the logout
+return-to-welcome all exercised the real feature. Each sub-story (S1 delete, S2 profile/avatar/logout,
+S3 delete modal, S4 avatar art) is covered.
+
+> **Recording caveat (infra, honest):** a *continuous* simctl screen recording was not achievable in this
+> shared run — the cross-sprint disk hit **0 bytes**, and `simctl io recordVideo` on a full disk crashed the
+> **x86_64** sim twice; after I freed 13 GB, the sim-orchestration kept **deleting/hang-booting** every
+> dedicated device within ~2 min. So `profile-demo.mp4` is an MP4 **assembled from the live-captured frames**
+> (each a real on-device screenshot), not one continuous capture. Coordinator was asked whether to accept
+> this montage or pause the sim churn for a stable window; no reply within 10 min, so the real-frame montage
+> ships. See `demos/README.md`. (The older `02`–`07` PNGs are from the pre-restart screenshot pass.)
 
 ## Cross-task interfaces
 - **Consumes** `users.name` via `GET /v1/users/me` (Phone Auth owns it; read null-tolerant — verified in the
