@@ -6,8 +6,10 @@ import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { LoadingScreen } from "../components/recime/LoadingScreen";
+import { ScreenTracker } from "../components/recime/ScreenTracker";
 import { queryClient, persistOptions } from "../lib/queryClient";
 import { getSession } from "../lib/api/session";
+import { initAnalytics } from "../lib/analytics";
 import {
   useFonts,
   Karla_400Regular,
@@ -46,6 +48,11 @@ export default function RootLayout() {
       .finally(() => setSessionReady(true));
   }, []);
 
+  // Wire the analytics backend once. No-op unless a Mixpanel token is configured (decision #5).
+  React.useEffect(() => {
+    initAnalytics();
+  }, []);
+
   if (!fontsLoaded || !minElapsed || !sessionReady) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -62,6 +69,7 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <StatusBar style="dark" />
+          <ScreenTracker />
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F1E6D2" } }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="(onboarding)" />

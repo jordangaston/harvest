@@ -1,5 +1,6 @@
 import { apiFetch } from "./client";
 import type { ApiRecipe } from "./types";
+import { analytics } from "../analytics";
 
 export async function getRecipe(id: string): Promise<ApiRecipe> {
   const { recipe } = await apiFetch<{ recipe: ApiRecipe }>(`/v1/recipes/${id}`);
@@ -25,5 +26,9 @@ export async function setRecipeCookbooks(recipeId: string, cookbookIds: string[]
     method: "PUT",
     body: JSON.stringify({ cookbook_ids: cookbookIds }),
   });
+  // Fire only when the recipe lands in at least one cookbook — a PUT of [] is an unsave, not a save.
+  if (cookbook_ids.length > 0) {
+    analytics.track("Recipe Saved", { recipe_id: recipeId, cookbook_count: cookbook_ids.length });
+  }
   return cookbook_ids;
 }
