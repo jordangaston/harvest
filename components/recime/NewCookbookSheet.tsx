@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, View, KeyboardAvoidingView, Platform } from "react-native";
 import { Box, HStack, Text, Pressable, Input, Button, ButtonText, Icon } from "../ui";
-import { createCookbook } from "../../lib/api/cookbooks";
+import { useCreateCookbook } from "../../lib/api/hooks";
 import { ApiError } from "../../lib/api/client";
 import type { ApiCookbook } from "../../lib/api/types";
 
@@ -21,13 +21,13 @@ export function NewCookbookSheet({
 }) {
   const [name, setName] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const createMutation = useCreateCookbook();
+  const busy = createMutation.isPending;
   const trimmed = name.trim();
 
   const reset = () => {
     setName("");
     setError(null);
-    setBusy(false);
   };
 
   const submit = async () => {
@@ -35,10 +35,9 @@ export function NewCookbookSheet({
       setError("Give your cookbook a name.");
       return;
     }
-    setBusy(true);
     setError(null);
     try {
-      const cookbook = await createCookbook(trimmed);
+      const cookbook = await createMutation.mutateAsync(trimmed);
       reset();
       onCreated?.(cookbook);
       onClose();
@@ -48,7 +47,6 @@ export function NewCookbookSheet({
       } else {
         setError("Couldn't create that cookbook. Try again.");
       }
-      setBusy(false);
     }
   };
 

@@ -12,6 +12,9 @@ High-value, evergreen docs. Check the relevant one before starting related work.
 - **`docs/rn-nativewind-pitfalls.md`** — React Native / NativeWind / Expo gotchas that each cost a
   debug cycle (JS-driver-on-mount, explicit colour in `Animated.View`, `Modal` over hand-rolled sheets,
   reset reused instances, read-once module signals, "installed ≠ wired").
+- **`docs/client-caching.md`** — the TanStack Query client-caching pattern (persisted to AsyncStorage):
+  the `queryKeys` factory, `useQuery` read hooks, and the long-staleTime + invalidate-on-mutation model.
+  **Wave-2 Leads read this before adding a data hook.**
 - **`server/CLAUDE.md`** — backend conventions (DBOS pipelines, Drizzle, Zod domain models, testing).
 - **`lib/motion.ts`** — the canonical RN motion-token scale (durations, easing, toast timing).
 - **`docs/orchestration-runbook.md`** — running this repo's multi-agent sprints with the Orca CLI: dispatching

@@ -4,7 +4,9 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { LoadingScreen } from "../components/recime/LoadingScreen";
+import { queryClient, persistOptions } from "../lib/queryClient";
 import { getSession } from "../lib/api/session";
 import {
   useFonts,
@@ -56,18 +58,20 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F1E6D2" } }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(onboarding)" />
-          <Stack.Screen name="(app)" />
-          <Stack.Screen name="import" options={{ animation: "slide_from_bottom" }} />
-          <Stack.Screen name="import-source" options={{ animation: "slide_from_bottom" }} />
-          <Stack.Screen name="importing" options={{ animation: "fade" }} />
-        </Stack>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F1E6D2" } }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(onboarding)" />
+            <Stack.Screen name="(app)" />
+            <Stack.Screen name="import" options={{ animation: "slide_from_bottom" }} />
+            <Stack.Screen name="import-source" options={{ animation: "slide_from_bottom" }} />
+            <Stack.Screen name="importing" options={{ animation: "fade" }} />
+          </Stack>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </PersistQueryClientProvider>
   );
 }
