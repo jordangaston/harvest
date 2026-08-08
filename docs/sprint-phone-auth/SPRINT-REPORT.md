@@ -34,17 +34,28 @@ returning-user sign-in. Replaces the random `+1555555xxxx` test phone. Built to 
 - **`lib/onboarding.ts`** — `setName` + `name` on the accumulator (mapped to `users.name`, not an enum).
 
 ## Sub-stories & demos
+
+**📹 Full end-to-end video demo: [`demos/phone-auth-demo.mp4`](demos/phone-auth-demo.mp4)** — one
+continuous iOS-simulator capture of the *complete* real flow (Metro on `:8096`, live dev server on
+`:3010`, `StubOtpProvider` code `123456`, no Twilio). It covers **signup** (name → phone → real
+`POST /v1/otps` → 6-digit verify → `POST /v1/users` → **recipes home**) and **returning sign-in**
+(Welcome → "Log in" → phone → verify → `POST /v1/users/sign_in` → **recipes home**, same account, no
+duplicate row). Key frames: `demos/frame-1-name.png`, `frame-2-signup-verify.png`,
+`frame-3-recipes-home.png`, `frame-4-returning-signin-verify.png`. (Clip is played back at ~8.5× so the
+whole two-flow run fits under 90s.)
+
 | ID | Story | Status | Evidence |
 |---|---|---|---|
 | S1 | `users.name` in model + `/me` | ✅ | backend curl (`demos/S1-S2-S5-backend-demo.md`) |
 | S2 | server verifies + creates | ✅ | backend curl (bad code→400 no user; good→session+name) |
-| S3 | name-entry screen | ✅ | `demos/S3-name-screen.png`, `S3-name-typed.png` |
-| S4 | phone + code signup | ✅* | phone screen + real OTP send + verify screen (`demos/S5-0*.png`); create hop curl-proven |
-| S5 | returning-user sign-in | ✅* | Welcome→phone(signin)→send→verify screens; `sign_in` curl-proven (same user id) |
+| S3 | name-entry screen | ✅ | video (`frame-1-name.png`); `demos/S3-name-screen.png` |
+| S4 | phone + code signup | ✅ | **video: name→phone→OTP send→verify→recipes**; DB row `+15558675309 / "Jordan Gaston"` created via UI (`frame-2/3`) |
+| S5 | returning-user sign-in | ✅ | **video: Welcome→Log in→phone→verify→recipes**; `sign_in` returns the same account, still one DB row (`frame-4`) |
 
-\* The final code-entry→recipes **UI** hop wasn't captured on the simulator — the `oneTimeCode` OTP
-field rejects the sim's HID text injection (harness quirk, not an app defect; see `demos/README.md` +
-`POSTMORTEM.md`). The logic is proven by the live backend demo and a clean typecheck.
+The final code-entry→recipes **UI** hop — previously uncaptured because the `oneTimeCode` OTP field
+drops the sim's HID text injection — is now captured in the video: on a healthy simulator the digits
+land when typed one-at-a-time after the keyboard settles, so the flow runs all the way through to the
+recipes home for both signup and sign-in.
 
 ## Tests
 - **Server suite: 87/87 green, 23 files** (offline, `StubOtpProvider`). Extended
