@@ -45,6 +45,10 @@ export const recipeSourceEnum = pgEnum('recipe_source', [
 
 export const weekdayEnum = pgEnum('weekday', ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 
+/** The meal a recipe is assigned to within a day of the meal plan. */
+export const mealSlotEnum = pgEnum('meal_slot', ['breakfast', 'lunch', 'dinner', 'snack']);
+export type MealSlot = (typeof mealSlotEnum.enumValues)[number];
+
 export const whenCookEnum = pgEnum('when_cook', [
   'morning_plan_ahead',
   'lunchtime',
