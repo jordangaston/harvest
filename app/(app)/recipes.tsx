@@ -6,17 +6,18 @@ import { Image } from "expo-image";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { Logo } from "../../components/recime/Logo";
 import { NewCookbookSheet } from "../../components/recime/NewCookbookSheet";
-import { listCookbooks } from "../../lib/api/cookbooks";
+import { useCookbooks } from "../../lib/api/hooks";
 import { takeSavedToast } from "../../lib/savedToast";
 import { EASE, TOAST } from "../../lib/motion";
-import type { ApiCookbook } from "../../lib/api/types";
 import { Box, VStack, HStack, Center, Text, Pressable, Icon } from "../../components/ui";
 
 export default function Recipes() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [newCookbookOpen, setNewCookbookOpen] = React.useState(false);
-  const [cookbooks, setCookbooks] = React.useState<ApiCookbook[] | null>(null);
+  // Cached read: a revisit inside the staleTime serves from cache (no refetch);
+  // creating/saving invalidates the key, so the list refreshes on next mount.
+  const { data: cookbooks } = useCookbooks();
   const [toast, setToast] = React.useState<string | null>(null);
   const toastAnim = React.useRef(new Animated.Value(0)).current;
   const reduceMotion = React.useRef(false);
@@ -27,20 +28,13 @@ export default function Recipes() {
     return () => sub.remove();
   }, []);
 
-  const load = React.useCallback(() => {
-    listCookbooks()
-      .then(setCookbooks)
-      .catch(() => setCookbooks([]));
-  }, []);
-
-  // On focus: refetch cookbooks, and show a brief toast if a save just happened
-  // (read-once, so it never re-fires on a later focus).
+  // On focus, show a brief toast if a save just happened (read-once, so it never
+  // re-fires on a later focus). Cookbook data comes from the cache above.
   useFocusEffect(
     React.useCallback(() => {
-      load();
       const saved = takeSavedToast();
       if (saved) setToast(saved);
-    }, [load]),
+    }, []),
   );
 
   // Rise the toast in (slower), hold, then drop it out (quicker) before clearing —
@@ -77,7 +71,7 @@ export default function Recipes() {
     setNewCookbookOpen(true);
   };
 
-  const isEmpty = cookbooks !== null && cookbooks.length === 0;
+  const isEmpty = cookbooks !== undefined && cookbooks.length === 0;
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={["top"]}>
@@ -180,7 +174,7 @@ export default function Recipes() {
         </Pressable>
       </Modal>
 
-      <NewCookbookSheet visible={newCookbookOpen} onClose={() => setNewCookbookOpen(false)} onCreated={load} />
+      <NewCookbookSheet visible={newCookbookOpen} onClose={() => setNewCookbookOpen(false)} />
 
       {toast ? (
         <Animated.View

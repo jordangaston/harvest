@@ -1,9 +1,11 @@
 import React from "react";
 import { Modal, View, ScrollView } from "react-native";
 import { Box, HStack, VStack, Text, Pressable, Button, ButtonText, Icon, Checkbox, Center } from "../ui";
+import { useQueryClient } from "@tanstack/react-query";
 import { NewCookbookSheet } from "./NewCookbookSheet";
 import { listCookbooks } from "../../lib/api/cookbooks";
 import { setRecipeCookbooks } from "../../lib/api/recipes";
+import { queryKeys } from "../../lib/queryKeys";
 import type { ApiCookbook } from "../../lib/api/types";
 
 /**
@@ -25,6 +27,7 @@ export function CookbookPickerSheet({
    * uses them for the "Saved to <name>" confirmation. */
   onSaved: (cookbookNames: string[]) => void;
 }) {
+  const qc = useQueryClient();
   const [cookbooks, setCookbooks] = React.useState<ApiCookbook[]>([]);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [newOpen, setNewOpen] = React.useState(false);
@@ -54,6 +57,8 @@ export function CookbookPickerSheet({
     try {
       const ids = [...selected];
       await Promise.all(recipeIds.map((recipeId) => setRecipeCookbooks(recipeId, ids)));
+      // Cookbook recipe_counts changed — refresh the cached list.
+      qc.invalidateQueries({ queryKey: queryKeys.cookbooks });
       onSaved(cookbooks.filter((cb) => selected.has(cb.id)).map((cb) => cb.name));
     } catch {
       setBusy(false);

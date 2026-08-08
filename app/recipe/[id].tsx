@@ -20,9 +20,12 @@ import {
 import { StepText } from "../../components/recime/StepText";
 import { CookbookPickerSheet } from "../../components/recime/CookbookPickerSheet";
 import { resolveIcon } from "../../components/recime/recipes";
-import { getRecipe, updateRecipe, deleteRecipe } from "../../lib/api/recipes";
+import { useQueryClient } from "@tanstack/react-query";
+import { updateRecipe, deleteRecipe } from "../../lib/api/recipes";
+import { useRecipe } from "../../lib/api/hooks";
+import { queryKeys } from "../../lib/queryKeys";
 import { setSavedToast } from "../../lib/savedToast";
-import type { ApiRecipe, ApiIngredient } from "../../lib/api/types";
+import type { ApiIngredient } from "../../lib/api/types";
 
 /** Small square ingredient icon — a painterly asset, falling back to the branded
  * Harvest-H (resolveIcon never returns null). */
@@ -36,8 +39,8 @@ export default function RecipeDetail() {
   const { id, mode } = useLocalSearchParams<{ id: string; mode?: string }>();
   const isPreview = mode === "preview";
 
-  const [recipe, setRecipe] = React.useState<ApiRecipe | null>(null);
-  const [loadFailed, setLoadFailed] = React.useState(false);
+  const qc = useQueryClient();
+  const { data: recipe, isError: loadFailed } = useRecipe(id);
   const [imageFailed, setImageFailed] = React.useState(false);
   const [popIng, setPopIng] = React.useState<ApiIngredient | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -48,14 +51,6 @@ export default function RecipeDetail() {
   const [editIngredients, setEditIngredients] = React.useState<string[]>([]);
   const [editSteps, setEditSteps] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
-
-  const load = React.useCallback(() => {
-    if (!id) return;
-    getRecipe(id)
-      .then(setRecipe)
-      .catch(() => setLoadFailed(true));
-  }, [id]);
-  React.useEffect(load, [load]);
 
   const tapIngredient = (ing: ApiIngredient) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -78,7 +73,9 @@ export default function RecipeDetail() {
         ingredients: editIngredients.map((s) => s.trim()).filter(Boolean),
         steps: editSteps.map((s) => s.trim()).filter(Boolean),
       });
-      setRecipe(updated);
+      // Write the edit straight into the cache so the detail re-renders fresh
+      // without a refetch.
+      qc.setQueryData(queryKeys.recipe(id), updated);
       setEditing(false);
     } catch {
       // keep editing so the user can retry
@@ -92,6 +89,9 @@ export default function RecipeDetail() {
     setConfirmDelete(false);
     try {
       await deleteRecipe(id);
+      // Drop this recipe and refresh the cookbooks (recipe_count changed).
+      qc.removeQueries({ queryKey: queryKeys.recipe(id) });
+      qc.invalidateQueries({ queryKey: queryKeys.cookbooks });
     } catch {
       // best-effort; still leave the screen
     }
