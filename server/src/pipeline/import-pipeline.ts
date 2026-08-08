@@ -13,7 +13,6 @@ import { selectTranscriber } from '../parse/asr.js';
 import { selectVision, selectVisionEscalation } from '../parse/vision.js';
 import { selectExtractor, type ParseContext, type ExtractedRecipeData } from '../parse/extractor.js';
 import { parseIngredientLine, type StructuredIngredient } from '../parse/ingredient.js';
-import { NutritionService } from '../services/nutrition-service.js';
 import type { Nutrition } from '../nutrition/label-core.js';
 import { RecipeRepository, type RecipeInput } from '../repositories/recipe-repository.js';
 
@@ -26,7 +25,6 @@ const vision = selectVision();
 const slideEscalation = selectVisionEscalation();
 const extractor = selectExtractor();
 const recipes = RecipeRepository.create();
-const nutrition = NutritionService.create();
 
 /** What the pipeline needs to import a job: the resolved source + its owner. */
 export interface ImportInput {
@@ -421,7 +419,8 @@ function toExtractedData(structured: ExtractedRecipe, confidence: number): Extra
 
 /** Maps an extracted recipe + its source onto the repository's insert shape. The
  * single chokepoint: strips section-labels, applies the C4 servings estimate, and
- * sets C5 nutrition (parsed passthrough, else computed from the food catalog). */
+ * sets C5 nutrition (parsed-only: the label core when the source published
+ * schema.org NutritionInformation, else null — computed-from-catalog was punted). */
 function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
   const ingredients = stripIngredientSections(data.ingredients);
   const parsed = data.servings ? parseInt(data.servings, 10) : NaN;
@@ -438,15 +437,8 @@ function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInp
     confidence: data.confidence,
     ingredients,
     steps: stripSectionLabels(data.steps),
-    nutrition: resolveNutrition(data, ingredients, servings),
+    nutrition: data.nutrition ? { source: 'parsed', values: data.nutrition } : null,
   };
-}
-
-/** Parsed nutrition when the source carried it, else computed from the catalog
- * (null below the coverage floor). */
-function resolveNutrition(data: ExtractedRecipeData, ingredients: StructuredIngredient[], servings: number): Nutrition | null {
-  if (data.nutrition) return { source: 'parsed', values: data.nutrition };
-  return nutrition.compute(ingredients, servings);
 }
 
 /** Drop bare ingredient section-headers, filtering structured items by their

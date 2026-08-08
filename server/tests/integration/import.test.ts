@@ -84,12 +84,12 @@ describe('POST /v1/imports', () => {
     expect(recipeRows).toHaveLength(1);
     expect(recipeRows[0].title).toBe('Crockpot Chicken Teriyaki');
     // C6: the importer owns the recipe. C4: the stub carries no yield, so servings
-    // is the estimate. (C5 nutrition depends on catalog matches, which the stub's
-    // synthetic ingredient makes seed-dependent — the coverage floor is asserted
-    // deterministically in nutrition-service.test.ts, not here.)
+    // is the estimate. C5: the stub publishes no NutritionInformation, so nutrition
+    // stays null (parsed-only — computing from a catalog was punted).
     expect(recipeRows[0].userId).toBe(userId);
     expect(recipeRows[0].servings).toBe(4);
     expect(recipeRows[0].servingsEstimated).toBe(true);
+    expect(recipeRows[0].nutritionSource).toBeNull();
   });
 
   it('rejects an unsupported source with 422 and writes no row', async () => {

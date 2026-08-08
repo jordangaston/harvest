@@ -10,6 +10,22 @@ locked: false
 |---|---|---|
 | Architect | approved | Approve-with-changes; all must-fixes (M1–M5), should-fixes (S1–S4), and nits (N1–N3) folded into Revision 2. |
 | Founder | approved | Final decisions provided (nutrition label-core, onboarding enums, in-memory catalog, Q-01…Q-05) — incorporated. |
+| Founder | Revision 3 | **C5a computed-nutrition PUNTED; C5 is parsed-only** (see banner below). |
+
+> ## ⚠️ Revision 3 — C5 is PARSED-ONLY; computed nutrition (C5a) is PUNTED
+> **Founder decision.** The **computed** path (match ingredients to a USDA food catalog and sum macros)
+> is **removed**, along with all its infra: `FoodCatalog`, the `FoodMatcher`/Sørensen–Dice matcher,
+> `NutritionService.compute`, the ≥ 0.6 coverage floor, `server/seed/foods.json`, `build-foods-seed.ts`,
+> and the `toGrams` conversion. **Rationale:** generic-name → generic-USDA matching couldn't reach usable
+> accuracy — on 20 real halfbakedharvest.com recipes the computed path cleared the floor on only **13/20**
+> (median coverage ~61%). **What we keep — the parsed path:** when a source publishes schema.org
+> `NutritionInformation` (`mapRecipe` in `fetch/website.ts`), we store the label core with
+> `nutrition_source = 'parsed'`; otherwise nutrition is **null**. On the same 20 recipes the parsed path
+> covered **20/20** (WP-Recipe-Maker sites publish nutrition on every recipe). The **schema is unchanged**:
+> the 8 nutrient columns + `servings_estimated` + the `nutrition_source` enum stay (the enum keeps both
+> labels; only `parsed` is ever written) — **no migration change**. Everything below about `FoodCatalog` /
+> the **Matching** subsection / the coverage floor / `toGrams` is **historical design context, superseded by
+> this banner.**
 
 Design only — no code, migrations, or seeding. Every claim was read against live code in this worktree
 (paths + line numbers cited). Sub-story IDs (C1–C6, C5a) are the founder's; existing operation IDs from code
@@ -649,3 +665,4 @@ populated dev/staging DB rather than failing, so wipe such an env, don't debug i
 | 2026-08-07 | Cleanup Feature Lead | Initial draft (Revision 1) |
 | 2026-08-07 | Cleanup Feature Lead | **Revision 2** — folded in founder decisions + Architect review: nutrition → 8-field Nutrition-Facts label core (string-nullable); onboarding → pg enums/enum[] with label→value map + Cleanup owns `POST /v1/users`; food catalog → in-memory `foods.json` (no tables/`pg_trgm`/0009); parser moved to the `toExtractedData` adapter (5 JSON-LD sites) and kept minimal; persist + PATCH-edit write the four ingredient columns; bounded water-density fallback; coverage floor ≥ 0.6; non-owner → 404; added `cookbooks`/`cookbook_recipes` model; traced the C5 parsed path (`mapRecipe` nutrition). |
 | 2026-08-07 | Cleanup Feature Lead | **Implement Step 0** — pinned the **Matching** subsection (founder-approved: normalize + stop-list → exact/alias → head-noun/token-subset → Sørensen–Dice bigram ≥ 0.8 → null; swappable `FoodMatcher`; `"cream"` ≠ `"ice cream"` guardrail). Build starts. |
+| 2026-08-07 | Cleanup Feature Lead | **Revision 3** — **C5 parsed-only; computed nutrition (C5a) PUNTED** (see banner up top). Removed `FoodCatalog`, the `FoodMatcher`/Dice matcher, `NutritionService.compute`, the coverage floor, `foods.json`, `build-foods-seed.ts`, `toGrams`, and their unit tests. Kept the parsed path (`mapRecipe` → `nutrition_source='parsed'`, else null) and the schema (8 cols + `servings_estimated` + enum) — no migration change. Parsed-path coverage on 20 real recipes: **20/20** (vs computed 13/20). |

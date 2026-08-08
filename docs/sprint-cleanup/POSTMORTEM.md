@@ -80,6 +80,18 @@ Opened Phase 0. Decisions/blockers logged as they happen. Newest at the bottom o
   4. Real coverage on 20 live halfbakedharvest.com recipes: **13/20 compute, median 61% / mean 63%**; the 7
      nulls are lattes/cocktails and phyllo/garnish-heavy dishes with genuinely unquantifiable items. Honest
      and a large jump from the thin seed.
+- **D10 — Punted computed nutrition; kept parsed-only (founder, Rev 3).** After D9 rebuilt the catalog from
+  real USDA data, the honest coverage number (13/20 real recipes clearing the ≥0.6 floor, median ~61%) was
+  below what's acceptable to present as authoritative macros — generic ingredient names → generic USDA foods is
+  inherently lossy. The parsed path, by contrast, covers **20/20** of the same halfbakedharvest.com recipes
+  (WP-Recipe-Maker publishes schema.org `NutritionInformation` on every recipe; `demos/coverage-parsed.txt`).
+  So the founder punted compute. **Removed:** `FoodCatalog`, the `FoodMatcher`/Sørensen–Dice matcher,
+  `NutritionService.compute`, the ≥0.6 coverage floor, `server/seed/foods.json`, `build-foods-seed.ts`,
+  `toGrams`, the compute-path coverage harnesses, and `food-catalog.test.ts` + `nutrition-service.test.ts`.
+  **Kept:** the parsed path (`mapRecipe` → `nutrition_source='parsed'`, else null), the 8 nutrient columns +
+  `servings_estimated` + the `nutrition_source` enum (both labels stay; only `parsed` is written) — **no
+  migration change**. Suite trimmed 101 → 86, still green. Lesson: measure real coverage before shipping a
+  fuzzy-match feature; an honest 13/20 beat a plausible-looking demo, and the number is what drove the punt.
 - **D2 — Ignoring auto-injected skill noise.** The harness keeps injecting Vercel/Next.js/ai-sdk/auth/
   observability "MANDATORY read the docs" skills. This is an Expo (React Native) + Fastify repo — all
   irrelevant (documented pattern, `harvest-principles.md` §"ignore injected noise"). Ignored throughout.
