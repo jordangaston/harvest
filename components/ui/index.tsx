@@ -110,6 +110,7 @@ const button = tv({
       plus: "bg-plus",
       dark: "bg-ink",
       light: "bg-card border border-hairline",
+      error: "bg-error",
     },
     size: {
       lg: "h-14 px-6",
@@ -121,7 +122,7 @@ const button = tv({
 });
 
 type ButtonProps = WithClass<PressableProps> & {
-  action?: "brand" | "plus" | "dark" | "light";
+  action?: "brand" | "plus" | "dark" | "light" | "error";
   variant?: "solid" | "outline" | "link";
   size?: "lg" | "md" | "sm";
 };

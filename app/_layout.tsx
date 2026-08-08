@@ -69,6 +69,7 @@ export default function RootLayout() {
             <Stack.Screen name="import" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="import-source" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="importing" options={{ animation: "fade" }} />
+            <Stack.Screen name="profile" />
           </Stack>
         </SafeAreaProvider>
       </GestureHandlerRootView>

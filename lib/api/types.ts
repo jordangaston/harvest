@@ -45,3 +45,11 @@ export type CookbookView = {
   cookbook: { id: string; name: string };
   recipes: { id: string; title: string; image_url?: string }[];
 };
+
+// The authenticated user, from GET /v1/users/me. `name` is owned by Phone Auth
+// (added to the projection when it merges); read it null-tolerant until then.
+export type ApiMe = {
+  id: string;
+  phone: string;
+  name?: string | null;
+};

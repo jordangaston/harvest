@@ -78,7 +78,14 @@ export default function Recipes() {
       <Backdrop />
       <HStack className="items-center justify-between px-5 pt-2">
         <Logo size={22} />
-        <View className="h-8 w-8 rounded-full bg-sand" />
+        <Pressable
+          onPress={() => router.push("/profile")}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+          className="h-9 w-9 overflow-hidden rounded-full border border-hairline bg-sand"
+        >
+          <Image source={require("../../assets/default-avatar.png")} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+        </Pressable>
       </HStack>
 
       <View className="mt-3 flex-row items-center px-5">
