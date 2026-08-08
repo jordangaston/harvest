@@ -1,5 +1,6 @@
 import { NoopBackend, type Backend, type Props } from "./backend.ts";
 import { toPeopleProperties, type OnboardingPayload } from "./people.ts";
+import { pushDebugEvent } from "./debugLog.ts";
 
 export type AnalyticsOptions = {
   /** When true, log each event to the console — wired to `__DEV__` so the sim shows the stream. */
@@ -38,7 +39,10 @@ export class Analytics {
 
   track(event: string, props: Props = {}): void {
     const merged = this.screen ? { screen: this.screen, ...props } : props;
-    if (this.debug) console.log(`📊 ${event}`, merged);
+    if (this.debug) {
+      console.log(`📊 ${event}`, merged);
+      pushDebugEvent(event, merged);
+    }
     try {
       this.backend.track(event, merged);
     } catch {

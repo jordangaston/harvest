@@ -16,9 +16,9 @@ type MixpanelInstance = {
 type MixpanelCtor = new (token: string, trackAutomaticEvents: boolean) => MixpanelInstance;
 
 function loadMixpanel(): { Mixpanel: MixpanelCtor } {
-  // Indirection through a variable keeps Metro from statically resolving (and bundling) the module.
-  const moduleName = "mixpanel-react-native";
-  return require(moduleName) as { Mixpanel: MixpanelCtor };
+  // Metro resolves this to an empty stub until the SDK is installed (see metro.config.js + DESIGN.md
+  // Appendix B); only ever executed once a token is configured, so the stub is never constructed.
+  return require("mixpanel-react-native") as { Mixpanel: MixpanelCtor };
 }
 
 /** Builds the live backend. Called only when a token is present, so `loadMixpanel` never runs otherwise. */
