@@ -17,8 +17,14 @@ describe('parseIngredientLine (C3, minimal deterministic)', () => {
     expect(parseIngredientLine('2 cups of whole milk')).toEqual({ name: 'whole milk', amount: '2', unit: 'cup', quantityText: '2 cups of whole milk' });
   });
 
-  it('leaves ambiguous lines unparsed but always preserves the display line (safety guard)', () => {
-    for (const raw of ['1 tbsp plus 1 tsp butter', '6-8 chicken wings', 'salt to taste', 'a handful of basil']) {
+  it('collapses a leading numeric range to its lower bound (conservative, common in recipes)', () => {
+    expect(parseIngredientLine('6-8 chicken wings')).toEqual({ name: 'chicken wings', amount: '6', unit: null, quantityText: '6-8 chicken wings' });
+    expect(parseIngredientLine('2-3 cups broth')).toEqual({ name: 'broth', amount: '2', unit: 'cup', quantityText: '2-3 cups broth' });
+    expect(parseIngredientLine('1 to 2 tablespoons olive oil')).toEqual({ name: 'olive oil', amount: '1', unit: 'tablespoon', quantityText: '1 to 2 tablespoons olive oil' });
+  });
+
+  it('leaves genuinely ambiguous lines unparsed but always preserves the display line (safety guard)', () => {
+    for (const raw of ['1 tbsp plus 1 tsp butter', 'salt to taste', 'a handful of basil']) {
       const r = parseIngredientLine(raw);
       expect(r.amount).toBeNull();
       expect(r.unit).toBeNull();

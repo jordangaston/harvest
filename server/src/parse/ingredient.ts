@@ -43,8 +43,13 @@ const UNIT_ALIASES: Record<string, string> = {
   liter: 'liter', liters: 'liter', litre: 'liter', litres: 'liter',
 };
 
-/** Ambiguous shapes we refuse to parse (would need unit-algebra to combine). */
-const AMBIGUOUS = /\bplus\b|\+|\d\s*[-–—]\s*\d|\bto\b\s+\d/i;
+/** Genuinely ambiguous shapes we refuse to parse (would need unit-algebra to
+ * combine two amounts). A numeric range is NOT here — it collapses to its lower
+ * bound below (deterministic, conservative), which real recipes use constantly. */
+const AMBIGUOUS = /\bplus\b|\+|\bto taste\b/i;
+
+/** A leading range ("2-3", "4 - 6", "1 to 2") → keep only the lower bound. */
+const LEADING_RANGE = /^(\d+(?:\.\d+)?|\d+\/\d+)(?:\s*[-–—]\s*|\s+to\s+)\d+(?:\.\d+)?/i;
 
 /** A leading amount: mixed "1 1/2", fraction "1/2", unicode "½", or decimal "2.5". */
 const LEADING_AMOUNT = /^(\d+\s+\d+\/\d+|\d+\/\d+|[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+)?)/;
@@ -72,7 +77,8 @@ function toAmountString(n: number): string {
  */
 export function parseIngredientLine(raw: string): StructuredIngredient {
   const quantityText = raw;
-  const line = raw.trim().replace(/\s+/g, ' ');
+  // Collapse a leading numeric range to its lower bound ("2-3 cups" → "2 cups").
+  const line = raw.trim().replace(/\s+/g, ' ').replace(LEADING_RANGE, '$1');
   const unparsed: StructuredIngredient = { name: line, amount: null, unit: null, quantityText };
 
   if (AMBIGUOUS.test(line)) return unparsed;

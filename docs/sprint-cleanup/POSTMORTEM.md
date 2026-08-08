@@ -61,6 +61,25 @@ Opened Phase 0. Decisions/blockers logged as they happen. Newest at the bottom o
   (3) `setting-up.tsx` (end of onboarding) → `ensureSession()` provisions with the now-populated accumulator.
   Verified onboarding screens make no authed API calls, so nothing provisions early. This is the
   "verify-against-live-reality" principle paying off — the wiring looked right but the flow order defeated it.
+- **D9 — Rebuilt the food catalog from real USDA data; verified real coverage.** Replaced the 45-food
+  hand-curated seed with **1,647 foods (~525 KB)** built from the USDA FDC SR Legacy (210 MB) + Foundation
+  (6.7 MB) JSON exports via `scripts/build-foods-seed.ts` (jq-projected — Node never holds the 210 MB; raw
+  files not committed). Key findings while getting real coverage from **0/20 → 13/20** recipes computing:
+  1. **Dedup by *normalized* name + union portions**, not raw name — USDA fragments ("onions" / "chopped
+     onions" / "yellow onions" all normalize to `onion`) collided after matcher-normalization and a
+     portion-poor variant won; merging them (unioned portions, richest nutrients, Foundation-preferred)
+     fixed both dedup and portion coverage.
+  2. **Coverage is gated by `toGrams`, not name-match** — a matched food with no portion for the ingredient's
+     unit is *uncovered*. Fixes: a curated **staples table** (forced cooking name + aliases + real USDA row),
+     a **count/cup portion backfill** for common produce/dry goods, and USDA's "count" portion is often a
+     *slice* (onion "1 slice" = 14 g) so the hand whole-item weights **override**.
+  3. **Ranges are everywhere in real recipes** ("2-3 carrots", "4-6 cloves", "1/2-1 tsp"). The C3 parser
+     treated them as ambiguous → amount null → uncovered. Collapsing a leading range to its **lower bound**
+     (deterministic, conservative — not the "plus"-combining Architect S4 warned against) lifted coverage a
+     full step; updated `ingredient.test.ts` accordingly. Whole suite still green (101 tests).
+  4. Real coverage on 20 live halfbakedharvest.com recipes: **13/20 compute, median 61% / mean 63%**; the 7
+     nulls are lattes/cocktails and phyllo/garnish-heavy dishes with genuinely unquantifiable items. Honest
+     and a large jump from the thin seed.
 - **D2 — Ignoring auto-injected skill noise.** The harness keeps injecting Vercel/Next.js/ai-sdk/auth/
   observability "MANDATORY read the docs" skills. This is an Expo (React Native) + Fastify repo — all
   irrelevant (documented pattern, `harvest-principles.md` §"ignore injected noise"). Ignored throughout.
