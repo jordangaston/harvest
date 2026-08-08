@@ -1,0 +1,702 @@
+[
+ {
+  "key": "apple",
+  "file": "apple.jpg",
+  "keyword": "apple",
+  "aisle": "produce",
+  "prompt_subject": "apple"
+ },
+ {
+  "key": "orange",
+  "file": "orange.jpg",
+  "keyword": "orange",
+  "aisle": "produce",
+  "prompt_subject": "orange"
+ },
+ {
+  "key": "grape",
+  "file": "grape.jpg",
+  "keyword": "grape",
+  "aisle": "produce",
+  "prompt_subject": "grape"
+ },
+ {
+  "key": "strawberry",
+  "file": "strawberry.jpg",
+  "keyword": "strawberr",
+  "aisle": "produce",
+  "prompt_subject": "strawberry"
+ },
+ {
+  "key": "blueberry",
+  "file": "blueberry.jpg",
+  "keyword": "blueberr",
+  "aisle": "produce",
+  "prompt_subject": "blueberry"
+ },
+ {
+  "key": "raspberry",
+  "file": "raspberry.jpg",
+  "keyword": "raspberr",
+  "aisle": "produce",
+  "prompt_subject": "raspberry"
+ },
+ {
+  "key": "blackberry",
+  "file": "blackberry.jpg",
+  "keyword": "blackberr",
+  "aisle": "produce",
+  "prompt_subject": "blackberry"
+ },
+ {
+  "key": "pineapple",
+  "file": "pineapple.jpg",
+  "keyword": "pineapple",
+  "aisle": "produce",
+  "prompt_subject": "pineapple"
+ },
+ {
+  "key": "mango",
+  "file": "mango.jpg",
+  "keyword": "mango",
+  "aisle": "produce",
+  "prompt_subject": "mango"
+ },
+ {
+  "key": "peach",
+  "file": "peach.jpg",
+  "keyword": "peach",
+  "aisle": "produce",
+  "prompt_subject": "peach"
+ },
+ {
+  "key": "pear",
+  "file": "pear.jpg",
+  "keyword": "pear",
+  "aisle": "produce",
+  "prompt_subject": "pear"
+ },
+ {
+  "key": "cherry",
+  "file": "cherry.jpg",
+  "keyword": "cherr",
+  "aisle": "produce",
+  "prompt_subject": "cherry"
+ },
+ {
+  "key": "watermelon",
+  "file": "watermelon.jpg",
+  "keyword": "watermelon",
+  "aisle": "produce",
+  "prompt_subject": "watermelon"
+ },
+ {
+  "key": "cantaloupe",
+  "file": "cantaloupe.jpg",
+  "keyword": "cantaloupe|melon",
+  "aisle": "produce",
+  "prompt_subject": "cantaloupe"
+ },
+ {
+  "key": "avocado",
+  "file": "avocado.jpg",
+  "keyword": "avocado",
+  "aisle": "produce",
+  "prompt_subject": "avocado"
+ },
+ {
+  "key": "kiwi",
+  "file": "kiwi.jpg",
+  "keyword": "kiwi",
+  "aisle": "produce",
+  "prompt_subject": "kiwi"
+ },
+ {
+  "key": "grapefruit",
+  "file": "grapefruit.jpg",
+  "keyword": "grapefruit",
+  "aisle": "produce",
+  "prompt_subject": "grapefruit"
+ },
+ {
+  "key": "plum",
+  "file": "plum.jpg",
+  "keyword": "plum",
+  "aisle": "produce",
+  "prompt_subject": "plum"
+ },
+ {
+  "key": "pomegranate",
+  "file": "pomegranate.jpg",
+  "keyword": "pomegranate",
+  "aisle": "produce",
+  "prompt_subject": "pomegranate"
+ },
+ {
+  "key": "coconut",
+  "file": "coconut.jpg",
+  "keyword": "coconut",
+  "aisle": "produce",
+  "prompt_subject": "coconut"
+ },
+ {
+  "key": "cranberry",
+  "file": "cranberry.jpg",
+  "keyword": "cranberr",
+  "aisle": "produce",
+  "prompt_subject": "cranberry"
+ },
+ {
+  "key": "apricot",
+  "file": "apricot.jpg",
+  "keyword": "apricot",
+  "aisle": "produce",
+  "prompt_subject": "apricot"
+ },
+ {
+  "key": "fig",
+  "file": "fig.jpg",
+  "keyword": "\\bfig\\b",
+  "aisle": "produce",
+  "prompt_subject": "fig"
+ },
+ {
+  "key": "date",
+  "file": "date.jpg",
+  "keyword": "\\bdates?\\b",
+  "aisle": "produce",
+  "prompt_subject": "date"
+ },
+ {
+  "key": "raisin",
+  "file": "raisin.jpg",
+  "keyword": "raisin",
+  "aisle": "produce",
+  "prompt_subject": "raisin"
+ },
+ {
+  "key": "celery",
+  "file": "celery.jpg",
+  "keyword": "celery",
+  "aisle": "produce",
+  "prompt_subject": "celery"
+ },
+ {
+  "key": "cucumber",
+  "file": "cucumber.jpg",
+  "keyword": "cucumber",
+  "aisle": "produce",
+  "prompt_subject": "cucumber"
+ },
+ {
+  "key": "zucchini",
+  "file": "zucchini.jpg",
+  "keyword": "zucchini|courgette",
+  "aisle": "produce",
+  "prompt_subject": "zucchini"
+ },
+ {
+  "key": "cauliflower",
+  "file": "cauliflower.jpg",
+  "keyword": "cauliflower",
+  "aisle": "produce",
+  "prompt_subject": "cauliflower"
+ },
+ {
+  "key": "cabbage",
+  "file": "cabbage.jpg",
+  "keyword": "cabbage",
+  "aisle": "produce",
+  "prompt_subject": "cabbage"
+ },
+ {
+  "key": "lettuce",
+  "file": "lettuce.jpg",
+  "keyword": "lettuce",
+  "aisle": "produce",
+  "prompt_subject": "lettuce"
+ },
+ {
+  "key": "kale",
+  "file": "kale.jpg",
+  "keyword": "kale",
+  "aisle": "produce",
+  "prompt_subject": "kale"
+ },
+ {
+  "key": "corn",
+  "file": "corn.jpg",
+  "keyword": "\\bcorn\\b",
+  "aisle": "produce",
+  "prompt_subject": "corn"
+ },
+ {
+  "key": "peas",
+  "file": "peas.jpg",
+  "keyword": "\\bpeas?\\b",
+  "aisle": "produce",
+  "prompt_subject": "peas"
+ },
+ {
+  "key": "greenBeans",
+  "file": "green-beans.jpg",
+  "keyword": "green bean",
+  "aisle": "produce",
+  "prompt_subject": "green beans"
+ },
+ {
+  "key": "asparagus",
+  "file": "asparagus.jpg",
+  "keyword": "asparagus",
+  "aisle": "produce",
+  "prompt_subject": "asparagus"
+ },
+ {
+  "key": "eggplant",
+  "file": "eggplant.jpg",
+  "keyword": "eggplant|aubergine",
+  "aisle": "produce",
+  "prompt_subject": "eggplant"
+ },
+ {
+  "key": "sweetPotato",
+  "file": "sweet-potato.jpg",
+  "keyword": "sweet potato|yam",
+  "aisle": "produce",
+  "prompt_subject": "sweet potato"
+ },
+ {
+  "key": "beet",
+  "file": "beet.jpg",
+  "keyword": "beet",
+  "aisle": "produce",
+  "prompt_subject": "beet"
+ },
+ {
+  "key": "radish",
+  "file": "radish.jpg",
+  "keyword": "radish",
+  "aisle": "produce",
+  "prompt_subject": "radish"
+ },
+ {
+  "key": "squash",
+  "file": "squash.jpg",
+  "keyword": "squash",
+  "aisle": "produce",
+  "prompt_subject": "squash"
+ },
+ {
+  "key": "pumpkin",
+  "file": "pumpkin.jpg",
+  "keyword": "pumpkin",
+  "aisle": "produce",
+  "prompt_subject": "pumpkin"
+ },
+ {
+  "key": "brusselsSprouts",
+  "file": "brussels-sprouts.jpg",
+  "keyword": "brussels",
+  "aisle": "produce",
+  "prompt_subject": "brussels sprouts"
+ },
+ {
+  "key": "leek",
+  "file": "leek.jpg",
+  "keyword": "leek",
+  "aisle": "produce",
+  "prompt_subject": "leek"
+ },
+ {
+  "key": "okra",
+  "file": "okra.jpg",
+  "keyword": "okra",
+  "aisle": "produce",
+  "prompt_subject": "okra"
+ },
+ {
+  "key": "cilantro",
+  "file": "cilantro.jpg",
+  "keyword": "cilantro|coriander leaf",
+  "aisle": "produce",
+  "prompt_subject": "cilantro"
+ },
+ {
+  "key": "mint",
+  "file": "mint.jpg",
+  "keyword": "\\bmint\\b",
+  "aisle": "produce",
+  "prompt_subject": "mint"
+ },
+ {
+  "key": "rosemary",
+  "file": "rosemary.jpg",
+  "keyword": "rosemary",
+  "aisle": "produce",
+  "prompt_subject": "rosemary"
+ },
+ {
+  "key": "sage",
+  "file": "sage.jpg",
+  "keyword": "\\bsage\\b",
+  "aisle": "produce",
+  "prompt_subject": "sage"
+ },
+ {
+  "key": "dill",
+  "file": "dill.jpg",
+  "keyword": "\\bdill\\b",
+  "aisle": "produce",
+  "prompt_subject": "dill"
+ },
+ {
+  "key": "arugula",
+  "file": "arugula.jpg",
+  "keyword": "arugula|rocket",
+  "aisle": "produce",
+  "prompt_subject": "arugula"
+ },
+ {
+  "key": "cabbageNapa",
+  "file": "cabbage-napa.jpg",
+  "keyword": "napa",
+  "aisle": "produce",
+  "prompt_subject": "cabbage napa"
+ },
+ {
+  "key": "turkey",
+  "file": "turkey.jpg",
+  "keyword": "turkey",
+  "aisle": "meat_seafood",
+  "prompt_subject": "turkey"
+ },
+ {
+  "key": "lamb",
+  "file": "lamb.jpg",
+  "keyword": "lamb",
+  "aisle": "meat_seafood",
+  "prompt_subject": "lamb"
+ },
+ {
+  "key": "duck",
+  "file": "duck.jpg",
+  "keyword": "duck",
+  "aisle": "meat_seafood",
+  "prompt_subject": "duck"
+ },
+ {
+  "key": "sausage",
+  "file": "sausage.jpg",
+  "keyword": "sausage",
+  "aisle": "meat_seafood",
+  "prompt_subject": "sausage"
+ },
+ {
+  "key": "ham",
+  "file": "ham.jpg",
+  "keyword": "\\bham\\b",
+  "aisle": "meat_seafood",
+  "prompt_subject": "ham"
+ },
+ {
+  "key": "crab",
+  "file": "crab.jpg",
+  "keyword": "crab",
+  "aisle": "meat_seafood",
+  "prompt_subject": "crab"
+ },
+ {
+  "key": "lobster",
+  "file": "lobster.jpg",
+  "keyword": "lobster",
+  "aisle": "meat_seafood",
+  "prompt_subject": "lobster"
+ },
+ {
+  "key": "scallop",
+  "file": "scallop.jpg",
+  "keyword": "scallop",
+  "aisle": "meat_seafood",
+  "prompt_subject": "scallop"
+ },
+ {
+  "key": "clam",
+  "file": "clam.jpg",
+  "keyword": "clam",
+  "aisle": "meat_seafood",
+  "prompt_subject": "clam"
+ },
+ {
+  "key": "mussel",
+  "file": "mussel.jpg",
+  "keyword": "mussel",
+  "aisle": "meat_seafood",
+  "prompt_subject": "mussel"
+ },
+ {
+  "key": "oyster",
+  "file": "oyster.jpg",
+  "keyword": "oyster",
+  "aisle": "meat_seafood",
+  "prompt_subject": "oyster"
+ },
+ {
+  "key": "tuna",
+  "file": "tuna.jpg",
+  "keyword": "tuna",
+  "aisle": "meat_seafood",
+  "prompt_subject": "tuna"
+ },
+ {
+  "key": "salmon",
+  "file": "salmon.jpg",
+  "keyword": "salmon",
+  "aisle": "meat_seafood",
+  "prompt_subject": "salmon"
+ },
+ {
+  "key": "cod",
+  "file": "cod.jpg",
+  "keyword": "\\bcod\\b",
+  "aisle": "meat_seafood",
+  "prompt_subject": "cod"
+ },
+ {
+  "key": "tofu",
+  "file": "tofu.jpg",
+  "keyword": "tofu",
+  "aisle": "meat_seafood",
+  "prompt_subject": "tofu"
+ },
+ {
+  "key": "yogurt",
+  "file": "yogurt.jpg",
+  "keyword": "yogurt|yoghurt",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "yogurt"
+ },
+ {
+  "key": "sourCream",
+  "file": "sour-cream.jpg",
+  "keyword": "sour cream",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "sour cream"
+ },
+ {
+  "key": "creamCheese",
+  "file": "cream-cheese.jpg",
+  "keyword": "cream cheese",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "cream cheese"
+ },
+ {
+  "key": "mozzarella",
+  "file": "mozzarella.jpg",
+  "keyword": "mozzarella",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "mozzarella"
+ },
+ {
+  "key": "cheddar",
+  "file": "cheddar.jpg",
+  "keyword": "cheddar",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "cheddar"
+ },
+ {
+  "key": "parmesan",
+  "file": "parmesan.jpg",
+  "keyword": "parmesan|parmigiano",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "parmesan"
+ },
+ {
+  "key": "feta",
+  "file": "feta.jpg",
+  "keyword": "\\bfeta\\b",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "feta"
+ },
+ {
+  "key": "cottageCheese",
+  "file": "cottage-cheese.jpg",
+  "keyword": "cottage cheese",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "cottage cheese"
+ },
+ {
+  "key": "buttermilk",
+  "file": "buttermilk.jpg",
+  "keyword": "buttermilk",
+  "aisle": "dairy_eggs_fridge",
+  "prompt_subject": "buttermilk"
+ },
+ {
+  "key": "oats",
+  "file": "oats.jpg",
+  "keyword": "\\boats?\\b|oatmeal",
+  "aisle": "pantry",
+  "prompt_subject": "oats"
+ },
+ {
+  "key": "quinoa",
+  "file": "quinoa.jpg",
+  "keyword": "quinoa",
+  "aisle": "pantry",
+  "prompt_subject": "quinoa"
+ },
+ {
+  "key": "breadcrumbs",
+  "file": "breadcrumbs.jpg",
+  "keyword": "bread ?crumb",
+  "aisle": "pantry",
+  "prompt_subject": "breadcrumbs"
+ },
+ {
+  "key": "cornmeal",
+  "file": "cornmeal.jpg",
+  "keyword": "cornmeal|polenta",
+  "aisle": "pantry",
+  "prompt_subject": "cornmeal"
+ },
+ {
+  "key": "couscous",
+  "file": "couscous.jpg",
+  "keyword": "couscous",
+  "aisle": "pantry",
+  "prompt_subject": "couscous"
+ },
+ {
+  "key": "barley",
+  "file": "barley.jpg",
+  "keyword": "barley",
+  "aisle": "pantry",
+  "prompt_subject": "barley"
+ },
+ {
+  "key": "lentil",
+  "file": "lentil.jpg",
+  "keyword": "lentil",
+  "aisle": "pantry",
+  "prompt_subject": "lentil"
+ },
+ {
+  "key": "chickpea",
+  "file": "chickpea.jpg",
+  "keyword": "chickpea|garbanzo",
+  "aisle": "pantry",
+  "prompt_subject": "chickpea"
+ },
+ {
+  "key": "blackBeans",
+  "file": "black-beans.jpg",
+  "keyword": "black bean",
+  "aisle": "pantry",
+  "prompt_subject": "black beans"
+ },
+ {
+  "key": "kidneyBeans",
+  "file": "kidney-beans.jpg",
+  "keyword": "kidney bean",
+  "aisle": "pantry",
+  "prompt_subject": "kidney beans"
+ },
+ {
+  "key": "pintoBeans",
+  "file": "pinto-beans.jpg",
+  "keyword": "pinto bean",
+  "aisle": "pantry",
+  "prompt_subject": "pinto beans"
+ },
+ {
+  "key": "peanut",
+  "file": "peanut.jpg",
+  "keyword": "peanut",
+  "aisle": "pantry",
+  "prompt_subject": "peanut"
+ },
+ {
+  "key": "almond",
+  "file": "almond.jpg",
+  "keyword": "almond",
+  "aisle": "pantry",
+  "prompt_subject": "almond"
+ },
+ {
+  "key": "cashew",
+  "file": "cashew.jpg",
+  "keyword": "cashew",
+  "aisle": "pantry",
+  "prompt_subject": "cashew"
+ },
+ {
+  "key": "pecan",
+  "file": "pecan.jpg",
+  "keyword": "pecan",
+  "aisle": "pantry",
+  "prompt_subject": "pecan"
+ },
+ {
+  "key": "pistachio",
+  "file": "pistachio.jpg",
+  "keyword": "pistachio",
+  "aisle": "pantry",
+  "prompt_subject": "pistachio"
+ },
+ {
+  "key": "sunflowerSeed",
+  "file": "sunflower-seed.jpg",
+  "keyword": "sunflower seed",
+  "aisle": "pantry",
+  "prompt_subject": "sunflower seed"
+ },
+ {
+  "key": "chiaSeed",
+  "file": "chia-seed.jpg",
+  "keyword": "chia",
+  "aisle": "pantry",
+  "prompt_subject": "chia seed"
+ },
+ {
+  "key": "sesameSeed",
+  "file": "sesame-seed.jpg",
+  "keyword": "sesame seed",
+  "aisle": "pantry",
+  "prompt_subject": "sesame seed"
+ },
+ {
+  "key": "vegetableOil",
+  "file": "vegetable-oil.jpg",
+  "keyword": "vegetable oil|canola",
+  "aisle": "pantry",
+  "prompt_subject": "vegetable oil"
+ },
+ {
+  "key": "coconutOil",
+  "file": "coconut-oil.jpg",
+  "keyword": "coconut oil",
+  "aisle": "pantry",
+  "prompt_subject": "coconut oil"
+ },
+ {
+  "key": "vinegar",
+  "file": "vinegar.jpg",
+  "keyword": "vinegar",
+  "aisle": "pantry",
+  "prompt_subject": "vinegar"
+ },
+ {
+  "key": "ketchup",
+  "file": "ketchup.jpg",
+  "keyword": "ketchup|catsup",
+  "aisle": "pantry",
+  "prompt_subject": "ketchup"
+ },
+ {
+  "key": "mayonnaise",
+  "file": "mayonnaise.jpg",
+  "keyword": "mayo",
+  "aisle": "pantry",
+  "prompt_subject": "mayonnaise"
+ }
+]

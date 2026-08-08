@@ -1,0 +1,962 @@
+[
+  {
+    "canonicalName": "almond butter",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "almond"
+  },
+  {
+    "canonicalName": "almond milk",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "almond"
+  },
+  {
+    "canonicalName": "anchovies",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "apple juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "apple"
+  },
+  {
+    "canonicalName": "apples",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "apple"
+  },
+  {
+    "canonicalName": "applesauce",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "apple"
+  },
+  {
+    "canonicalName": "apricot",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "apricot"
+  },
+  {
+    "canonicalName": "arugula",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "arugula"
+  },
+  {
+    "canonicalName": "asparagus",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "asparagus"
+  },
+  {
+    "canonicalName": "avocado",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "avocado"
+  },
+  {
+    "canonicalName": "bagel",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "bagel"
+  },
+  {
+    "canonicalName": "bananas",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "banana"
+  },
+  {
+    "canonicalName": "beans",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "beef",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "beef"
+  },
+  {
+    "canonicalName": "beer",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "beer"
+  },
+  {
+    "canonicalName": "beet greens",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "beet"
+  },
+  {
+    "canonicalName": "beets",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "beet"
+  },
+  {
+    "canonicalName": "bison",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "blackberries",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "blackberry"
+  },
+  {
+    "canonicalName": "blackeye pea",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "peas"
+  },
+  {
+    "canonicalName": "blueberries",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "blueberry"
+  },
+  {
+    "canonicalName": "bread",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "bread"
+  },
+  {
+    "canonicalName": "broccoli",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "broccoli"
+  },
+  {
+    "canonicalName": "brussels sprouts",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "brusselsSprouts"
+  },
+  {
+    "canonicalName": "buckwheat",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "bulgur",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "buns",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "bun"
+  },
+  {
+    "canonicalName": "butter",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "butter"
+  },
+  {
+    "canonicalName": "buttermilk",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "buttermilk"
+  },
+  {
+    "canonicalName": "cabbage",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cabbage"
+  },
+  {
+    "canonicalName": "carrots",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "carrot"
+  },
+  {
+    "canonicalName": "cauliflower",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cauliflower"
+  },
+  {
+    "canonicalName": "celery",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "celery"
+  },
+  {
+    "canonicalName": "cheese",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "cheese"
+  },
+  {
+    "canonicalName": "cherries",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cherry"
+  },
+  {
+    "canonicalName": "chia seeds",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "chiaSeed"
+  },
+  {
+    "canonicalName": "chicken",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "chicken"
+  },
+  {
+    "canonicalName": "chickpeas",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "chickpea"
+  },
+  {
+    "canonicalName": "chickpeas (garbanzo beans",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "chickpea"
+  },
+  {
+    "canonicalName": "cod",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "cod"
+  },
+  {
+    "canonicalName": "coffee",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "coffee"
+  },
+  {
+    "canonicalName": "collards",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "cookies",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "corn",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "corn"
+  },
+  {
+    "canonicalName": "corn flour",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "corn"
+  },
+  {
+    "canonicalName": "cottage cheese",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "cottageCheese"
+  },
+  {
+    "canonicalName": "cranberry juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cranberry"
+  },
+  {
+    "canonicalName": "cream",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "cream"
+  },
+  {
+    "canonicalName": "cream cheese",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "creamCheese"
+  },
+  {
+    "canonicalName": "croissant",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "croissant"
+  },
+  {
+    "canonicalName": "crustaceans",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "cucumber",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cucumber"
+  },
+  {
+    "canonicalName": "egg",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "egg"
+  },
+  {
+    "canonicalName": "eggplant",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "eggplant"
+  },
+  {
+    "canonicalName": "eggs",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "egg"
+  },
+  {
+    "canonicalName": "einkorn",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "farro",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "fennel",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "figs",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "fish",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "fish"
+  },
+  {
+    "canonicalName": "flaxseed",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "flour",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "flour"
+  },
+  {
+    "canonicalName": "fonio",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "frankfurter",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "garlic",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "garlic"
+  },
+  {
+    "canonicalName": "grape juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "grape"
+  },
+  {
+    "canonicalName": "grapefruit juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "grapefruit"
+  },
+  {
+    "canonicalName": "grapes",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "grape"
+  },
+  {
+    "canonicalName": "green onion",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "scallion"
+  },
+  {
+    "canonicalName": "halibut",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "ham",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "ham"
+  },
+  {
+    "canonicalName": "hummus",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "ice cream",
+    "aisle": "frozen",
+    "defaultUnit": "package",
+    "iconKey": "iceCream"
+  },
+  {
+    "canonicalName": "juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "kale",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "kale"
+  },
+  {
+    "canonicalName": "ketchup",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "ketchup"
+  },
+  {
+    "canonicalName": "khorasan",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "kiwifruit",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "kiwi"
+  },
+  {
+    "canonicalName": "kiwifruit (kiwi)",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "kiwi"
+  },
+  {
+    "canonicalName": "lamb",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "lamb"
+  },
+  {
+    "canonicalName": "leeks",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "leek"
+  },
+  {
+    "canonicalName": "lentils",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "lentil"
+  },
+  {
+    "canonicalName": "lettuce",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "lettuce"
+  },
+  {
+    "canonicalName": "lobster",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "lobster"
+  },
+  {
+    "canonicalName": "mahi mahi",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "mandarin",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "mango",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "mango"
+  },
+  {
+    "canonicalName": "melons",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "cantaloupe"
+  },
+  {
+    "canonicalName": "milk",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "milk"
+  },
+  {
+    "canonicalName": "millet",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "mushroom",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "mushroom"
+  },
+  {
+    "canonicalName": "mushrooms",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "mushroom"
+  },
+  {
+    "canonicalName": "mustard",
+    "aisle": "herbs_spices",
+    "defaultUnit": "teaspoon",
+    "iconKey": "mustard"
+  },
+  {
+    "canonicalName": "nectarines",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "nuts",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "oat milk",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "oats"
+  },
+  {
+    "canonicalName": "oats",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "oats"
+  },
+  {
+    "canonicalName": "oil",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "olives",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "onion rings",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "onion"
+  },
+  {
+    "canonicalName": "onions",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "onion"
+  },
+  {
+    "canonicalName": "orange juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "orange"
+  },
+  {
+    "canonicalName": "oranges",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "orange"
+  },
+  {
+    "canonicalName": "parsnips",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "pawpaw",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "peaches",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "peach"
+  },
+  {
+    "canonicalName": "peanut butter",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "peanut"
+  },
+  {
+    "canonicalName": "peanuts",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "peanut"
+  },
+  {
+    "canonicalName": "pear",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "pear"
+  },
+  {
+    "canonicalName": "pears",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "pear"
+  },
+  {
+    "canonicalName": "peas",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "peas"
+  },
+  {
+    "canonicalName": "peppers",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "pepper"
+  },
+  {
+    "canonicalName": "pickles",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "pineapple",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "apple"
+  },
+  {
+    "canonicalName": "pita",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "pita"
+  },
+  {
+    "canonicalName": "plantains",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "plum",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "pork",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "pork"
+  },
+  {
+    "canonicalName": "potatoes",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "potato"
+  },
+  {
+    "canonicalName": "radicchio",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "radishes",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "radish"
+  },
+  {
+    "canonicalName": "raspberries",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "raspberry"
+  },
+  {
+    "canonicalName": "restaurant",
+    "aisle": "other",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "rice",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "rice"
+  },
+  {
+    "canonicalName": "rutabaga",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "salt",
+    "aisle": "herbs_spices",
+    "defaultUnit": "teaspoon",
+    "iconKey": "salt"
+  },
+  {
+    "canonicalName": "sauce",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "sausage",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "sausage"
+  },
+  {
+    "canonicalName": "scallops",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "scallop"
+  },
+  {
+    "canonicalName": "sea bass",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "seeds",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "sesame butter",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "butter"
+  },
+  {
+    "canonicalName": "shallots",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "onion"
+  },
+  {
+    "canonicalName": "snapper",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "snow crab",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "crab"
+  },
+  {
+    "canonicalName": "sorghum",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "sorghum bran",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "sorghum flour",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "flour"
+  },
+  {
+    "canonicalName": "sorghum grain",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "soy milk",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "soySauce"
+  },
+  {
+    "canonicalName": "spinach",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "spinach"
+  },
+  {
+    "canonicalName": "squash",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "squash"
+  },
+  {
+    "canonicalName": "squid (calamari)",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "strawberries",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "strawberry"
+  },
+  {
+    "canonicalName": "sugars",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "sweet potatoes",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "sweetPotato"
+  },
+  {
+    "canonicalName": "swordfish",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "tea",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "tea"
+  },
+  {
+    "canonicalName": "tomatillos",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "tomato",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "tomato"
+  },
+  {
+    "canonicalName": "tomato juice",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "tomato"
+  },
+  {
+    "canonicalName": "tomatoes",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "tomato"
+  },
+  {
+    "canonicalName": "tortilla",
+    "aisle": "bakery",
+    "defaultUnit": "count",
+    "iconKey": "tortilla"
+  },
+  {
+    "canonicalName": "tuna",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "tuna"
+  },
+  {
+    "canonicalName": "turkey",
+    "aisle": "meat_seafood",
+    "defaultUnit": "pound",
+    "iconKey": "turkey"
+  },
+  {
+    "canonicalName": "turnips",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "default"
+  },
+  {
+    "canonicalName": "watermelon",
+    "aisle": "produce",
+    "defaultUnit": "count",
+    "iconKey": "watermelon"
+  },
+  {
+    "canonicalName": "white wine",
+    "aisle": "beverages",
+    "defaultUnit": "count",
+    "iconKey": "whiteWine"
+  },
+  {
+    "canonicalName": "wild rice",
+    "aisle": "pantry",
+    "defaultUnit": "count",
+    "iconKey": "rice"
+  },
+  {
+    "canonicalName": "yogurt",
+    "aisle": "dairy_eggs_fridge",
+    "defaultUnit": "count",
+    "iconKey": "yogurt"
+  }
+]
