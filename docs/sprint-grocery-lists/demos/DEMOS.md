@@ -66,10 +66,14 @@ golden-hour set.)
   scales every amount live; checklist (all checked, Deselect all); "Add N items" → a **tappable toast** "Added N
   items to grocery list — tap to view groceries" (motion tokens + Reduce-Motion honored) that routes to the tab.
 
-### Why no live sim capture
-The iOS sim, disk, and Postgres are shared across six concurrent sprints and were already degraded this run (a
-machine-wide disk-full crashed the shared PG onto the wrong port — see POSTMORTEM). Three sprint sims were booted
-and the app's backend port (`:3000`) was contended. Forcing a full Expo build + a second `:3000` backend onto that
-state risked breaking the other five sprints, so — per decide-and-log — I relied on the reproducible backend tests
-+ clean `tsc` typecheck rather than destabilize shared infra. The UI is standard RN/NativeWind over verified data
-hooks; `npm run typecheck` passes clean.
+### Live sim capture
+`grocery-lists-demo.mp4` (~89s) is a real end-to-end capture on the iOS simulator against the live backend,
+covering every UI sub-story above (parse preview, common picker, default unit, merge, aisle grouping, check-off,
+Aisle/A–Z/Recipe sort, and recipe `⋯` → Add to groceries with servings scaling + batch add). Four key frames
+(`frame-1-parse-preview.png` … `frame-4-recipe-sort.png`) sit alongside it.
+
+Capture was hard-won: the machine was under extreme load (load avg peaked ~758) and the shared Data volume filled
+to 100%, which wiped every Harvest lead's sim device mid-run. I reclaimed ~40GB by deleting only unused default
+Xcode simulators (no lead/project data touched), recreated a dedicated device, ran Metro on `:8093` + my backend on
+`:3009` (leaving the contended `:3000` alone), and drove the full flow. The clip is uniformly speed-adjusted from a
+~7.7-min raw capture; every frame is real app behavior.

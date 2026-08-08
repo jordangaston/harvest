@@ -55,9 +55,17 @@ servings), view them grouped by aisle, sorted by aisle / recipe / A–Z, and che
   coordinator reconciles at integration (self-contained migration).
 
 ## Demo
-See `demos/DEMOS.md` — backend sub-stories demoed via tests against the real app+DB (reproduce command included);
-UI walkthrough code-mapped. A live sim capture was skipped by decide-and-log to avoid destabilizing the shared
-machine (disk/PG/sim were degraded; details in POSTMORTEM).
+- **Live video (iOS simulator):** [`demos/grocery-lists-demo.mp4`](demos/grocery-lists-demo.mp4) — a real end-to-end
+  capture on the simulator against the live backend, covering every sub-story: F-G1 (manual add with the live
+  quantity/unit/keyword **parse preview**, the common-ingredient picker, per-aisle default unit, and **merge** —
+  "chicken · 2 lb" + "1 lb chicken" → "chicken · 3 lb"), F-G3 (aisle-grouped list with painterly icons, **check-off**
+  strike + sink, and the **Sort** sheet across Aisle / A–Z / Recipe), and F-G2 (recipe `⋯` → **Add to groceries**,
+  **servings stepper** scaling 4→6, batch "Add 5 items", and the merged result grouped under the recipe vs. "Added
+  manually"). Key frames: `demos/frame-1-parse-preview.png`, `frame-2-aisle-grouping-merge.png`,
+  `frame-3-recipe-servings-scale.png`, `frame-4-recipe-sort.png`. (Clip is speed-adjusted to ~89s from the raw
+  capture; every frame is real app behavior.)
+- **Backend sub-stories** are additionally demoed via tests against the real app+DB — see `demos/DEMOS.md`
+  (reproduce command included).
 
 ## Follow-ups
 - Restore a canonical Postgres on 5432 (coordinator; shared-infra, escalated).
