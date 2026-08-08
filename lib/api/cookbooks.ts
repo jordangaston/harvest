@@ -1,5 +1,6 @@
 import { apiFetch } from "./client";
 import type { ApiCookbook, CookbookView } from "./types";
+import { analytics } from "../analytics";
 
 export async function listCookbooks(): Promise<ApiCookbook[]> {
   const { cookbooks } = await apiFetch<{ cookbooks: ApiCookbook[] }>("/v1/cookbooks");
@@ -16,5 +17,6 @@ export async function createCookbook(name: string): Promise<ApiCookbook> {
     method: "POST",
     body: JSON.stringify({ cookbook: { name } }),
   });
+  analytics.track("Cookbook Created", { cookbook_id: cookbook.id });
   return cookbook;
 }
