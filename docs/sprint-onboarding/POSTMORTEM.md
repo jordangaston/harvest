@@ -6,8 +6,12 @@ Decide-and-log: every non-obvious call made without pausing the founder.
 - **Test-DB isolation:** six worktrees share one Postgres; `global-setup` resets the schema. Before
   running the server suite I point it at `harvest_test_onboarding` / `harvest_dbos_onboarding` via
   `server/vitest.config.ts` `test.env`, run green, then **revert the edit before commit** (log the run).
-- **Sim isolation (addendum):** the iOS sim is shared. I boot a dedicated device `Harvest-onboarding`,
-  target it via `IDB_UDID`, and run Metro on a unique port. Sessions kept short.
+- **Sim isolation (addendum):** the iOS sim is shared (another worktree already booted `Harvest-phoneauth`
+  + `iPhone 16 Pro`). The plan was a dedicated `Harvest-onboarding` device on a unique Metro port — but I
+  did **not** boot one, because the app needs a multi-GB native dev build (NativeWind + Reanimated +
+  Worklets + expo-video; no Expo Go path) that would risk re-triggering the ENOSPC already seen on this
+  tight shared volume, and item-1 imports need external keys anyway. Verified via `expo export` (full JS
+  bundle) instead; interactive demos deferred to an env with keys + headroom.
 
 ## Environment reality (decide-and-log)
 - **No `node_modules`** in the fresh worktree; the committed `package-lock.json` is **out of sync** with
