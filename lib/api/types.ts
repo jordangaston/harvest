@@ -45,3 +45,46 @@ export type CookbookView = {
   cookbook: { id: string; name: string };
   recipes: { id: string; title: string; image_url?: string }[];
 };
+
+export type GroceryAisle =
+  | "produce"
+  | "meat_seafood"
+  | "dairy_eggs_fridge"
+  | "bakery"
+  | "pantry"
+  | "herbs_spices"
+  | "frozen"
+  | "beverages"
+  | "household"
+  | "other";
+
+export type ApiGroceryItem = {
+  id: string;
+  name: string;
+  amount: number | null;
+  unit: string | null;
+  quantity_text: string | null;
+  aisle: GroceryAisle;
+  icon: string;
+  checked: boolean;
+  source_recipe_id: string | null;
+  source_recipe_title: string | null;
+  position: number;
+};
+
+/** One item to add — the manual sheet sends one, a recipe sends many. */
+export type NewGroceryItem = {
+  name: string;
+  amount?: number | null;
+  unit?: string | null;
+  quantity_text?: string | null;
+  source_recipe_id?: string | null;
+};
+
+/** The common-ingredients contract from GET /v1/ingredients/common. */
+export type ApiCommonIngredient = {
+  canonicalName: string;
+  aisle: GroceryAisle;
+  defaultUnit: string;
+  iconKey: string;
+};

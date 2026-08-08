@@ -87,6 +87,22 @@ export const ageBandEnum = pgEnum('age_band', [
 export const nutritionSourceEnum = pgEnum('nutrition_source', ['parsed', 'computed']);
 export type NutritionSource = (typeof nutritionSourceEnum.enumValues)[number];
 
+/** W2 grocery aisle. Store-walk order so the default grouped view reads top-to-bottom
+ * like a shopping trip; `other` is the catch-all for anything the catalog can't place. */
+export const groceryAisleEnum = pgEnum('grocery_aisle', [
+  'produce',
+  'meat_seafood',
+  'dairy_eggs_fridge',
+  'bakery',
+  'pantry',
+  'herbs_spices',
+  'frozen',
+  'beverages',
+  'household',
+  'other',
+]);
+export type GroceryAisle = (typeof groceryAisleEnum.enumValues)[number];
+
 /** Machine-readable failure detail for a `failed` job (stored as text). */
 export type ImportErrorCode =
   | 'NO_RECIPE'
