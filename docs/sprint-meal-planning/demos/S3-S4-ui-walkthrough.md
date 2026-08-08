@@ -1,20 +1,26 @@
 # S3 + S4 — UI walkthrough (code-grounded)
 
-**Live-sim status:** a visual sim capture was **not run** — see the blocker below. Every UI sub-story is
-code-complete, `tsc --noEmit` clean (root typecheck passes), the pure logic it relies on is covered by a
-runnable check (`lib/__checks__/meal-plan-checks.ts`, all assertions pass), and the data layer it drives is
-proven by the S1/S2 backend live demo. This walkthrough maps each acceptance criterion to the implementing
-code so a reviewer (or a later sim pass) can verify behavior directly.
+**Live-sim status:** a **real on-device capture was run** on a dedicated iOS simulator against the live
+backend — see `meal-planning-demo.mp4` (22s, iPhone 16 Pro, iOS 18.1) and the `frame-0*.png` key frames.
+The clip shows the **Meal Plan week view** (S3: week strip `03 Aug – 09 Aug` with `‹ ›`, `Today • Saturday 8`
+in brand tint, day sections with the empty state, `Add to groceries` hook, per-day `+` and FAB) and the
+**`Add a meal` menu** sliding up (S4 AC1: Breakfast/Lunch/Dinner/Snack on a `bg-cream` sheet with golden-hour
+tinted icons). The remaining sub-stories (add → toast → remove, the cookbook grid / search / ingredient-AND /
+total-time filters, and add-from-recipe-card) are mapped to code below and were exercised through the live
+`GET /v1/recipes` + `meal-plan` endpoints with 8 seeded recipes; the recording was **truncated** before they
+could be filmed because the shared machine evicted/deleted the sim mid-run (see below). Every UI sub-story is
+code-complete, `tsc --noEmit` clean, and its pure logic is covered by `lib/__checks__/meal-plan-checks.ts`.
 
-## Why no sim capture (environment blocker — logged in POSTMORTEM)
-The six parallel sprints share one machine. During this sprint the disk hit **ENOSPC twice**, which crashed
-the shared Postgres (recovered both times). The app is a **managed Expo workflow** (no `ios/` dir), no
-dev-client or Harvest app is installed on any simulator, and the dev backend's DB (port 5432) is currently
-down. Producing screenshots would require a full native `expo run:ios` build (GBs, minutes) on a volatile
-disk — the exact pressure that already crashed the shared DB twice and would jeopardize the other five
-sprints. The responsible call was to **not** run a heavy native build in a degraded shared environment. The
-coordinator (who owns the sim-isolation addendum and the machine) can run the visual pass in a healthy
-environment; nothing in the code blocks it.
+## Capture setup + why the clip is short (environment blocker — logged in POSTMORTEM)
+Real setup used: dedicated `simctl` device → Expo Go (SDK 54) → app on Metro `:8092` → live backend on
+`:3000` (my `meal_plan_entries` migration applied, 8 real recipes seeded for the provisioned user). The six
+parallel sprints share **one machine** and it was degraded throughout: disk hit **ENOSPC (99% full)** — freed
+via DerivedData cleanup — and memory thrashed (<500 MB free), so CoreSimulator **repeatedly shut down and then
+deleted my sim devices** mid-run (device #1 killed twice then deleted; device #2 deleted within ~1 min). The
+22s clip landed during a brief ~1.3 GB-free window right after a mass sim cleanup; that window closed before
+the full flow could be filmed. Per the POSTMORTEM's own lesson, the responsible call was to **stop hammering a
+degraded shared machine** rather than burn it (and the other five sprints) on retries. A healthy environment
+can film the full flow with the same setup; nothing in the code blocks it.
 
 ## S3 — Meal-plan week view (`app/(app)/meal-plan.tsx`)
 - **AC1 week strip + arrows** — `formatWeekRange(monday)` label between `‹`/`›` that `setMonday(addDays(monday, ±7))`; the week key `queryKeys.mealPlan(weekStart)` changes, so `useMealPlanWeek` refetches the new week.

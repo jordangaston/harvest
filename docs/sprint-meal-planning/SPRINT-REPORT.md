@@ -39,7 +39,11 @@ also **owns** the shared `GET /v1/recipes` list endpoint.
 - **Mobile `tsc --noEmit`: clean.**
 - **Pure-fn checks:** `node lib/__checks__/meal-plan-checks.ts` → all assertions pass.
 - **Backend live demo:** `demos/S1-S2-backend-demo.md` (real DB, full flow incl. cascade + errors).
-- **UI:** `demos/S3-S4-ui-walkthrough.md` — code-grounded (sim capture blocked; see POSTMORTEM).
+- **UI live demo:** `demos/meal-planning-demo.mp4` — **real on-device capture** (dedicated iOS 18.1 sim →
+  Expo Go SDK 54 → Metro `:8092` → live backend `:3000`, 8 seeded recipes) showing the Meal Plan week view
+  (S3) and the `Add a meal` menu (S4 AC1). Key frames: `demos/frame-0*.png`. The clip is **22s / truncated** —
+  the shared machine deleted the sim mid-run (ENOSPC + OOM); the remaining sub-stories are mapped to code and
+  driven through the live endpoints in `demos/S3-S4-ui-walkthrough.md`. See POSTMORTEM.
 
 ## Cross-task interfaces
 - **Own:** `GET /v1/recipes` — base card `{id,title,image_url,total_minutes}` + `page_token`; expand fields
@@ -51,7 +55,9 @@ also **owns** the shared `GET /v1/recipes` list endpoint.
   renumbers across parallel branches. Self-contained.
 
 ## Follow-ups / risks
-1. **Sim visual pass** not run (shared-environment blocker) — run in a healthy env to close the last DONE item.
+1. **Sim visual pass** — a **real 22s on-device clip** + key frames now exist (`demos/meal-planning-demo.mp4`)
+   covering S3 week view + S4 add-meal menu; the recording was truncated by the shared machine (ENOSPC/OOM
+   deleting the sim mid-run). Re-run in a healthy env to film the full add→toast→remove→filters flow.
 2. **Swipe-to-delete** punted to a tap affordance (no gesture pattern in the repo) — upgrade if gesture-handler
    is wired app-wide.
 3. **Client-side filtering** loads the whole library — fine at v1 scale; move server-side if libraries grow.
