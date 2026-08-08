@@ -3,6 +3,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { OptionRow } from "../../components/recime/OptionRow";
 import { VStack, HStack, Text, Heading, Pressable } from "../../components/ui";
+import { setCookTime, setCookDays } from "../../lib/onboarding";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const TIMES = ["Before 5 PM", "5 – 6 PM", "6 – 7 PM", "7 – 8 PM", "After 8 PM"];
@@ -25,9 +26,11 @@ export default function CookTime() {
       progress={0.33}
       ctaLabel="Continue"
       ctaDisabled={!canContinue}
-      onCta={() =>
-        router.push(`/(onboarding)/notifications?context=${askDay ? "plan" : "cook"}`)
-      }
+      onCta={() => {
+        if (time) setCookTime(time);
+        if (askDay) setCookDays(days);
+        router.push(`/(onboarding)/notifications?context=${askDay ? "plan" : "cook"}`);
+      }}
     >
       <VStack space={8}>
         <Heading className="text-2xl">

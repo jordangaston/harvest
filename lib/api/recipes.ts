@@ -6,7 +6,7 @@ export async function getRecipe(id: string): Promise<ApiRecipe> {
   return recipe;
 }
 
-/** Edits the caller's copy of a recipe (server forks copy-on-write if shared). */
+/** Edits the recipe in place and returns the updated recipe. */
 export async function updateRecipe(id: string, edit: { ingredients?: string[]; steps?: string[] }): Promise<ApiRecipe> {
   const { recipe } = await apiFetch<{ recipe: ApiRecipe }>(`/v1/recipes/${id}`, {
     method: "PATCH",

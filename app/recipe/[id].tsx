@@ -80,7 +80,6 @@ export default function RecipeDetail() {
       });
       setRecipe(updated);
       setEditing(false);
-      if (updated.id !== id) router.replace(`/recipe/${updated.id}`); // copy-on-write forked
     } catch {
       // keep editing so the user can retry
     } finally {

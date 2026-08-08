@@ -44,6 +44,29 @@ Every principle is traceable to a concrete moment; the evidence is cited.
 
 ---
 
+### Stage destructive-plus-additive schema changes so codegen stays non-interactive
+- **Rule:** When one logical migration both drops a column and adds others on the same table, `drizzle-kit
+  generate` can't tell a rename from a drop+add and stops to ask — which hangs in a non-TTY (CI/agent). Split
+  the work so each generated migration touches a table with *either* adds *or* drops, not both. Never pipe blind
+  keystrokes into the resolver.
+- **Why (evidence):** Cleanup C2 moved `users.onboarding` (jsonb) to typed enum columns. Generating the drop +
+  the adds together triggered `promptColumnsConflicts` and failed with "Interactive prompts require a TTY."
+  Keeping the jsonb through the enum-adds migration (0007) and dropping it in the next, adds-elsewhere migration
+  (0008) produced identical end-state DDL with zero prompts — and stayed reviewable.
+- **How to apply / where it lives:** `server/CLAUDE.md` Drizzle notes. Order migrations by "adds here / drops
+  there"; verify each generated `.sql` by hand before `migrate`.
+
+### Trace a contract change to the live flow, not just the diff — order can defeat correct wiring
+- **Rule:** A change that looks correct file-by-file can still be dead on arrival if the runtime *sequence* is
+  wrong. After wiring, exercise the actual flow end to end and confirm the data really arrives.
+- **Why (evidence):** Cleanup C2's onboarding accumulator + signup POST were wired correctly, but
+  `app/_layout.tsx` called `ensureSession()` at startup — provisioning the user *before* onboarding ran, so the
+  POST always carried an empty payload. Only walking the real app (sim → DB) surfaced it; the fix moved
+  provisioning to the end of onboarding. (Related: a leftover `index.tsx` TEMP redirect skipped onboarding
+  entirely.)
+- **How to apply / where it lives:** Reinforces "verify against live reality." For any capture→submit flow,
+  assert the persisted result after driving the real UI, not just that the pieces exist.
+
 ## Design system
 
 ### Never ship a pure-white surface — and modals need the canvas tone, not near-white

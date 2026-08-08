@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { db, pool } from '../../src/db/index.js';
-import { importJobs, users, recipes, ingredients, recipeSteps, savedRecipes } from '../../src/db/schema/index.js';
+import { importJobs, users, recipes, ingredients, recipeSteps } from '../../src/db/schema/index.js';
 import { buildApp } from '../../src/api/app.js';
 import { initDbos, shutdownDbos } from '../../src/pipeline/bootstrap.js';
 
@@ -55,7 +55,6 @@ afterAll(async () => {
 beforeEach(async () => {
   // Clear FK dependents before their parents.
   await db.delete(importJobs);
-  await db.delete(savedRecipes);
   await db.delete(ingredients);
   await db.delete(recipeSteps);
   await db.delete(recipes);
@@ -84,6 +83,13 @@ describe('POST /v1/imports', () => {
     const recipeRows = await db.select().from(recipes);
     expect(recipeRows).toHaveLength(1);
     expect(recipeRows[0].title).toBe('Crockpot Chicken Teriyaki');
+    // C6: the importer owns the recipe. C4: the stub carries no yield, so servings
+    // is the estimate. C5: the stub publishes no NutritionInformation, so nutrition
+    // stays null (parsed-only — computing from a catalog was punted).
+    expect(recipeRows[0].userId).toBe(userId);
+    expect(recipeRows[0].servings).toBe(4);
+    expect(recipeRows[0].servingsEstimated).toBe(true);
+    expect(recipeRows[0].nutritionSource).toBeNull();
   });
 
   it('rejects an unsupported source with 422 and writes no row', async () => {

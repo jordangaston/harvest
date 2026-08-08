@@ -1,6 +1,6 @@
 import { and, eq, inArray, desc } from 'drizzle-orm';
 import { db, type Database } from '../db/index.js';
-import { cookbooks, cookbookRecipes, recipes, savedRecipes } from '../db/schema/index.js';
+import { cookbooks, cookbookRecipes, recipes } from '../db/schema/index.js';
 import { CookbookSchema, type Cookbook, type CookbookSummary } from '../models/cookbook.js';
 import { CookbookExistsError } from '../api/errors.js';
 
@@ -107,9 +107,9 @@ export class CookbookRepository {
   }
 
   /**
-   * Sets the caller's cookbook membership for a recipe: ensures the recipe is in the
-   * library, then makes membership exactly `cookbookIds` (restricted to the caller's
-   * own cookbooks — ids they don't own are ignored). One transaction.
+   * Sets the caller's cookbook membership for a recipe: makes membership exactly
+   * `cookbookIds` (restricted to the caller's own cookbooks — ids they don't own are
+   * ignored). Filing a recipe into a cookbook IS the save (C6). One transaction.
    * @param userId - Owner.
    * @param recipeId - Recipe to file (must already exist; checked by the service).
    * @param cookbookIds - The complete set of the caller's cookbooks the recipe should sit in.
@@ -117,7 +117,6 @@ export class CookbookRepository {
    */
   async setMembership(userId: string, recipeId: string, cookbookIds: string[]): Promise<string[]> {
     return this.db.transaction(async (tx) => {
-      await tx.insert(savedRecipes).values({ userId, recipeId }).onConflictDoNothing();
       const owned = await this.ownedIds(tx, userId, cookbookIds);
       await this.replaceMembership(tx, userId, recipeId, owned);
       return owned;

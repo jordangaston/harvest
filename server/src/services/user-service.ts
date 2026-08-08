@@ -2,14 +2,14 @@ import { UserRepository } from '../repositories/user-repository.js';
 import { AuthService, type Tokens } from './auth-service.js';
 import { OtpService } from './otp-service.js';
 import { normalizeE164 } from '../util/phone.js';
-import { toPublicUser, type User } from '../models/user.js';
+import { toPublicUser, type User, type Onboarding } from '../models/user.js';
 import { InvalidOtpError, RefreshInvalidError } from '../api/errors.js';
 
 /** Create an account for an already-verified phone (verification happens
  * separately at POST /v1/otps/verify). */
 export interface CreateUserRequest {
   phoneNumber: string;
-  onboarding?: unknown;
+  onboarding?: Onboarding;
 }
 
 /** Sign in an existing user — by refresh token or by OTP. */
@@ -147,14 +147,32 @@ export class UserService {
   }
 
   /**
-   * Provisions a new user: generates their signing keypair and inserts the row.
+   * Provisions a new user: generates their signing keypair and inserts the row,
+   * mapping the C2 onboarding enums to their columns (and stamping
+   * `onboarding_completed_at` when onboarding was supplied at signup).
    *
    * @param phone - E.164 phone; the caller must have normalized it.
-   * @param onboarding - Optional onboarding payload to persist.
+   * @param onboarding - Optional typed onboarding to persist.
    * @returns The inserted user.
    */
-  private async provision(phone: string, onboarding?: unknown): Promise<User> {
+  private async provision(phone: string, onboarding?: Onboarding): Promise<User> {
     const { privateKey, publicKey } = this.authService.generateKeyPair();
-    return this.repo.insert({ phone, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, onboarding });
+    const columns = onboarding
+      ? { ...onboardingColumns(onboarding), onboardingCompletedAt: new Date() }
+      : {};
+    return this.repo.insert({ phone, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
   }
+}
+
+/** Maps the snake_case onboarding payload to the camelCase user columns. */
+function onboardingColumns(o: Onboarding) {
+  return {
+    goals: o.goals,
+    recipeSources: o.recipe_sources,
+    cookDays: o.cook_days,
+    whenCook: o.when_cook,
+    cookTime: o.cook_time,
+    howHeard: o.how_heard,
+    age: o.age,
+  };
 }

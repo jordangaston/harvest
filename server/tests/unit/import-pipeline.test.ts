@@ -153,9 +153,10 @@ describe('ImportPipeline.run — steps-less caption gating', () => {
   it('escalates to the video when a caption yields a recipe with no steps and a video is available', async () => {
     fetchTikTok.mockResolvedValue({ caption: 'ingredients only, method in the video', videoUrl: 'v', videoHeaders: {} });
     // First (caption) extraction is steps-less; second (video) extraction has steps.
+    const ing = [{ name: 'x', amount: null, unit: null, quantityText: 'x' }];
     extract
-      .mockResolvedValueOnce({ title: 'T', ingredients: ['x'], steps: [], confidence: 0.9 })
-      .mockResolvedValueOnce({ title: 'T', ingredients: ['x'], steps: ['Cook 5 min until golden'], confidence: 0.9 });
+      .mockResolvedValueOnce({ title: 'T', ingredients: ing, steps: [], confidence: 0.9 })
+      .mockResolvedValueOnce({ title: 'T', ingredients: ing, steps: ['Cook 5 min until golden'], confidence: 0.9 });
     audio.mockResolvedValue(Buffer.from(''));
     transcribe.mockResolvedValue('spoken cooking steps');
     frames.mockResolvedValue([]);
@@ -172,7 +173,7 @@ describe('ImportPipeline.run — steps-less caption gating', () => {
 
   it('keeps a steps-less caption recipe when there is no media to escalate to (link in bio)', async () => {
     fetchTikTok.mockResolvedValue({ caption: 'ingredients only — full method at link in bio' });
-    extract.mockResolvedValue({ title: 'T', ingredients: ['x'], steps: [], confidence: 0.9 });
+    extract.mockResolvedValue({ title: 'T', ingredients: [{ name: 'x', amount: null, unit: null, quantityText: 'x' }], steps: [], confidence: 0.9 });
 
     const recipeIds = await ImportPipeline.run(TIKTOK);
 

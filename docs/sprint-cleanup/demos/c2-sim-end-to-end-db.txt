@@ -1,0 +1,24 @@
+C2 — end-to-end through the REAL APP on the booted iOS simulator
+
+Drove the onboarding flow in the Harvest app (Expo Go, this worktree's bundle),
+selecting: goals = Eat healthier + Plan out meals; when-cook = In the evening;
+cook-time = 6–7 PM; how-heard = TikTok; recipe-sources = Social media; age = 25-34.
+The setting-up screen (end of onboarding) fired the signup POST with the collected
+onboarding; the app then landed on the main tabs (see sim-03-c1-tabs-no-discover.png —
+no Discover tab).
+
+DB row the app created (psql, harvest.users):
+
+  phone                   | +15555559088
+  goals                   | {eat_healthier,plan_meals}
+  recipe_sources          | {social_media}
+  when_cook               | evening_ready
+  cook_time               | from_6_to_7pm
+  how_heard               | tiktok
+  age                     | from_25_to_34
+  onboarding_completed_at | 2026-08-07 18:12:52.925-05
+
+Proves the full C2 chain through the actual UI: onboarding screens → label→enum
+accumulator (lib/onboarding.ts) → POST /v1/users → typed pg enum / enum[] columns +
+onboarding_completed_at. Confirms the flow-order fix (provision at end of onboarding,
+not eagerly at startup — POSTMORTEM D8).

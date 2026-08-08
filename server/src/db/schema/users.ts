@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  goalEnum,
+  recipeSourceEnum,
+  weekdayEnum,
+  whenCookEnum,
+  cookTimeEnum,
+  howHeardEnum,
+  ageBandEnum,
+} from './enums.js';
 
 export const users = pgTable(
   'users',
@@ -10,7 +19,16 @@ export const users = pgTable(
     jwtPublicKey: text('jwt_public_key').notNull(),
     accessTokenNonce: integer('access_token_nonce').notNull().default(0),
     refreshTokenNonce: integer('refresh_token_nonce').notNull().default(0),
-    onboarding: jsonb('onboarding'),
+    // C2 onboarding: typed enum columns (replaced a non-queryable jsonb blob). All
+    // nullable — a user may skip a screen. Multi-selects are enum[].
+    goals: goalEnum('goals').array(),
+    recipeSources: recipeSourceEnum('recipe_sources').array(),
+    cookDays: weekdayEnum('cook_days').array(),
+    whenCook: whenCookEnum('when_cook'),
+    cookTime: cookTimeEnum('cook_time'),
+    howHeard: howHeardEnum('how_heard'),
+    age: ageBandEnum('age'),
+    onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [uniqueIndex('users_phone_uidx').on(table.phone)],

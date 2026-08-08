@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { OptionRow } from "../../components/recime/OptionRow";
 import { VStack, Center, Text, Heading } from "../../components/ui";
+import { setGoals } from "../../lib/onboarding";
 
 const GOALS = [
   { image: require("../../assets/goal-healthier.png"), label: "Eat healthier" },
@@ -28,7 +29,10 @@ export default function Goals() {
       progress={0.15}
       ctaLabel="Continue"
       ctaDisabled={selected.length === 0}
-      onCta={() => router.push("/(onboarding)/goals-happen")}
+      onCta={() => {
+        setGoals(selected);
+        router.push("/(onboarding)/goals-happen");
+      }}
     >
       <VStack space={8}>
         <Center>

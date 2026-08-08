@@ -5,7 +5,6 @@ import {
   recipes,
   ingredients,
   recipeSteps,
-  savedRecipes,
   cookbooks,
   cookbookRecipes,
   importJobs,
@@ -17,9 +16,12 @@ import { buildApp } from '../../src/api/app.js';
 const RECIPE: RecipeInput = {
   title: 'Maple Soy Chicken',
   sourceType: 'instagram',
+  servings: 4,
+  servingsEstimated: false,
   imageUrl: 'https://img.example/chicken.jpg',
-  ingredients: ['2 lb chicken thighs'],
+  ingredients: [{ name: 'chicken thighs', amount: '2', unit: 'pound', quantityText: '2 lb chicken thighs' }],
   steps: ['Bake'],
+  nutrition: null,
 };
 
 let app: FastifyInstance;
@@ -52,7 +54,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await db.delete(importJobs);
   await db.delete(cookbookRecipes);
-  await db.delete(savedRecipes);
   await db.delete(ingredients);
   await db.delete(recipeSteps);
   await db.delete(cookbooks);

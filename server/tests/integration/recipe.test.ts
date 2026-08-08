@@ -5,7 +5,6 @@ import {
   recipes,
   ingredients,
   recipeSteps,
-  savedRecipes,
   cookbooks,
   cookbookRecipes,
   importJobs,
@@ -19,8 +18,13 @@ const RECIPE: RecipeInput = {
   sourceType: 'website',
   sourceUrl: 'https://example.com/r',
   servings: 4,
-  ingredients: ['3 cloves garlic', '2 tbsp butter'],
+  servingsEstimated: false,
+  ingredients: [
+    { name: 'garlic', amount: '3', unit: null, quantityText: '3 cloves garlic' },
+    { name: 'butter', amount: '2', unit: 'tablespoon', quantityText: '2 tbsp butter' },
+  ],
   steps: ['Mix', 'Bake'],
+  nutrition: null,
 };
 
 let app: FastifyInstance;
@@ -39,6 +43,10 @@ function getRecipe(token: string | null, id: string) {
   return app.inject({ method: 'GET', url: `/v1/recipes/${id}`, headers });
 }
 
+function auth(token: string) {
+  return { authorization: `Bearer ${token}` };
+}
+
 beforeAll(() => {
   app = buildApp();
 });
@@ -51,7 +59,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await db.delete(importJobs);
   await db.delete(cookbookRecipes);
-  await db.delete(savedRecipes);
   await db.delete(ingredients);
   await db.delete(recipeSteps);
   await db.delete(cookbooks);
@@ -59,28 +66,13 @@ beforeEach(async () => {
   await db.delete(users);
 });
 
-/** Bearer header for an inject call. (inject sets content-type itself when there's a payload.) */
-function auth(token: string) {
-  return { authorization: `Bearer ${token}` };
-}
-
-/** Ensures `token`'s user has the recipe saved (PUT membership with [] just ensures the library row). */
-function saveForUser(token: string, recipeId: string, cookbookIds: string[] = []) {
-  return app.inject({
-    method: 'PUT',
-    url: `/v1/recipes/${recipeId}/cookbooks`,
-    headers: auth(token),
-    payload: { cookbook_ids: cookbookIds },
-  });
-}
-
 describe('GET /v1/recipes/:id', () => {
-  it('returns the recipe with ordered ingredients and steps for any authenticated caller', async () => {
+  it('returns the recipe with ordered, measurement-separated ingredients for any authenticated caller', async () => {
     const owner = await mintBearer();
     const browser = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
 
-    // A different user who never saved it can still open it while browsing.
+    // A different user who never created it can still open it while browsing.
     const res = await getRecipe(browser.token, recipeId);
     expect(res.statusCode).toBe(200);
     expect(res.json().recipe).toEqual({
@@ -89,9 +81,10 @@ describe('GET /v1/recipes/:id', () => {
       source_type: 'website',
       source_url: 'https://example.com/r',
       servings: 4,
+      servings_estimated: false,
       ingredients: [
-        { name: '3 cloves garlic', icon: 'garlic' },
-        { name: '2 tbsp butter', icon: 'butter' },
+        { name: 'garlic', icon: 'garlic', quantity_text: '3 cloves garlic', amount: '3' },
+        { name: 'butter', icon: 'butter', quantity_text: '2 tbsp butter', amount: '2', unit: 'tablespoon' },
       ],
       steps: ['Mix', 'Bake'],
     });
@@ -109,8 +102,8 @@ describe('GET /v1/recipes/:id', () => {
   });
 });
 
-describe('PATCH /v1/recipes/:id (edit, copy-on-write)', () => {
-  it('edits in place when the caller is the only saver', async () => {
+describe('PATCH /v1/recipes/:id (owner edits in place)', () => {
+  it('edits the owner\'s recipe in place, keeping the same id', async () => {
     const owner = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
 
@@ -122,37 +115,28 @@ describe('PATCH /v1/recipes/:id (edit, copy-on-write)', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().recipe.id).toBe(recipeId); // same id — no fork
+    expect(res.json().recipe.id).toBe(recipeId); // same id — no fork/clone
     expect(res.json().recipe.steps).toEqual(['Mix well', 'Bake at 350']);
   });
 
-  it('forks a private clone when another user also saved it, leaving theirs untouched', async () => {
+  it('re-parses edited ingredient lines so scaling survives an edit (C3)', async () => {
     const owner = await mintBearer();
-    const other = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
-    await saveForUser(other.token, recipeId); // now two savers
 
     const res = await app.inject({
       method: 'PATCH',
       url: `/v1/recipes/${recipeId}`,
       headers: auth(owner.token),
-      payload: { ingredients: ['1 onion, diced'] },
+      payload: { ingredients: ['2 cups flour'] },
     });
 
     expect(res.statusCode).toBe(200);
-    const cloneId = res.json().recipe.id;
-    expect(cloneId).not.toBe(recipeId); // forked
-    expect(res.json().recipe.ingredients).toEqual([{ name: '1 onion, diced', icon: 'onion' }]);
-
-    // The other user's original is unchanged.
-    const original = await getRecipe(other.token, recipeId);
-    expect(original.json().recipe.ingredients).toEqual([
-      { name: '3 cloves garlic', icon: 'garlic' },
-      { name: '2 tbsp butter', icon: 'butter' },
+    expect(res.json().recipe.ingredients).toEqual([
+      { name: 'flour', icon: 'flour', quantity_text: '2 cups flour', amount: '2', unit: 'cup' },
     ]);
   });
 
-  it("404s when the caller hasn't saved the recipe", async () => {
+  it('404s a non-owner edit (we do not leak existence)', async () => {
     const owner = await mintBearer();
     const stranger = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
@@ -164,29 +148,30 @@ describe('PATCH /v1/recipes/:id (edit, copy-on-write)', () => {
       payload: { steps: ['nope'] },
     });
     expect(res.statusCode).toBe(404);
+    // The owner's recipe is untouched.
+    expect((await getRecipe(owner.token, recipeId)).json().recipe.steps).toEqual(['Mix', 'Bake']);
   });
 });
 
-describe('DELETE /v1/recipes/:id (remove from library)', () => {
-  it('removes the recipe from the caller only; the shared recipe survives for other savers', async () => {
+describe('DELETE /v1/recipes/:id (owner deletes the canonical recipe)', () => {
+  it('deletes the owner\'s recipe (children cascade); a second delete 404s', async () => {
     const owner = await mintBearer();
-    const other = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
-    await saveForUser(other.token, recipeId);
 
     const del = await app.inject({ method: 'DELETE', url: `/v1/recipes/${recipeId}`, headers: auth(owner.token) });
     expect(del.statusCode).toBe(204);
 
-    // Owner no longer has it; a second delete 404s.
+    // The canonical recipe is gone — a re-delete and a read both 404.
     expect((await app.inject({ method: 'DELETE', url: `/v1/recipes/${recipeId}`, headers: auth(owner.token) })).statusCode).toBe(404);
-    // The canonical recipe still exists for the other saver.
-    expect((await getRecipe(other.token, recipeId)).statusCode).toBe(200);
+    expect((await getRecipe(owner.token, recipeId)).statusCode).toBe(404);
   });
 
-  it("404s deleting a recipe the caller never saved", async () => {
+  it('404s a non-owner delete', async () => {
     const owner = await mintBearer();
     const stranger = await mintBearer();
     const recipeId = await RecipeRepository.create().persist(RECIPE, owner.userId);
     expect((await app.inject({ method: 'DELETE', url: `/v1/recipes/${recipeId}`, headers: auth(stranger.token) })).statusCode).toBe(404);
+    // Still there for the owner.
+    expect((await getRecipe(owner.token, recipeId)).statusCode).toBe(200);
   });
 });

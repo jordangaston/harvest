@@ -1,0 +1,27 @@
+
+=== C5 parsed-path coverage (real halfbakedharvest.com recipes) ===
+PARSED     1050 kcal  Herby Mushroom Croissant Stuffing
+PARSED      561 kcal  Cream of Mushroom Soup with Garlic Herb Breadcrumbs
+PARSED      962 kcal  Crispy Persian Rice (Tahdig) with Spiced Golden Chickpeas
+PARSED      381 kcal  Pan Fried Brie with Peppered Honey and Olives
+PARSED      559 kcal  Slow Cooker Coq au Vin with Parmesan Mashed Potatoes
+PARSED      499 kcal  4 Cheese Roasted Garlic Alfredo Stuffed Spaghetti Squash
+PARSED      409 kcal  Iced Grapefruit Yogurt Cake
+PARSED      538 kcal  Iced Lemon Loaf
+PARSED      227 kcal  Hot Honey Pepperoni Pizza Rolls
+PARSED      418 kcal  Crispy BBQ Beer Battered Cauliflower Nuggets
+PARSED     1371 kcal  Simple Coconut Quinoa and Lentil Curry with Lime Mango.
+PARSED      418 kcal  Greek Spinach and Feta Pie (Spanakopita)
+PARSED      241 kcal  Sheet Pan Sticky Pomegranate Chicken and Honey Roasted Squash.
+PARSED     1203 kcal  Vanilla Gingerbread Latte
+PARSED      194 kcal  Iced Strawberry Milk Matcha Latte
+PARSED      399 kcal  Lemony Pesto Chicken Noodle Soup
+PARSED      671 kcal  One Skillet Buffalo Ranch Chicken Enchiladas
+PARSED      529 kcal  Easy Baked Spicy Sesame Butter Chicken
+PARSED     1861 kcal  Jack Skellington's Haunted White Russian
+PARSED      432 kcal  Kale Bacon Salad with Maple Candied Walnuts
+
+=== Aggregate ===
+recipes evaluated: 20
+publish schema.org NutritionInformation (nutrition_source='parsed'): 20/20
+no published nutrition (stored null): 0/20

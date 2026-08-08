@@ -53,6 +53,7 @@ export default function AppTabsLayout() {
       <Tabs.Screen
         name="discover"
         options={{
+          href: null,
           title: "Discover",
           tabBarIcon: ({ color }) => <Ionicons name="compass-outline" size={22} color={color} />,
         }}

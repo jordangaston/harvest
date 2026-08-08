@@ -1,8 +1,8 @@
 import { Redirect } from "expo-router";
 
-// Entry point → start the onboarding flow at the welcome screen.
-// TEMP (manual verification): routed straight to Recipes so you can test the import
-// fixes without walking onboarding. Ask me to revert to "/(onboarding)/welcome" before ship.
+// Entry point → start the onboarding flow at the welcome screen. Onboarding
+// collects the user's answers and the account is provisioned at the end
+// (setting-up), so the signup POST carries the onboarding payload (C2).
 export default function Index() {
-  return <Redirect href="/(app)/recipes" />;
+  return <Redirect href="/(onboarding)/welcome" />;
 }

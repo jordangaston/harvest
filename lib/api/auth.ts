@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "./config";
 import { getSession, setSession, type Session } from "./session";
+import { getOnboarding, resetOnboarding } from "../onboarding";
 
 // The server needs a *possible* E.164 number (libphonenumber `isPossible`). The
 // 555-555-01xx style parses as possible and is verified against the live server.
@@ -37,8 +38,11 @@ function toSession(response: SessionResponse, phone: string): Session {
 /** Creates a fresh user with a generated phone and persists the session. */
 export async function provisionUser(): Promise<Session> {
   const phone = generatePhone();
-  const session = toSession(await postSession("/v1/users", { user: { phone_number: phone } }), phone);
+  const onboarding = getOnboarding();
+  const user = onboarding ? { phone_number: phone, onboarding } : { phone_number: phone };
+  const session = toSession(await postSession("/v1/users", { user }), phone);
   await setSession(session);
+  resetOnboarding();
   return session;
 }
 
