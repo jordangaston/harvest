@@ -10,6 +10,9 @@ for the database — with no Cloudflare or Turso account. Delete it when the spi
 The Harvest recipe-import pipeline runs on Cloudflare with **zero long-lived processes**:
 
 - **HTTP API → Worker (Hono).** `src/worker.ts` ports the Fastify intake/poll routes.
+- **Async intake → Cloudflare Queue.** Intake enqueues to `IMPORT_QUEUE` and returns `202`; the
+  Worker's `queue()` consumer drains the batch and starts the Workflow (idempotent by jobId). Flow:
+  HTTP intake → Queue → consumer → Workflow → steps.
 - **DBOS pipeline → Cloudflare Workflow.** `src/import-workflow.ts` maps each `@DBOS.step`
   (mark-running → fetch → extract → persist-and-ready) onto a `step.do(...)` durable step.
 - **Postgres → Turso (libSQL).** `src/schema.ts` re-targets Drizzle to `sqlite-core`; `src/db.ts`

@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { storeFromEnv } from './edge-db.js';
 import { classifySource } from './classify.js';
+import { startImport } from './queue-consumer.js';
 import type { Env } from './import-workflow.js';
+import type { ImportInput } from './domain.js';
 
 /**
  * The Harvest HTTP API, ported from Fastify (server/src/api) to a Cloudflare
@@ -25,7 +27,9 @@ app.post('/v1/users', async (c) => {
   return c.json({ user: { id } }, 201);
 });
 
-/** Import intake (F-03). Classify → write `queued` → trigger the Workflow. */
+/** Import intake (F-03). Classify → write `queued` → ENQUEUE → return 202. The
+ * Workflow is not started here; the queue consumer starts it (below), so intake
+ * stays a fast async hand-off. */
 const CreateImport = z.object({
   userId: z.string().min(1),
   source: z.object({ url: z.string().url() }),
@@ -39,13 +43,12 @@ app.post('/v1/imports', async (c) => {
   const classified = classifySource(body.data.source.url);
   if (!classified) return c.json({ error: 'unsupported_source' }, 422);
 
-  const store = storeFromEnv(c.env);
   const jobId = crypto.randomUUID();
-  await store.createJob({ id: jobId, userId: body.data.userId, ...classified });
-  await c.env.IMPORT_WORKFLOW.create({
-    id: jobId,
-    params: { jobId, userId: body.data.userId, ...classified, faultStep: body.data.faultStep },
-  });
+  await storeFromEnv(c.env).createJob({ id: jobId, userId: body.data.userId, ...classified });
+  // Enqueue the import; the consumer starts the durable Workflow (id = jobId, so
+  // a redelivery is idempotent). Message body is the Workflow's params.
+  const message: ImportInput = { jobId, userId: body.data.userId, ...classified, faultStep: body.data.faultStep };
+  await c.env.IMPORT_QUEUE.send(message);
   return c.json({ job: { id: jobId, status: 'queued' } }, 202);
 });
 
@@ -65,5 +68,25 @@ app.get('/v1/imports/:id', async (c) => {
   });
 });
 
+/**
+ * Queue consumer — drains the import queue and starts the durable Workflow per
+ * message. Ack on a successful (or idempotent no-op) start; on a transient
+ * failure, retry the message so the queue redelivers (up to `max_retries`, then
+ * the dead-letter queue). This is the HTTP-intake → Queue → **consumer** →
+ * Workflow → steps hop.
+ */
+async function queue(batch: MessageBatch<ImportInput>, env: Env): Promise<void> {
+  for (const message of batch.messages) {
+    try {
+      console.log(`[queue] start job=${message.body.jobId} attempt=${message.attempts}`);
+      await startImport(env, message.body);
+      message.ack();
+    } catch (err) {
+      console.error(`[queue] start failed job=${message.body.jobId}: ${err}`);
+      message.retry();
+    }
+  }
+}
+
 export { ImportWorkflow } from './import-workflow.js';
-export default app;
+export default { fetch: app.fetch, queue } satisfies ExportedHandler<Env, ImportInput>;

@@ -6,6 +6,7 @@ import { ImportError, type ImportInput } from './domain.js';
 
 export interface Env extends DbEnv {
   IMPORT_WORKFLOW: Workflow;
+  IMPORT_QUEUE: Queue<ImportInput>;
 }
 
 /**

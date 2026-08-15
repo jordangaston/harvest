@@ -17,7 +17,7 @@ Worker/Workflow, a local `turso dev` libSQL server for the database, no Cloudfla
 |-------|-------|-------------------|
 | HTTP API | Fastify (long-lived) | **Worker + Hono** — same routes, same Zod validation |
 | Durable pipeline | DBOS workflow + steps | **Cloudflare Workflow** — `WorkflowEntrypoint` + `step.do()` |
-| Async intake | `DBOS.startWorkflow` | Worker triggers the Workflow directly (Queues only if we need buffering) |
+| Async intake | `DBOS.startWorkflow` | Intake → **Cloudflare Queue** → consumer → Workflow (every import is enqueued) |
 | Database | Postgres + `pg` pool | **Turso (libSQL)** + Drizzle `sqlite-core`, over `@libsql/client/web` |
 | Scheduled work | — (none) | Cron Triggers (not needed today) |
 
@@ -26,8 +26,9 @@ not a worker we run, drives the import to completion and recovers it after a fau
 
 ## What the proof shows
 
-`server/spike-cf/` — a Worker (Hono) drives a Cloudflare Workflow that imports a recipe into Turso
-(libSQL), offline, over a local `turso dev` server. Run it with `npm run proof`. It asserts:
+`server/spike-cf/` — a Worker (Hono) enqueues each import to a Cloudflare Queue whose consumer starts
+a Cloudflare Workflow that imports a recipe into Turso (libSQL), offline, over a local `turso dev`
+server. Run it with `npm run proof`. It asserts:
 
 | Check | Result |
 |-------|--------|
@@ -136,7 +137,9 @@ seams.
 3. **Media.** Move OCR/ASR to Workers AI bindings; put ffmpeg audio/frame extraction behind a
    container (or external service) the video step calls.
 4. **HTTP.** Port Fastify routes to Hono on a Worker; swap `jsonwebtoken` → `jose`; keep Zod as-is.
-5. **Intake.** Trigger the Workflow from the intake route (add a Queue only if buffering is needed).
+5. **Intake.** The intake route writes the `queued` row and **enqueues** to a Cloudflare Queue; the
+   Worker's `queue()` consumer drains the batch and starts the Workflow (id = jobId, so a redelivery
+   is idempotent). This is the standard path — every import is enqueued, not only under load.
 6. **Cut over** behind the mobile client's existing base-URL config; run both until parity holds.
 
 ## Residual risks

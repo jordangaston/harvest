@@ -49,21 +49,30 @@ echo 'TURSO_DATABASE_URL=http://127.0.0.1:8080' > .dev.vars
 npm run dev                                               # wrangler dev
 ```
 
-Wrangler prints the Workflow binding (the DB is *not* a binding — it comes from `.dev.vars`):
+Wrangler prints the Workflow and Queue bindings, both `local` (the DB is *not* a binding — it comes
+from `.dev.vars`):
 
 ```
-env.IMPORT_WORKFLOW (ImportWorkflow)   Workflow   local
+env.IMPORT_WORKFLOW (ImportWorkflow)      Workflow   local
+env.IMPORT_QUEUE (harvest-import-queue)   Queue      local
 Ready on http://127.0.0.1:8787
 ```
 
-`wrangler.jsonc` carries only the Worker + Workflow; there is no `d1_databases` block:
+Miniflare emulates the queue in the same dev session, offline: `POST /v1/imports` enqueues, and the
+Worker's own `queue()` consumer drains the batch and starts the Workflow — you'll see
+`QUEUE harvest-import-queue 1/1` and a `[queue] start job=…` line per import in the dev log. `wrangler.jsonc`
+carries the Worker, the Workflow, and the Queue (producer + consumer); there is no `d1_databases` block:
 
 ```jsonc
 {
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat"],
-  "workflows": [{ "name": "harvest-import", "binding": "IMPORT_WORKFLOW", "class_name": "ImportWorkflow" }]
+  "workflows": [{ "name": "harvest-import", "binding": "IMPORT_WORKFLOW", "class_name": "ImportWorkflow" }],
+  "queues": {
+    "producers": [{ "queue": "harvest-import-queue", "binding": "IMPORT_QUEUE" }],
+    "consumers": [{ "queue": "harvest-import-queue", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 3, "dead_letter_queue": "harvest-import-dlq" }]
+  }
   // DB: Turso/libSQL via env (TURSO_DATABASE_URL [+ TURSO_AUTH_TOKEN]), not a binding.
 }
 ```
@@ -160,6 +169,11 @@ the build.
 - **libSQL DOES support interactive transactions** — unlike D1. `RecipeRepository.persist` keeps its
   `db.transaction()`; there is no `db.batch()` workaround. (Ids are still app-generated with
   `crypto.randomUUID()` — SQLite has no `gen_random_uuid`.)
+- **Queues are async, so intake→ready gains a hop.** `POST /v1/imports` now returns `202` before the
+  Workflow starts — the consumer picks the message up after the batch timeout (`max_batch_timeout`,
+  set to 1s), so poll the job as before, just allow the extra second. Miniflare emulates the queue in
+  the same dev session (producer + consumer in one Worker), offline; local consumer concurrency is not
+  emulated (messages drain serially), which is fine for the proof.
 - **Teardown.** `proof.sh` traps `EXIT` to kill both the `turso dev` and `wrangler dev` PIDs. If a run
   is interrupted and a port stays busy, `pkill -f "turso dev"` and `pkill -f "wrangler dev"`.
 - **Isolate the prototype's toolchain.** It carries its own `package.json`, `vitest.config.ts`, and
