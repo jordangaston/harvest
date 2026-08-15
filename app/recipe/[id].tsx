@@ -19,6 +19,9 @@ import {
 } from "../../components/ui";
 import { StepText } from "../../components/recime/StepText";
 import { CookbookPickerSheet } from "../../components/recime/CookbookPickerSheet";
+import { AddToPlanSheet } from "../../components/recime/AddToPlanSheet";
+import { Toast, useToast } from "../../components/recime/Toast";
+import { mealLabel } from "../../components/recime/meals";
 import { resolveIcon } from "../../components/recime/recipes";
 import { useQueryClient } from "@tanstack/react-query";
 import { updateRecipe, deleteRecipe } from "../../lib/api/recipes";
@@ -45,6 +48,9 @@ export default function RecipeDetail() {
   const [popIng, setPopIng] = React.useState<ApiIngredient | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [planOpen, setPlanOpen] = React.useState(false);
+  const [toast, setToast] = React.useState<string | null>(null);
+  const showToast = useToast(setToast);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   const [editing, setEditing] = React.useState(false);
@@ -299,6 +305,16 @@ export default function RecipeDetail() {
           <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <View className="rounded-t-3xl bg-cream px-5 pb-10 pt-6" style={{ paddingBottom: insets.bottom + 16 }}>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    setPlanOpen(true);
+                  }}
+                  className="flex-row items-center py-3.5"
+                >
+                  <Icon name="calendar-outline" size={22} color="#2E2419" />
+                  <Text className="ml-3 text-base font-semibold text-ink">Add to meal plan</Text>
+                </Pressable>
                 <Pressable onPress={startEditing} className="flex-row items-center py-3.5">
                   <Icon name="create-outline" size={22} color="#2E2419" />
                   <Text className="ml-3 text-base font-semibold text-ink">Edit recipe</Text>
@@ -346,6 +362,19 @@ export default function RecipeDetail() {
           router.replace("/(app)/recipes");
         }}
       />
+
+      {/* add-to-meal-plan flow — recipe pre-chosen; a day-picker then a meal */}
+      <AddToPlanSheet
+        visible={planOpen}
+        recipeId={recipe.id}
+        onClose={() => setPlanOpen(false)}
+        onAdded={(meal, dayLabel) => {
+          setPlanOpen(false);
+          showToast(`Added to ${mealLabel(meal)} · ${dayLabel}`);
+        }}
+      />
+
+      {toast ? <Toast message={toast} /> : null}
     </View>
   );
 }

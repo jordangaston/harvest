@@ -112,29 +112,24 @@ describe('DELETE /v1/users/me', () => {
     expect(await db.select().from(users).where(eq(users.id, me.userId))).toHaveLength(1);
   });
 
-  // Defensive coverage for tables owned by sibling branches (Meal Planning,
-  // Grocery List). They are absent here, so `deleteAccount` guards each with
-  // `to_regclass`. This test stands up throwaway tables to prove the guarded
-  // delete fires when they DO exist — the shape the coordinator's post-merge
-  // test will exercise for real.
-  it('deletes meal_plan_entries and grocery_items when those tables exist', async () => {
+  // meal_plan_entries is real now (Meal Planning merged); it cascades on the user
+  // AND deleteAccount deletes it explicitly (to_regclass-guarded). grocery_items
+  // coverage lands when #22 (Grocery) merges — its table is still absent here and
+  // deleteAccount's guard skips it.
+  it("deletes the user's meal_plan_entries", async () => {
     const me = await mintBearer();
-    await db.execute(sql`create table meal_plan_entries (user_id uuid not null)`);
-    await db.execute(sql`create table grocery_items (user_id uuid not null)`);
-    try {
-      await db.execute(sql`insert into meal_plan_entries (user_id) values (${me.userId})`);
-      await db.execute(sql`insert into grocery_items (user_id) values (${me.userId})`);
+    const recipeId = await RecipeRepository.create().persist(RECIPE, me.userId);
+    await db.execute(
+      sql`insert into meal_plan_entries (user_id, date, meal, recipe_id, position)
+          values (${me.userId}, '2026-08-10', 'dinner', ${recipeId}, 0)`,
+    );
 
-      const res = await app.inject({ method: 'DELETE', url: '/v1/users/me', headers: auth(me.token) });
-      expect(res.statusCode).toBe(204);
+    const res = await app.inject({ method: 'DELETE', url: '/v1/users/me', headers: auth(me.token) });
+    expect(res.statusCode).toBe(204);
 
-      const mpe = await db.execute<{ n: number }>(sql`select count(*)::int as n from meal_plan_entries`);
-      const gi = await db.execute<{ n: number }>(sql`select count(*)::int as n from grocery_items`);
-      expect(mpe.rows[0].n).toBe(0);
-      expect(gi.rows[0].n).toBe(0);
-    } finally {
-      await db.execute(sql`drop table if exists meal_plan_entries`);
-      await db.execute(sql`drop table if exists grocery_items`);
-    }
+    const mpe = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from meal_plan_entries where user_id = ${me.userId}`,
+    );
+    expect(mpe.rows[0].n).toBe(0);
   });
 });
