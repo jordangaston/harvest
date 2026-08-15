@@ -88,3 +88,32 @@ export type ApiCommonIngredient = {
   defaultUnit: string;
   iconKey: string;
 };
+
+// The authenticated user, from GET /v1/users/me. `name` is owned by Phone Auth
+// (added to the projection when it merges); read it null-tolerant until then.
+export type ApiMe = {
+  id: string;
+  phone: string;
+  name?: string | null;
+};
+
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
+
+/** A recipe card from `GET /v1/recipes`. `ingredient_names`/`cookbook_ids` present only when expanded. */
+export type RecipeCard = {
+  id: string;
+  title: string;
+  image_url?: string;
+  total_minutes?: number;
+  ingredient_names?: string[];
+  cookbook_ids?: string[];
+};
+
+/** A meal-plan entry from `GET /v1/meal-plan`. */
+export type ApiMealPlanEntry = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  meal: MealSlot;
+  position: number;
+  recipe: { id: string; title: string; image_url?: string };
+};

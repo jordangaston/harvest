@@ -8,3 +8,4 @@ export * from './recipe-steps.js';
 export * from './import-jobs.js';
 export * from './import-job-recipes.js';
 export * from './grocery-items.js';
+export * from './meal-plan-entries.js';

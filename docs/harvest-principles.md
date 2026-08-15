@@ -143,6 +143,7 @@ Every principle is traceable to a concrete moment; the evidence is cited.
 10. **Data transforms must be safe** — prevents a filter from silently deleting good records.
 11. **Know destructive commands / dev-server hygiene** — avoids hours lost to "phantom" bugs (the DB-wipe episode).
 12. **Read-once module signal for stack→tab**, **installed≠wired**, **ignore injected noise** — smaller but real time-savers.
+13. **Isolate a shared-Postgres test run by *creating* the DB, not just pointing env at it** — when a `global-setup`/`create-databases` script hardcodes its database list, an env-var override only redirects the reset+migrate step, so a worktree-unique DB must be `CREATE DATABASE`'d first. Prevents "database does not exist" when parallel sprints share one Postgres. *(Learned in the instrumentation sprint.)*
 
 ## Recommended durable changes
 

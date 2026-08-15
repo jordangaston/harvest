@@ -1,5 +1,5 @@
 {
-  "id": "fc5780d0-ac88-444a-9e55-29571b0e15e8",
+  "id": "cf24035f-440b-4262-900a-4a39ac78210e",
   "prevId": "b8ef0050-2ab7-4a48-a8d1-9b35d24cf02f",
   "version": "7",
   "dialect": "postgresql",
@@ -835,8 +835,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.grocery_items": {
-      "name": "grocery_items",
+    "public.meal_plan_entries": {
+      "name": "meal_plan_entries",
       "schema": "",
       "columns": {
         "id": {
@@ -852,63 +852,30 @@
           "primaryKey": false,
           "notNull": true
         },
-        "name": {
-          "name": "name",
-          "type": "text",
+        "date": {
+          "name": "date",
+          "type": "date",
           "primaryKey": false,
           "notNull": true
         },
-        "amount": {
-          "name": "amount",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unit": {
-          "name": "unit",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quantity_text": {
-          "name": "quantity_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "aisle": {
-          "name": "aisle",
-          "type": "grocery_aisle",
+        "meal": {
+          "name": "meal",
+          "type": "meal_slot",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
-        "icon": {
-          "name": "icon",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'default'"
-        },
-        "checked": {
-          "name": "checked",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "source_recipe_id": {
-          "name": "source_recipe_id",
+        "recipe_id": {
+          "name": "recipe_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "position": {
           "name": "position",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -919,11 +886,17 @@
         }
       },
       "indexes": {
-        "grocery_items_user_idx": {
-          "name": "grocery_items_user_idx",
+        "meal_plan_entries_user_date_idx": {
+          "name": "meal_plan_entries_user_date_idx",
           "columns": [
             {
               "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -936,9 +909,9 @@
         }
       },
       "foreignKeys": {
-        "grocery_items_user_id_users_id_fk": {
-          "name": "grocery_items_user_id_users_id_fk",
-          "tableFrom": "grocery_items",
+        "meal_plan_entries_user_id_users_id_fk": {
+          "name": "meal_plan_entries_user_id_users_id_fk",
+          "tableFrom": "meal_plan_entries",
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
@@ -949,17 +922,17 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "grocery_items_source_recipe_id_recipes_id_fk": {
-          "name": "grocery_items_source_recipe_id_recipes_id_fk",
-          "tableFrom": "grocery_items",
+        "meal_plan_entries_recipe_id_recipes_id_fk": {
+          "name": "meal_plan_entries_recipe_id_recipes_id_fk",
+          "tableFrom": "meal_plan_entries",
           "tableTo": "recipes",
           "columnsFrom": [
-            "source_recipe_id"
+            "recipe_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1006,22 +979,6 @@
         "try_new_cuisines"
       ]
     },
-    "public.grocery_aisle": {
-      "name": "grocery_aisle",
-      "schema": "public",
-      "values": [
-        "produce",
-        "meat_seafood",
-        "dairy_eggs_fridge",
-        "bakery",
-        "pantry",
-        "herbs_spices",
-        "frozen",
-        "beverages",
-        "household",
-        "other"
-      ]
-    },
     "public.how_heard": {
       "name": "how_heard",
       "schema": "public",
@@ -1046,6 +1003,16 @@
         "running",
         "ready",
         "failed"
+      ]
+    },
+    "public.meal_slot": {
+      "name": "meal_slot",
+      "schema": "public",
+      "values": [
+        "breakfast",
+        "lunch",
+        "dinner",
+        "snack"
       ]
     },
     "public.nutrition_source": {

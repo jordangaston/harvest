@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "./config";
 import { getSession, setSession, type Session } from "./session";
 import { getOnboarding, resetOnboarding } from "../onboarding";
+import { analytics } from "../analytics";
 
 // The server needs a *possible* E.164 number (libphonenumber `isPossible`). The
 // 555-555-01xx style parses as possible and is verified against the live server.
@@ -42,6 +43,9 @@ export async function provisionUser(): Promise<Session> {
   const user = onboarding ? { phone_number: phone, onboarding } : { phone_number: phone };
   const session = toSession(await postSession("/v1/users", { user }), phone);
   await setSession(session);
+  // A present onboarding payload means this is a real signup (not an anonymous first-launch or
+  // 401-refresh re-provision), so identify + "Signup Completed" fire only here — before the drain.
+  if (onboarding) analytics.onSignup(session.userId, onboarding);
   resetOnboarding();
   return session;
 }

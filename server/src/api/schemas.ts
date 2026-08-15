@@ -70,6 +70,27 @@ export const patchGroceryItemSchema = z
     message: 'provide checked, amount, and/or unit',
   });
 
+/** `GET /v1/recipes` query: cursor pagination + an opt-in expand csv. */
+export const listRecipesQuerySchema = z.object({
+  page_token: z.string().optional(),
+  page_size: z.coerce.number().int().min(1).max(200).default(50),
+  expand: z.string().optional(),
+});
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
+
+/** `POST /v1/meal-plan` body: assign one recipe to a (date, meal) slot. */
+export const createMealPlanEntrySchema = z.object({
+  entry: z.object({
+    date: isoDate,
+    meal: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+    recipe_id: z.string().uuid(),
+  }),
+});
+
+/** `GET /v1/meal-plan` query: an inclusive date range. */
+export const mealPlanRangeQuerySchema = z.object({ start: isoDate, end: isoDate });
+
 export const signInSchema = z.object({
   auth: z
     .object({

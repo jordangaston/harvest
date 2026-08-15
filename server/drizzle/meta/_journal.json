@@ -68,8 +68,15 @@
     {
       "idx": 9,
       "version": "7",
-      "when": 1786160286600,
-      "tag": "0009_grocery_items",
+      "when": 1786160234086,
+      "tag": "0009_eager_the_watchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786821499417,
+      "tag": "0010_freezing_red_ghost",
       "breakpoints": true
     }
   ]

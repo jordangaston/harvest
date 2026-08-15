@@ -1,10 +1,12 @@
 import React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollView, View } from "react-native";
+import { usePathname } from "expo-router";
 import { ProgressHeader } from "./ProgressHeader";
 import { Logo } from "./Logo";
 import { Backdrop } from "./Backdrop";
 import { Button, ButtonText } from "../ui";
+import { analytics } from "../../lib/analytics";
 
 /**
  * Shared onboarding shell: cream background, optional Logo + progress header,
@@ -37,6 +39,14 @@ export function OnboardingScreen({
   footer?: React.ReactNode;
   contentClassName?: string;
 }) {
+  const pathname = usePathname();
+  // Advancing a screen via its CTA is the "continue past onboarding" signal; the route names the step.
+  const handleCta = onCta
+    ? () => {
+        analytics.track("Onboarding Step Completed", { step: pathname });
+        onCta();
+      }
+    : undefined;
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={["top", "bottom"]}>
       <Backdrop />
@@ -66,7 +76,7 @@ export function OnboardingScreen({
               className="w-full"
               disabled={ctaDisabled}
               style={ctaDisabled ? { opacity: 0.4 } : undefined}
-              onPress={onCta}
+              onPress={handleCta}
             >
               <ButtonText>{ctaLabel}</ButtonText>
             </Button>

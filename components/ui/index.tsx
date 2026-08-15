@@ -26,6 +26,8 @@ import {
 } from "react-native";
 import { tv } from "tailwind-variants";
 import { Ionicons } from "@expo/vector-icons";
+import { analytics } from "../../lib/analytics";
+import { extractLabel } from "../../lib/analytics/label";
 
 type WithClass<T> = T & { className?: string };
 
@@ -110,6 +112,7 @@ const button = tv({
       plus: "bg-plus",
       dark: "bg-ink",
       light: "bg-card border border-hairline",
+      error: "bg-error",
     },
     size: {
       lg: "h-14 px-6",
@@ -121,7 +124,7 @@ const button = tv({
 });
 
 type ButtonProps = WithClass<PressableProps> & {
-  action?: "brand" | "plus" | "dark" | "light";
+  action?: "brand" | "plus" | "dark" | "light" | "error";
   variant?: "solid" | "outline" | "link";
   size?: "lg" | "md" | "sm";
 };
@@ -132,12 +135,21 @@ export function Button({
   variant,
   size,
   children,
+  onPress,
   ...props
 }: ButtonProps) {
+  // Auto-instrument every tap on the shared primitive, then run the caller's handler unchanged.
+  // `track` is fire-and-forget and swallows its own errors, so it can never block or drop a press.
+  const handlePress: PressableProps["onPress"] = (event) => {
+    const label = typeof children === "function" ? undefined : extractLabel(children);
+    analytics.track("Button Tapped", label ? { label } : {});
+    onPress?.(event);
+  };
   return (
     <RNPressable
       className={button({ action, variant, size, className })}
       style={({ pressed }) => (pressed ? { opacity: 0.9 } : undefined)}
+      onPress={handlePress}
       {...props}
     >
       {children}

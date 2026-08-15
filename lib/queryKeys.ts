@@ -14,4 +14,5 @@ export const queryKeys = {
   groceries: ["groceries"] as const,
   commonIngredients: ["commonIngredients"] as const,
   me: ["me"] as const,
+  onboardingFlags: ["onboardingFlags"] as const,
 };
