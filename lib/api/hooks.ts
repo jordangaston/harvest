@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { listCookbooks, createCookbook } from "./cookbooks";
 import { getRecipe, listRecipes } from "./recipes";
+import { getMe, deleteAccount } from "./me";
 import { listMealPlan, addMealPlanEntry, removeMealPlanEntry } from "./meal-plan";
 import { listCommonIngredients } from "./ingredients";
 import type { ApiMealPlanEntry, MealSlot } from "./types";
@@ -17,6 +18,20 @@ export function useCookbooks() {
 
 export function useRecipe(id: string) {
   return useQuery({ queryKey: queryKeys.recipe(id), queryFn: () => getRecipe(id), enabled: !!id });
+}
+
+/** The authenticated user (id, phone, and — once Phone Auth merges — name). */
+export function useMe() {
+  return useQuery({ queryKey: queryKeys.me, queryFn: getMe });
+}
+
+/**
+ * Deletes the account. The caller owns teardown ordering (clear cache → clear
+ * session → navigate) because a stray protected refetch after the user is gone
+ * would re-provision a new user via `apiFetch`; the hook only runs the request.
+ */
+export function useDeleteAccount() {
+  return useMutation({ mutationFn: deleteAccount });
 }
 
 /**

@@ -79,6 +79,7 @@ export default function RootLayout() {
             <Stack.Screen name="import-source" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="unlock-importing" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="importing" options={{ animation: "fade" }} />
+            <Stack.Screen name="profile" />
           </Stack>
           {__DEV__ ? <AnalyticsDebugOverlay /> : null}
         </SafeAreaProvider>

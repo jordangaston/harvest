@@ -109,6 +109,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   /**
+   * DELETE /v1/users/me — permanently deletes the caller and all data they own
+   * (recipes, cookbooks, import jobs, meal-plan entries, grocery items).
+   * Requires bearer token; 204 on success. Irreversible.
+   */
+  app.delete('/v1/users/me', { preHandler: authGuard }, async (request, reply) => {
+    await users.deleteAccount(request.authUserId!);
+    return reply.code(204).send();
+  });
+
+  /**
    * POST /v1/imports — enqueues an import job for the caller. Requires bearer token; 401 without one.
    * Returns 202 with the pending job.
    */
