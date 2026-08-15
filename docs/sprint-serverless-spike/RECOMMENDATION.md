@@ -104,6 +104,26 @@ carry over.
 500 M row reads/mo, 10 M row writes/mo, 3 GB syncs (turso.tech/pricing, read Aug 2026). Paid tiers:
 Developer $4.99/mo, Scaler $24.92/mo, Pro $416.58/mo, Enterprise custom.
 
+### Verified on real Turso cloud
+
+The proof also ran once against a throwaway Turso **cloud** database — provisioned and torn down via
+the Platform REST API, not just local `turso dev`. Result: **PASS**. Clean import → `ready` and
+faulted import → resume (memoization `fetch-source=1 / extract=2 / persist-and-ready=1`, exactly one
+recipe) through the Queue → Workflow path, with the restored interactive `db.transaction()` persist
+committing against real cloud over `@libsql/client/web`. Round-trip latency — the cost of the network
+hop the residual-risk note flags:
+
+| Access path | read (`select 1`) | interactive-tx commit |
+|-------------|-------------------|-----------------------|
+| Turso cloud (`aws-us-east-1`, median of 5) | ~40 ms | ~138 ms |
+| local `file:` (median of 5) | ~0 ms | ~0.5 ms |
+
+An interactive transaction is several serial round-trips (begin → statements → commit), so cloud adds
+tens-to-\~140 ms per persist versus a local file — acceptable for an async import, but the reason to
+keep transactions short and consider embedded replicas for read-heavy paths. The cloud database and
+its group were destroyed after the run (Platform API `DELETE` → 200 each); no resource lingers and no
+secret is stored in the repo.
+
 ## The key risk — Node-only APIs that Workers lacks
 
 Most of the backend is already runtime-neutral (Zod, Drizzle queries, the orchestrator, `fetch`-based
