@@ -7,6 +7,7 @@ import { Backdrop } from "../components/recime/Backdrop";
 import { CookingLoaderText } from "../components/recime/CookingLoaderText";
 import { Center, Text, Button, ButtonText, Pressable } from "../components/ui";
 import { runImport } from "../lib/api/imports";
+import { useMarkImportedFirst } from "../lib/onboardingChecklist";
 
 type Phase = { kind: "loading" } | { kind: "no_recipe" } | { kind: "failed" };
 
@@ -20,6 +21,7 @@ export default function Importing() {
   const [phase, setPhase] = React.useState<Phase>({ kind: "loading" });
   const [displayed, setDisplayed] = React.useState(6);
   const serverProgress = React.useRef(0);
+  const markImportedFirst = useMarkImportedFirst();
 
   // Ease the displayed progress upward (asymptotic toward the ceiling), using the
   // server's coarse progress as a floor — so the bar never sits stuck.
@@ -40,9 +42,13 @@ export default function Importing() {
     runImport(url, (p) => {
       serverProgress.current = p;
     })
-      .then((result) => {
+      .then(async (result) => {
         if (!active) return;
         if (result.status === "ready") {
+          // Mark the onboarding checklist's first-import item and invalidate its
+          // query BEFORE navigating — the recipes tab stays mounted, so the
+          // invalidate (not stale-time) is what refreshes the card. Cheap/local.
+          await markImportedFirst();
           const ids = result.recipeIds;
           if (ids.length > 1) router.replace(`/preview?ids=${ids.join(",")}`);
           else router.replace(`/recipe/${ids[0]}?mode=preview`);
@@ -56,7 +62,7 @@ export default function Importing() {
     return () => {
       active = false;
     };
-  }, [url, router]);
+  }, [url, router, markImportedFirst]);
 
   if (phase.kind === "loading") {
     const pct = Math.round(displayed);

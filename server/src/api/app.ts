@@ -14,12 +14,21 @@ import {
   createCookbookSchema,
   setMembershipSchema,
   updateRecipeSchema,
+  addGroceryItemsSchema,
+  patchGroceryItemSchema,
+  listRecipesQuerySchema,
+  createMealPlanEntrySchema,
+  mealPlanRangeQuerySchema,
 } from './schemas.js';
 import { toPublicUser } from '../models/user.js';
 import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
 import { RecipeService } from '../services/recipe-service.js';
 import { CookbookService } from '../services/cookbook-service.js';
+import { GroceryService } from '../services/grocery-service.js';
+import { toPublicGroceryItem } from '../models/grocery-item.js';
+import { MealPlanService } from '../services/meal-plan-service.js';
+import { InvalidRangeError } from './errors.js';
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -50,6 +59,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const imports = ImportService.create();
   const recipes = RecipeService.create();
   const cookbooks = CookbookService.create();
+  const groceries = GroceryService.create();
+  const mealPlan = MealPlanService.create();
 
   /** GET /healthz — liveness probe. Public. 200 when the DB is reachable, else 503. */
   app.get('/healthz', async (_request, reply) => {
@@ -108,6 +119,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   /**
+   * DELETE /v1/users/me — permanently deletes the caller and all data they own
+   * (recipes, cookbooks, import jobs, meal-plan entries, grocery items).
+   * Requires bearer token; 204 on success. Irreversible.
+   */
+  app.delete('/v1/users/me', { preHandler: authGuard }, async (request, reply) => {
+    await users.deleteAccount(request.authUserId!);
+    return reply.code(204).send();
+  });
+
+  /**
    * POST /v1/imports — enqueues an import job for the caller. Requires bearer token; 401 without one.
    * Returns 202 with the pending job.
    */
@@ -125,6 +146,50 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.get<{ Params: { id: string } }>('/v1/imports/:id', { preHandler: authGuard }, async (request) => {
     const job = await imports.get(request.authUserId!, request.params.id);
     return { job };
+  });
+
+  /**
+   * GET /v1/recipes — the caller's library (owned ∪ cookbook recipes), deduped and
+   * cursor-paginated (`page_token`). `expand=ingredient_names,cookbook_ids` opts into
+   * those per-card fields. Requires bearer token; 401 without one.
+   */
+  app.get('/v1/recipes', { preHandler: authGuard }, async (request) => {
+    const { page_token, page_size, expand } = listRecipesQuerySchema.parse(request.query);
+    const expandSet = new Set((expand ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    return recipes.listCards(request.authUserId!, { pageSize: page_size, cursor: page_token, expand: expandSet });
+  });
+
+  /**
+   * GET /v1/meal-plan?start&end — the caller's entries in an inclusive date range,
+   * each with its recipe card. Requires bearer token. 400 if the range is missing,
+   * malformed, or wider than 31 days.
+   */
+  app.get('/v1/meal-plan', { preHandler: authGuard }, async (request) => {
+    const { start, end } = mealPlanRangeQuerySchema.parse(request.query);
+    const days = (Date.parse(end) - Date.parse(start)) / 86_400_000;
+    if (!(days >= 0 && days <= 31)) throw new InvalidRangeError();
+    const entries = await mealPlan.listRange(request.authUserId!, start, end);
+    return { entries };
+  });
+
+  /**
+   * POST /v1/meal-plan — assigns a recipe to a (date, meal) slot, appended to the
+   * slot. Requires bearer token. 201 with the entry; 404 if the recipe is unknown.
+   */
+  app.post('/v1/meal-plan', { preHandler: authGuard }, async (request, reply) => {
+    const { entry } = createMealPlanEntrySchema.parse(request.body);
+    const created = await mealPlan.add(request.authUserId!, entry.date, entry.meal, entry.recipe_id);
+    reply.code(201);
+    return { entry: created };
+  });
+
+  /**
+   * DELETE /v1/meal-plan/:id — removes one of the caller's entries. Requires bearer
+   * token; 404 if the entry isn't the caller's; 204 on success.
+   */
+  app.delete<{ Params: { id: string } }>('/v1/meal-plan/:id', { preHandler: authGuard }, async (request, reply) => {
+    await mealPlan.remove(request.authUserId!, request.params.id);
+    return reply.code(204).send();
   });
 
   /**
@@ -186,6 +251,54 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
    */
   app.get<{ Params: { id: string } }>('/v1/cookbooks/:id', { preHandler: authGuard }, async (request) => {
     return cookbooks.get(request.authUserId!, request.params.id);
+  });
+
+  /** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */
+  app.get('/v1/grocery_items', { preHandler: authGuard }, async (request) => {
+    const items = await groceries.list(request.authUserId!);
+    return { items: items.map(toPublicGroceryItem) };
+  });
+
+  /**
+   * POST /v1/grocery_items — adds one or many items (manual add sends one; a recipe
+   * sends many). Resolves aisle/icon + default unit and merges by name+unit. 201.
+   */
+  app.post('/v1/grocery_items', { preHandler: authGuard }, async (request, reply) => {
+    const { items } = addGroceryItemsSchema.parse(request.body);
+    const created = await groceries.add(
+      request.authUserId!,
+      items.map((i) => ({
+        name: i.name,
+        amount: i.amount ?? null,
+        unit: i.unit ?? null,
+        quantityText: i.quantity_text ?? null,
+        sourceRecipeId: i.source_recipe_id ?? null,
+      })),
+    );
+    reply.code(201);
+    return { items: created.map(toPublicGroceryItem) };
+  });
+
+  /** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the caller's. */
+  app.patch<{ Params: { id: string } }>('/v1/grocery_items/:id', { preHandler: authGuard }, async (request) => {
+    const patch = patchGroceryItemSchema.parse(request.body);
+    const item = await groceries.patch(request.authUserId!, request.params.id, patch);
+    return { item: toPublicGroceryItem(item) };
+  });
+
+  /** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the caller's. */
+  app.delete<{ Params: { id: string } }>('/v1/grocery_items/:id', { preHandler: authGuard }, async (request, reply) => {
+    await groceries.remove(request.authUserId!, request.params.id);
+    return reply.code(204).send();
+  });
+
+  /**
+   * GET /v1/ingredients/common — the common-ingredients catalog for the picker and for
+   * Meal Planning to consume: `[{ canonicalName, aisle, defaultUnit, iconKey }]`. `q`
+   * filters by substring.
+   */
+  app.get<{ Querystring: { q?: string } }>('/v1/ingredients/common', { preHandler: authGuard }, async (request) => {
+    return { ingredients: groceries.common(request.query.q) };
   });
 
   registerErrorHandler(app);

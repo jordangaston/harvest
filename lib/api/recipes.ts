@@ -1,9 +1,31 @@
 import { apiFetch } from "./client";
-import type { ApiRecipe } from "./types";
+import type { ApiRecipe, RecipeCard } from "./types";
+import { analytics } from "../analytics";
 
 export async function getRecipe(id: string): Promise<ApiRecipe> {
   const { recipe } = await apiFetch<{ recipe: ApiRecipe }>(`/v1/recipes/${id}`);
   return recipe;
+}
+
+/**
+ * The caller's whole library as cards (owned ∪ cookbook recipes), following the
+ * `page_token` cursor to the end. `expand` adds ingredient names + cookbook ids so
+ * the add-recipe sheet can filter client-side.
+ */
+export async function listRecipes(
+  expand: string[] = ["ingredient_names", "cookbook_ids"],
+): Promise<RecipeCard[]> {
+  const all: RecipeCard[] = [];
+  let token: string | null = null;
+  do {
+    const qs = new URLSearchParams({ page_size: "200" });
+    if (expand.length) qs.set("expand", expand.join(","));
+    if (token) qs.set("page_token", token);
+    const page = await apiFetch<{ recipes: RecipeCard[]; page_token: string | null }>(`/v1/recipes?${qs}`);
+    all.push(...page.recipes);
+    token = page.page_token;
+  } while (token);
+  return all;
 }
 
 /** Edits the recipe in place and returns the updated recipe. */
@@ -25,5 +47,9 @@ export async function setRecipeCookbooks(recipeId: string, cookbookIds: string[]
     method: "PUT",
     body: JSON.stringify({ cookbook_ids: cookbookIds }),
   });
+  // Fire only when the recipe lands in at least one cookbook — a PUT of [] is an unsave, not a save.
+  if (cookbook_ids.length > 0) {
+    analytics.track("Recipe Saved", { recipe_id: recipeId, cookbook_count: cookbook_ids.length });
+  }
   return cookbook_ids;
 }

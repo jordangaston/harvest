@@ -89,6 +89,16 @@ export class UserService {
   }
 
   /**
+   * Permanently deletes the caller's account and all data they own. The token
+   * subject is the only account a caller can name, so no extra ownership check.
+   *
+   * @param userId - The authenticated user id.
+   */
+  deleteAccount(userId: string): Promise<void> {
+    return this.repo.deleteAccount(userId);
+  }
+
+  /**
    * Verifies the OTP, then resolves (provisioning on first sign-in) the user.
    *
    * @param otp - The phone and code to verify.

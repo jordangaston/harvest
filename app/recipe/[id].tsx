@@ -1,9 +1,11 @@
 import React from "react";
-import { View, ScrollView, Modal, StyleSheet } from "react-native";
+import { View, ScrollView, Modal, StyleSheet, Animated, AccessibilityInfo } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { AddToGroceriesSheet } from "../../components/recime/AddToGroceriesSheet";
+import { TOAST, EASE } from "../../lib/motion";
 import {
   VStack,
   HStack,
@@ -19,6 +21,9 @@ import {
 } from "../../components/ui";
 import { StepText } from "../../components/recime/StepText";
 import { CookbookPickerSheet } from "../../components/recime/CookbookPickerSheet";
+import { AddToPlanSheet } from "../../components/recime/AddToPlanSheet";
+import { Toast, useToast } from "../../components/recime/Toast";
+import { mealLabel } from "../../components/recime/meals";
 import { resolveIcon } from "../../components/recime/recipes";
 import { useQueryClient } from "@tanstack/react-query";
 import { updateRecipe, deleteRecipe } from "../../lib/api/recipes";
@@ -45,7 +50,32 @@ export default function RecipeDetail() {
   const [popIng, setPopIng] = React.useState<ApiIngredient | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [planOpen, setPlanOpen] = React.useState(false);
+  const [toast, setToast] = React.useState<string | null>(null);
+  const showToast = useToast(setToast);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [groceriesOpen, setGroceriesOpen] = React.useState(false);
+  const [groceryToast, setGroceryToast] = React.useState<number | null>(null);
+  const groceryToastAnim = React.useRef(new Animated.Value(0)).current;
+  const reduceMotion = React.useRef(false);
+  React.useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => (reduceMotion.current = on));
+  }, []);
+
+  // Toast after adding to groceries: rises in (slower), holds, drops out — tappable
+  // to jump to the list. JS driver so a freshly-mounted view animates. Reduce-Motion safe.
+  React.useEffect(() => {
+    if (groceryToast == null) return;
+    const rm = reduceMotion.current;
+    groceryToastAnim.setValue(rm ? 1 : 0);
+    Animated.timing(groceryToastAnim, { toValue: 1, duration: rm ? 0 : TOAST.inMs, easing: EASE.smoothOut, useNativeDriver: false }).start();
+    const hold = setTimeout(() => {
+      Animated.timing(groceryToastAnim, { toValue: 0, duration: rm ? 0 : TOAST.outMs, easing: EASE.smoothOut, useNativeDriver: false }).start(
+        ({ finished }) => finished && setGroceryToast(null),
+      );
+    }, 3200);
+    return () => clearTimeout(hold);
+  }, [groceryToast, groceryToastAnim]);
 
   const [editing, setEditing] = React.useState(false);
   const [editIngredients, setEditIngredients] = React.useState<string[]>([]);
@@ -299,6 +329,26 @@ export default function RecipeDetail() {
           <View className="mt-auto">
             <Pressable onPress={() => {}}>
               <View className="rounded-t-3xl bg-cream px-5 pb-10 pt-6" style={{ paddingBottom: insets.bottom + 16 }}>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    setGroceriesOpen(true);
+                  }}
+                  className="flex-row items-center py-3.5"
+                >
+                  <Icon name="cart-outline" size={22} color="#2E2419" />
+                  <Text className="ml-3 text-base font-semibold text-ink">Add to groceries</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    setPlanOpen(true);
+                  }}
+                  className="flex-row items-center py-3.5"
+                >
+                  <Icon name="calendar-outline" size={22} color="#2E2419" />
+                  <Text className="ml-3 text-base font-semibold text-ink">Add to meal plan</Text>
+                </Pressable>
                 <Pressable onPress={startEditing} className="flex-row items-center py-3.5">
                   <Icon name="create-outline" size={22} color="#2E2419" />
                   <Text className="ml-3 text-base font-semibold text-ink">Edit recipe</Text>
@@ -346,6 +396,53 @@ export default function RecipeDetail() {
           router.replace("/(app)/recipes");
         }}
       />
+
+      <AddToGroceriesSheet
+        visible={groceriesOpen}
+        recipe={recipe}
+        onClose={() => setGroceriesOpen(false)}
+        onAdded={(count) => setGroceryToast(count)}
+      />
+
+      {groceryToast != null ? (
+        <Animated.View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: insets.bottom + 90,
+            alignItems: "center",
+            opacity: groceryToastAnim,
+            transform: [{ translateY: groceryToastAnim.interpolate({ inputRange: [0, 1], outputRange: [TOAST.rise, 0] }) }],
+          }}
+        >
+          <Pressable
+            onPress={() => {
+              setGroceryToast(null);
+              router.push("/(app)/groceries");
+            }}
+            className="flex-row items-center rounded-full bg-ink px-4 py-2.5 shadow-lg"
+          >
+            <Icon name="cart" size={18} color="#F1E6D2" />
+            <Text className="ml-2 font-semibold" style={{ color: "#F1E6D2" }}>
+              Added {groceryToast} item{groceryToast === 1 ? "" : "s"} — tap to view groceries
+            </Text>
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
+      {/* add-to-meal-plan flow — recipe pre-chosen; a day-picker then a meal */}
+      <AddToPlanSheet
+        visible={planOpen}
+        recipeId={recipe.id}
+        onClose={() => setPlanOpen(false)}
+        onAdded={(meal, dayLabel) => {
+          setPlanOpen(false);
+          showToast(`Added to ${mealLabel(meal)} · ${dayLabel}`);
+        }}
+      />
+
+      {toast ? <Toast message={toast} /> : null}
     </View>
   );
 }

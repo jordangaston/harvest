@@ -45,3 +45,75 @@ export type CookbookView = {
   cookbook: { id: string; name: string };
   recipes: { id: string; title: string; image_url?: string }[];
 };
+
+export type GroceryAisle =
+  | "produce"
+  | "meat_seafood"
+  | "dairy_eggs_fridge"
+  | "bakery"
+  | "pantry"
+  | "herbs_spices"
+  | "frozen"
+  | "beverages"
+  | "household"
+  | "other";
+
+export type ApiGroceryItem = {
+  id: string;
+  name: string;
+  amount: number | null;
+  unit: string | null;
+  quantity_text: string | null;
+  aisle: GroceryAisle;
+  icon: string;
+  checked: boolean;
+  source_recipe_id: string | null;
+  source_recipe_title: string | null;
+  position: number;
+};
+
+/** One item to add — the manual sheet sends one, a recipe sends many. */
+export type NewGroceryItem = {
+  name: string;
+  amount?: number | null;
+  unit?: string | null;
+  quantity_text?: string | null;
+  source_recipe_id?: string | null;
+};
+
+/** The common-ingredients contract from GET /v1/ingredients/common. */
+export type ApiCommonIngredient = {
+  canonicalName: string;
+  aisle: GroceryAisle;
+  defaultUnit: string;
+  iconKey: string;
+};
+
+// The authenticated user, from GET /v1/users/me. `name` is owned by Phone Auth
+// (added to the projection when it merges); read it null-tolerant until then.
+export type ApiMe = {
+  id: string;
+  phone: string;
+  name?: string | null;
+};
+
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
+
+/** A recipe card from `GET /v1/recipes`. `ingredient_names`/`cookbook_ids` present only when expanded. */
+export type RecipeCard = {
+  id: string;
+  title: string;
+  image_url?: string;
+  total_minutes?: number;
+  ingredient_names?: string[];
+  cookbook_ids?: string[];
+};
+
+/** A meal-plan entry from `GET /v1/meal-plan`. */
+export type ApiMealPlanEntry = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  meal: MealSlot;
+  position: number;
+  recipe: { id: string; title: string; image_url?: string };
+};

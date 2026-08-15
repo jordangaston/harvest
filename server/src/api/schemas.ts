@@ -48,6 +48,51 @@ export const updateRecipeSchema = z
     message: 'provide ingredients and/or steps',
   });
 
+export const addGroceryItemsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        amount: z.number().nullable().optional(),
+        unit: z.string().nullable().optional(),
+        quantity_text: z.string().nullable().optional(),
+        source_recipe_id: z.string().uuid().nullable().optional(),
+      }),
+    )
+    .min(1),
+});
+
+export const patchGroceryItemSchema = z
+  .object({
+    checked: z.boolean().optional(),
+    amount: z.number().nullable().optional(),
+    unit: z.string().nullable().optional(),
+  })
+  .refine((body) => body.checked !== undefined || body.amount !== undefined || body.unit !== undefined, {
+    message: 'provide checked, amount, and/or unit',
+  });
+
+/** `GET /v1/recipes` query: cursor pagination + an opt-in expand csv. */
+export const listRecipesQuerySchema = z.object({
+  page_token: z.string().optional(),
+  page_size: z.coerce.number().int().min(1).max(200).default(50),
+  expand: z.string().optional(),
+});
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
+
+/** `POST /v1/meal-plan` body: assign one recipe to a (date, meal) slot. */
+export const createMealPlanEntrySchema = z.object({
+  entry: z.object({
+    date: isoDate,
+    meal: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+    recipe_id: z.string().uuid(),
+  }),
+});
+
+/** `GET /v1/meal-plan` query: an inclusive date range. */
+export const mealPlanRangeQuerySchema = z.object({ start: isoDate, end: isoDate });
+
 export const signInSchema = z.object({
   auth: z
     .object({

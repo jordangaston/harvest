@@ -45,6 +45,10 @@ export const recipeSourceEnum = pgEnum('recipe_source', [
 
 export const weekdayEnum = pgEnum('weekday', ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 
+/** The meal a recipe is assigned to within a day of the meal plan. */
+export const mealSlotEnum = pgEnum('meal_slot', ['breakfast', 'lunch', 'dinner', 'snack']);
+export type MealSlot = (typeof mealSlotEnum.enumValues)[number];
+
 export const whenCookEnum = pgEnum('when_cook', [
   'morning_plan_ahead',
   'lunchtime',
@@ -86,6 +90,22 @@ export const ageBandEnum = pgEnum('age_band', [
  * Null (no column value) = unknown — no parsed block and coverage below the floor. */
 export const nutritionSourceEnum = pgEnum('nutrition_source', ['parsed', 'computed']);
 export type NutritionSource = (typeof nutritionSourceEnum.enumValues)[number];
+
+/** W2 grocery aisle. Store-walk order so the default grouped view reads top-to-bottom
+ * like a shopping trip; `other` is the catch-all for anything the catalog can't place. */
+export const groceryAisleEnum = pgEnum('grocery_aisle', [
+  'produce',
+  'meat_seafood',
+  'dairy_eggs_fridge',
+  'bakery',
+  'pantry',
+  'herbs_spices',
+  'frozen',
+  'beverages',
+  'household',
+  'other',
+]);
+export type GroceryAisle = (typeof groceryAisleEnum.enumValues)[number];
 
 /** Machine-readable failure detail for a `failed` job (stored as text). */
 export type ImportErrorCode =

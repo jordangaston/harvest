@@ -2,6 +2,7 @@ import { API_BASE_URL } from "./config";
 import { setSession, type Session } from "./session";
 import { getOnboarding, resetOnboarding } from "../onboarding";
 import { queryClient } from "../queryClient";
+import { analytics } from "../analytics";
 
 type SessionResponse = {
   user: { id: string; phone: string; name: string | null };
@@ -51,6 +52,9 @@ export async function createUser(phone: string, code: string): Promise<Session> 
   const { name, ...onboarding } = getOnboarding() ?? {};
   const user = { phone_number: phone, code, name, onboarding };
   const session = await establish(await postSession("/v1/users", { user }), phone);
+  // A present onboarding payload means this is a real signup (not an anonymous first-launch or
+  // 401-refresh re-provision), so identify + "Signup Completed" fire only here — before the drain.
+  if (onboarding) analytics.onSignup(session.userId, onboarding);
   resetOnboarding();
   return session;
 }
