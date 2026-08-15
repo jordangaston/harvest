@@ -4,8 +4,14 @@ import { listCookbooks, createCookbook } from "./cookbooks";
 import { getRecipe, listRecipes } from "./recipes";
 import { getMe, deleteAccount } from "./me";
 import { listMealPlan, addMealPlanEntry, removeMealPlanEntry } from "./meal-plan";
-import { listCommonIngredients } from "./ingredients";
-import type { ApiMealPlanEntry, MealSlot } from "./types";
+import {
+  listGroceries,
+  addGroceryItems,
+  patchGroceryItem,
+  deleteGroceryItem,
+  listCommonIngredients,
+} from "./groceries";
+import type { ApiMealPlanEntry, MealSlot, NewGroceryItem } from "./types";
 
 /**
  * Read hooks — the reference pattern for Wave 2. A `useQuery` wraps an existing
@@ -46,6 +52,11 @@ export function useCreateCookbook() {
   });
 }
 
+/** The grocery list. The common-ingredients catalog is static, so it caches long. */
+export function useGroceries() {
+  return useQuery({ queryKey: queryKeys.groceries, queryFn: listGroceries });
+}
+
 /* ---------- Meal plan ---------- */
 
 /** The caller's entries for the Mon–Sun week starting at `weekStart` (YYYY-MM-DD). */
@@ -66,6 +77,34 @@ export function useLibraryCards() {
 export function useCommonIngredients() {
   return useQuery({ queryKey: queryKeys.commonIngredients, queryFn: listCommonIngredients });
 }
+
+/** Every grocery write invalidates the one list key, so mounted lists refetch. */
+export function useAddGroceryItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (items: NewGroceryItem[]) => addGroceryItems(items),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.groceries }),
+  });
+}
+
+export function usePatchGroceryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; checked?: boolean; amount?: number | null; unit?: string | null }) =>
+      patchGroceryItem(id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.groceries }),
+  });
+}
+
+export function useDeleteGroceryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteGroceryItem(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.groceries }),
+  });
+}
+
+/* ---------- Meal plan writes ---------- */
 
 /**
  * Adds a meal-plan entry. Invalidates the whole `mealPlan` key space so any cached

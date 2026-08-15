@@ -46,6 +46,30 @@ export const updateRecipeSchema = z
     message: 'provide ingredients and/or steps',
   });
 
+export const addGroceryItemsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        amount: z.number().nullable().optional(),
+        unit: z.string().nullable().optional(),
+        quantity_text: z.string().nullable().optional(),
+        source_recipe_id: z.string().uuid().nullable().optional(),
+      }),
+    )
+    .min(1),
+});
+
+export const patchGroceryItemSchema = z
+  .object({
+    checked: z.boolean().optional(),
+    amount: z.number().nullable().optional(),
+    unit: z.string().nullable().optional(),
+  })
+  .refine((body) => body.checked !== undefined || body.amount !== undefined || body.unit !== undefined, {
+    message: 'provide checked, amount, and/or unit',
+  });
+
 /** `GET /v1/recipes` query: cursor pagination + an opt-in expand csv. */
 export const listRecipesQuerySchema = z.object({
   page_token: z.string().optional(),

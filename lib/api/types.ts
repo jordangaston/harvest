@@ -46,6 +46,49 @@ export type CookbookView = {
   recipes: { id: string; title: string; image_url?: string }[];
 };
 
+export type GroceryAisle =
+  | "produce"
+  | "meat_seafood"
+  | "dairy_eggs_fridge"
+  | "bakery"
+  | "pantry"
+  | "herbs_spices"
+  | "frozen"
+  | "beverages"
+  | "household"
+  | "other";
+
+export type ApiGroceryItem = {
+  id: string;
+  name: string;
+  amount: number | null;
+  unit: string | null;
+  quantity_text: string | null;
+  aisle: GroceryAisle;
+  icon: string;
+  checked: boolean;
+  source_recipe_id: string | null;
+  source_recipe_title: string | null;
+  position: number;
+};
+
+/** One item to add — the manual sheet sends one, a recipe sends many. */
+export type NewGroceryItem = {
+  name: string;
+  amount?: number | null;
+  unit?: string | null;
+  quantity_text?: string | null;
+  source_recipe_id?: string | null;
+};
+
+/** The common-ingredients contract from GET /v1/ingredients/common. */
+export type ApiCommonIngredient = {
+  canonicalName: string;
+  aisle: GroceryAisle;
+  defaultUnit: string;
+  iconKey: string;
+};
+
 // The authenticated user, from GET /v1/users/me. `name` is owned by Phone Auth
 // (added to the projection when it merges); read it null-tolerant until then.
 export type ApiMe = {
@@ -73,10 +116,4 @@ export type ApiMealPlanEntry = {
   meal: MealSlot;
   position: number;
   recipe: { id: string; title: string; image_url?: string };
-};
-
-/** A common ingredient for the "Popular" filter grid (Grocery owns the endpoint). */
-export type CommonIngredient = {
-  canonicalName: string;
-  iconKey?: string;
 };

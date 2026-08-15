@@ -14,6 +14,8 @@ import {
   createCookbookSchema,
   setMembershipSchema,
   updateRecipeSchema,
+  addGroceryItemsSchema,
+  patchGroceryItemSchema,
   listRecipesQuerySchema,
   createMealPlanEntrySchema,
   mealPlanRangeQuerySchema,
@@ -23,6 +25,8 @@ import { normalizeE164 } from '../util/phone.js';
 import { ImportService } from '../services/import-service.js';
 import { RecipeService } from '../services/recipe-service.js';
 import { CookbookService } from '../services/cookbook-service.js';
+import { GroceryService } from '../services/grocery-service.js';
+import { toPublicGroceryItem } from '../models/grocery-item.js';
 import { MealPlanService } from '../services/meal-plan-service.js';
 import { InvalidRangeError } from './errors.js';
 
@@ -55,6 +59,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const imports = ImportService.create();
   const recipes = RecipeService.create();
   const cookbooks = CookbookService.create();
+  const groceries = GroceryService.create();
   const mealPlan = MealPlanService.create();
 
   /** GET /healthz — liveness probe. Public. 200 when the DB is reachable, else 503. */
@@ -241,6 +246,54 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
    */
   app.get<{ Params: { id: string } }>('/v1/cookbooks/:id', { preHandler: authGuard }, async (request) => {
     return cookbooks.get(request.authUserId!, request.params.id);
+  });
+
+  /** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */
+  app.get('/v1/grocery_items', { preHandler: authGuard }, async (request) => {
+    const items = await groceries.list(request.authUserId!);
+    return { items: items.map(toPublicGroceryItem) };
+  });
+
+  /**
+   * POST /v1/grocery_items — adds one or many items (manual add sends one; a recipe
+   * sends many). Resolves aisle/icon + default unit and merges by name+unit. 201.
+   */
+  app.post('/v1/grocery_items', { preHandler: authGuard }, async (request, reply) => {
+    const { items } = addGroceryItemsSchema.parse(request.body);
+    const created = await groceries.add(
+      request.authUserId!,
+      items.map((i) => ({
+        name: i.name,
+        amount: i.amount ?? null,
+        unit: i.unit ?? null,
+        quantityText: i.quantity_text ?? null,
+        sourceRecipeId: i.source_recipe_id ?? null,
+      })),
+    );
+    reply.code(201);
+    return { items: created.map(toPublicGroceryItem) };
+  });
+
+  /** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the caller's. */
+  app.patch<{ Params: { id: string } }>('/v1/grocery_items/:id', { preHandler: authGuard }, async (request) => {
+    const patch = patchGroceryItemSchema.parse(request.body);
+    const item = await groceries.patch(request.authUserId!, request.params.id, patch);
+    return { item: toPublicGroceryItem(item) };
+  });
+
+  /** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the caller's. */
+  app.delete<{ Params: { id: string } }>('/v1/grocery_items/:id', { preHandler: authGuard }, async (request, reply) => {
+    await groceries.remove(request.authUserId!, request.params.id);
+    return reply.code(204).send();
+  });
+
+  /**
+   * GET /v1/ingredients/common — the common-ingredients catalog for the picker and for
+   * Meal Planning to consume: `[{ canonicalName, aisle, defaultUnit, iconKey }]`. `q`
+   * filters by substring.
+   */
+  app.get<{ Querystring: { q?: string } }>('/v1/ingredients/common', { preHandler: authGuard }, async (request) => {
+    return { ingredients: groceries.common(request.query.q) };
   });
 
   registerErrorHandler(app);

@@ -156,3 +156,16 @@ Every principle is traceable to a concrete moment; the evidence is cited.
 
 **(b) Guidance only — no doc change required:**
 - Verify against live reality; make diagnostics mirror production; verify transient UI via video+native frames; know destructive commands & dev-server hygiene; "installed ≠ wired"; judge injected tooling noise. These are working habits best reinforced in review, not codified as rules.
+
+## Multi-agent / environment hygiene (Grocery Lists sprint, Wave 2)
+- **vitest `globalSetup` does not receive `test.env`.** It runs in the main process. To point a suite at a
+  non-default DB you must export the URLs as real process env on the command line so the workers *and*
+  `globalSetup` agree — editing only `vitest.config.ts` `test.env` migrates the wrong database. *(Cost a debug cycle.)*
+- **Batch image-gen fills shared disks.** The nano-banana MCP keeps a copy in `generated_imgs/` **and** the copy
+  you move into `assets/` — double footprint. On a shared APFS container feeding several worktrees this hit 0 bytes
+  free, which crashed Postgres and corrupted an npm install. Delete `generated_imgs/` eagerly; give large gen
+  batches a disk budget + a hard cap; verify critical file writes that happened during an ENOSPC window.
+- **A long autonomous subagent needs a hard cap + checkpoint manifest, not a mid-run stop message.** A delegated
+  image-gen agent kept running after a stop and briefly left two coupled maps inconsistent. Reconcile paired maps
+  from ground truth (the files on disk), not from either map, and confirm a "stopped" agent actually stopped
+  before committing.
