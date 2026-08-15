@@ -1,230 +1,163 @@
 import React from "react";
-import { Modal, View, ScrollView } from "react-native";
-import { Image } from "expo-image";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Box, HStack, VStack, Text, Pressable, Icon, Input, Center, Spinner } from "../ui";
-import { IngredientFilterSheet } from "./IngredientFilterSheet";
-import { TotalTimeSheet } from "./TotalTimeSheet";
-import { useLibraryCards, useCookbooks, useAddMealPlanEntry } from "../../lib/api/hooks";
-import { filterCards } from "../../lib/filterCards";
-import { mealLabel } from "./meals";
-import type { MealSlot, RecipeCard } from "../../lib/api/types";
+import { Modal, View, Animated, Dimensions, AccessibilityInfo } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Box, VStack, HStack, Text, Pressable, Icon } from "../ui";
+import { DURATION, EASE } from "../../lib/motion";
+import { SOCIAL_PLATFORMS, PLATFORM_ICON, type SocialPlatform } from "../../lib/sampleRecipes";
+
+const PLATFORM_TINT: Record<SocialPlatform, string> = {
+  Pinterest: "#E60023",
+  TikTok: "#2E2419",
+  Instagram: "#E4405F",
+  YouTube: "#FF0000",
+};
 
 /**
- * The "Add to <Meal>" sheet. Level 1 is a cookbook grid (a synthetic "All recipes"
- * tile + the caller's cookbooks); tapping one shows its recipe cards, filtered by
- * search, ingredients (AND), and total time — all client-side over the library.
- * Picking a recipe assigns it to the given date+meal.
+ * The single "add" entry point for the recipes screen — reached from the "+" FAB
+ * and the onboarding checklist's "Import your first recipe". Replaces the old
+ * inline FAB menu. Two in-sheet stages: root (social / web / new cookbook) and a
+ * social stage listing the four platforms. The stage slide honors the motion
+ * tokens and is skipped under Reduce Motion.
  */
 export function AddRecipeSheet({
   visible,
-  date,
-  meal,
-  onAdded,
   onClose,
+  onNewCookbook,
 }: {
   visible: boolean;
-  date: string;
-  meal: MealSlot;
-  onAdded: (meal: MealSlot) => void;
   onClose: () => void;
+  onNewCookbook: () => void;
 }) {
-  const insets = useSafeAreaInsets();
-  const { data: cards, isLoading: cardsLoading } = useLibraryCards();
-  const { data: cookbooks } = useCookbooks();
-  const add = useAddMealPlanEntry();
+  const router = useRouter();
+  const width = Dimensions.get("window").width;
+  const [stage, setStage] = React.useState<"root" | "social">("root");
+  const slide = React.useRef(new Animated.Value(0)).current; // 0 root · 1 social
+  const reduceMotion = React.useRef(false);
 
-  const [cookbookId, setCookbookId] = React.useState<string | undefined>(undefined);
-  const [inList, setInList] = React.useState(false); // false = cookbook grid, true = recipe list
-  const [search, setSearch] = React.useState("");
-  const [ingredients, setIngredients] = React.useState<string[]>([]);
-  const [maxMinutes, setMaxMinutes] = React.useState<number | undefined>(undefined);
-  const [ingOpen, setIngOpen] = React.useState(false);
-  const [timeOpen, setTimeOpen] = React.useState(false);
+  React.useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => (reduceMotion.current = on));
+    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", (on) => (reduceMotion.current = on));
+    return () => sub.remove();
+  }, []);
 
-  // Reset to the cookbook grid with no filters each open — the instance is reused
-  // for every day/meal, so nothing must carry over (rn-nativewind-pitfalls).
+  // Reset to the root stage whenever the sheet (re)opens.
   React.useEffect(() => {
     if (visible) {
-      setCookbookId(undefined);
-      setInList(false);
-      setSearch("");
-      setIngredients([]);
-      setMaxMinutes(undefined);
-      setIngOpen(false);
-      setTimeOpen(false);
+      setStage("root");
+      slide.setValue(0);
     }
-  }, [visible]);
+  }, [visible, slide]);
 
-  const library = cards ?? [];
-  const shown = filterCards(library, { search, ingredients, maxMinutes, cookbookId });
-
-  const pickRecipe = async (r: RecipeCard) => {
-    if (add.isPending) return;
-    try {
-      await add.mutateAsync({ date, meal, recipeId: r.id });
-      onAdded(meal);
-    } catch {
-      // leave the sheet open so the user can retry
+  const goTo = (next: "root" | "social") => {
+    setStage(next);
+    const toValue = next === "social" ? 1 : 0;
+    if (reduceMotion.current) {
+      slide.setValue(toValue);
+      return;
     }
+    Animated.timing(slide, {
+      toValue,
+      duration: next === "social" ? DURATION.medium : DURATION.fast, // open slower than back
+      easing: EASE.smoothOut,
+      useNativeDriver: true,
+    }).start();
   };
 
-  const openCookbook = (id?: string) => {
-    setCookbookId(id);
-    setInList(true);
+  const close = () => {
+    onClose();
   };
+
+  const pickPlatform = (p: SocialPlatform) => {
+    close();
+    router.push(`/import-source?source=${p}`);
+  };
+
+  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [0, -width] });
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/30" onPress={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <Pressable className="flex-1 bg-black/30" onPress={close}>
         <View className="mt-auto">
           <Pressable onPress={() => {}}>
-            <Box className="rounded-t-3xl bg-cream px-5 pt-4" style={{ paddingBottom: insets.bottom + 16, height: "88%" }}>
-              <View className="mb-3 h-1.5 w-10 self-center rounded-full bg-hairline" />
-              <HStack className="mb-3 items-center justify-between">
-                <HStack className="items-center" space={8}>
-                  {inList ? (
-                    <Pressable onPress={() => setInList(false)} className="p-1">
+            <Box className="overflow-hidden rounded-t-3xl bg-cream px-5 pb-10 pt-4">
+              <View className="mb-4 h-1.5 w-10 self-center rounded-full bg-hairline" />
+
+              <Animated.View style={{ flexDirection: "row", width: width * 2, transform: [{ translateX }] }}>
+                {/* ---- root stage ---- */}
+                <View style={{ width }} className="pr-10">
+                  <Text className="mb-4 text-xl font-bold text-ink">Add a recipe</Text>
+                  <VStack space={12}>
+                    <Pressable
+                      onPress={() => goTo("social")}
+                      className="flex-row items-center rounded-2xl bg-brand px-4 py-4"
+                    >
+                      <Ionicons name="share-social" size={22} color="#fff" />
+                      <VStack className="ml-3 flex-1">
+                        <Text className="text-base font-semibold text-white">Import from social media</Text>
+                        <Text className="text-sm" style={{ color: "#F6E9DC" }}>
+                          Pinterest, TikTok, Instagram or YouTube
+                        </Text>
+                      </VStack>
+                      <Icon name="chevron-forward" size={20} color="#F6E9DC" />
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        close();
+                        router.push("/import");
+                      }}
+                      className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-4"
+                    >
+                      <Ionicons name="link" size={20} color="#A85E2B" />
+                      <VStack className="ml-3 flex-1">
+                        <Text className="text-base font-semibold text-ink">Import from web</Text>
+                        <Text className="text-sm text-muted">Paste a recipe link</Text>
+                      </VStack>
+                      <Icon name="chevron-forward" size={20} color="#B8A88E" />
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        close();
+                        onNewCookbook();
+                      }}
+                      className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-4"
+                    >
+                      <Ionicons name="book-outline" size={20} color="#A85E2B" />
+                      <Text className="ml-3 flex-1 text-base font-semibold text-ink">New cookbook</Text>
+                      <Icon name="chevron-forward" size={20} color="#B8A88E" />
+                    </Pressable>
+                  </VStack>
+                </View>
+
+                {/* ---- social stage ---- */}
+                <View style={{ width }} className="pr-10">
+                  <HStack className="mb-4 items-center" space={8}>
+                    <Pressable onPress={() => goTo("root")} className="p-1" hitSlop={10}>
                       <Icon name="chevron-back" size={22} color="#2E2419" />
                     </Pressable>
-                  ) : null}
-                  <Text className="text-lg font-bold text-ink">Add to {mealLabel(meal)}</Text>
-                </HStack>
-                <Pressable onPress={onClose}>
-                  <Icon name="close" size={22} color="#6E5B48" />
-                </Pressable>
-              </HStack>
-
-              {!inList ? (
-                <CookbookGrid
-                  library={library}
-                  cookbooks={(cookbooks ?? []).map((c) => ({ id: c.id, name: c.name, count: c.recipe_count, cover: c.cover_image_url }))}
-                  onOpen={openCookbook}
-                />
-              ) : (
-                <>
-                  <Input placeholder="Search recipes" value={search} onChangeText={setSearch} className="mb-2" />
-                  <HStack className="mb-3" space={8}>
-                    <FilterChip
-                      label={ingredients.length ? `Ingredients (${ingredients.length})` : "Ingredients"}
-                      active={ingredients.length > 0}
-                      onPress={() => setIngOpen(true)}
-                    />
-                    <FilterChip
-                      label={maxMinutes ? `Under ${maxMinutes} mins` : "Total time"}
-                      active={maxMinutes != null}
-                      onPress={() => setTimeOpen(true)}
-                    />
+                    <Text className="text-xl font-bold text-ink">Import from social media</Text>
                   </HStack>
-                  {cardsLoading ? (
-                    <Center className="flex-1"><Spinner /></Center>
-                  ) : (
-                    <ScrollView showsVerticalScrollIndicator={false}>
-                      {shown.length === 0 ? (
-                        <Text className="px-1 py-8 text-center text-muted">No recipes match these filters.</Text>
-                      ) : (
-                        shown.map((r) => (
-                          <Pressable
-                            key={r.id}
-                            onPress={() => pickRecipe(r)}
-                            className="mb-2 flex-row items-center rounded-2xl border border-hairline bg-card p-2.5"
-                          >
-                            <Thumb uri={r.image_url} />
-                            <VStack className="ml-3 flex-1">
-                              <Text className="text-base font-semibold text-ink" numberOfLines={2}>{r.title}</Text>
-                              {r.total_minutes != null ? <Text className="text-xs text-muted">{r.total_minutes} min</Text> : null}
-                            </VStack>
-                            <Icon name="add-circle" size={26} color="#A85E2B" />
-                          </Pressable>
-                        ))
-                      )}
-                      <View className="h-4" />
-                    </ScrollView>
-                  )}
-                </>
-              )}
+                  <VStack space={10}>
+                    {SOCIAL_PLATFORMS.map((p) => (
+                      <Pressable
+                        key={p}
+                        onPress={() => pickPlatform(p)}
+                        className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-3.5"
+                      >
+                        <Ionicons name={PLATFORM_ICON[p]} size={24} color={PLATFORM_TINT[p]} />
+                        <Text className="ml-3 flex-1 text-base font-semibold text-ink">{p}</Text>
+                        <Icon name="chevron-forward" size={20} color="#B8A88E" />
+                      </Pressable>
+                    ))}
+                  </VStack>
+                </View>
+              </Animated.View>
             </Box>
           </Pressable>
         </View>
       </Pressable>
-
-      <IngredientFilterSheet
-        visible={ingOpen}
-        selected={ingredients}
-        onApply={(next) => {
-          setIngredients(next);
-          setIngOpen(false);
-        }}
-        onClose={() => setIngOpen(false)}
-      />
-      <TotalTimeSheet
-        visible={timeOpen}
-        value={maxMinutes}
-        onApply={(next) => {
-          setMaxMinutes(next);
-          setTimeOpen(false);
-        }}
-        onClose={() => setTimeOpen(false)}
-      />
     </Modal>
   );
-}
-
-function CookbookGrid({
-  library,
-  cookbooks,
-  onOpen,
-}: {
-  library: RecipeCard[];
-  cookbooks: { id: string; name: string; count: number; cover?: string }[];
-  onOpen: (id?: string) => void;
-}) {
-  const allCover = library.find((r) => r.image_url)?.image_url;
-  const tiles = [
-    { id: undefined as string | undefined, name: "All recipes", count: library.length, cover: allCover },
-    ...cookbooks,
-  ];
-  return (
-    <ScrollView showsVerticalScrollIndicator={false}>
-      <View className="flex-row flex-wrap justify-between">
-        {tiles.map((t) => (
-          <Pressable key={t.id ?? "all"} onPress={() => onOpen(t.id)} className="mb-4" style={{ width: "48%" }}>
-            <View className="aspect-square overflow-hidden rounded-2xl border border-hairline bg-brand-light">
-              {t.cover ? (
-                <Image source={{ uri: t.cover }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
-              ) : (
-                <Center className="flex-1"><Icon name="book-outline" size={40} color="#A85E2B" /></Center>
-              )}
-            </View>
-            <Text className="mt-1.5 text-base font-semibold text-ink" numberOfLines={1}>{t.name}</Text>
-            <Text className="text-xs text-muted">{t.count} {t.count === 1 ? "recipe" : "recipes"}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View className="h-4" />
-    </ScrollView>
-  );
-}
-
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className={`flex-row items-center rounded-full border px-3 py-1.5 ${active ? "border-brand bg-brand-light" : "border-hairline bg-card"}`}
-    >
-      <Text className="text-sm font-semibold text-ink">{label}</Text>
-      <Icon name="chevron-down" size={14} color="#6E5B48" />
-    </Pressable>
-  );
-}
-
-function Thumb({ uri }: { uri?: string }) {
-  if (!uri) {
-    return (
-      <Center className="h-14 w-14 rounded-xl bg-brand-light">
-        <Icon name="restaurant-outline" size={22} color="#A85E2B" />
-      </Center>
-    );
-  }
-  return <Image source={{ uri }} contentFit="cover" style={{ width: 56, height: 56, borderRadius: 12 }} />;
 }

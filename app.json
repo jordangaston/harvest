@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "LSApplicationQueriesSchemes": ["pinterest", "snssdk1233", "instagram", "youtube"]
       }
     },
     "android": {

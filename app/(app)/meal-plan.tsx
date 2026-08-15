@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { VStack, HStack, Center, ScrollView, Text, Heading, Pressable, Icon } from "../../components/ui";
 import { MealMenu } from "../../components/recime/MealMenu";
-import { AddRecipeSheet } from "../../components/recime/AddRecipeSheet";
+import { MealAddRecipeSheet } from "../../components/recime/MealAddRecipeSheet";
 import { Toast, useToast } from "../../components/recime/Toast";
 import { mealChip, mealLabel } from "../../components/recime/meals";
 import { useMealPlanWeek, useRemoveMealPlanEntry } from "../../lib/api/hooks";
@@ -116,7 +116,7 @@ export default function MealPlan() {
         onClose={() => setMenuDate(null)}
       />
       {addSlot ? (
-        <AddRecipeSheet
+        <MealAddRecipeSheet
           visible={addSlot !== null}
           date={addSlot.date}
           meal={addSlot.meal}
