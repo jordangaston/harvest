@@ -45,3 +45,30 @@ export type CookbookView = {
   cookbook: { id: string; name: string };
   recipes: { id: string; title: string; image_url?: string }[];
 };
+
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
+
+/** A recipe card from `GET /v1/recipes`. `ingredient_names`/`cookbook_ids` present only when expanded. */
+export type RecipeCard = {
+  id: string;
+  title: string;
+  image_url?: string;
+  total_minutes?: number;
+  ingredient_names?: string[];
+  cookbook_ids?: string[];
+};
+
+/** A meal-plan entry from `GET /v1/meal-plan`. */
+export type ApiMealPlanEntry = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  meal: MealSlot;
+  position: number;
+  recipe: { id: string; title: string; image_url?: string };
+};
+
+/** A common ingredient for the "Popular" filter grid (Grocery owns the endpoint). */
+export type CommonIngredient = {
+  canonicalName: string;
+  iconKey?: string;
+};

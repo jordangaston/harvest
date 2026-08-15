@@ -60,6 +60,13 @@ export class CookbookExistsError extends AppError {
   }
 }
 
+export class InvalidRangeError extends AppError {
+  /** 400 INVALID_RANGE — the meal-plan start/end range is missing, malformed, or too wide. */
+  constructor(message = 'start and end must be valid dates no more than 31 days apart') {
+    super('INVALID_RANGE', 400, message);
+  }
+}
+
 /**
  * Maps any thrown value to an AppError. InvalidPhoneError and ZodError become 400s;
  * anything unrecognized collapses to a 500 INTERNAL (details not leaked to the client).
