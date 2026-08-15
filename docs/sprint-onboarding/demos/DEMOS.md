@@ -12,16 +12,19 @@ route and component through Metro + NativeWind + Reanimated/Worklets babel + exp
 asset `require()` resolution. A green bundle proves all six sub-stories load together — valid route
 default-exports, resolvable assets, transforming `className`s, and no bundle-time import errors.
 
-## Live-sim demo — environment constraint (honest)
-Interactive sim screenshots were **not** captured. Two blockers, both environmental (logged in POSTMORTEM):
-1. **The import pipeline needs external keys** (DeepSeek/Groq/Apify/LamaTok) that aren't available here, so
-   a live "Try with a sample recipe" cannot complete end-to-end (item-1's real import).
-2. The app requires a **custom native dev build** (NativeWind + Reanimated + Worklets + expo-video — no
-   Expo Go path). A fresh build risks **re-triggering the ENOSPC** that already hit this shared, disk-tight
-   volume mid-sprint — building would endanger the five other parallel worktrees. I chose not to.
+## Live-sim demo — captured (2026-08-15)
+A real screen recording now exists: **`onboarding-demo.mp4`** (~88s, h264) plus four key frames
+(`onboarding-demo-frame-1..4-*.png`), recorded in **Expo Go (SDK 54)** on an iPhone 16 simulator against
+the local backend. The flow: home checklist → Add-a-recipe sheet → social platforms → YouTube coaching
+carousel (3 slides) → **Try with a sample recipe** → a real import that lands on the imported **Buffalo
+Chicken Hot Pockets** recipe + Save-to-cookbook sheet.
 
-Recommendation: run interactive demos in an env with import keys + disk headroom; items 2 and 3 complete
-with only the local backend and are the quickest to show live.
+Both earlier blockers turned out to be resolvable:
+1. **Import keys were present** in `server/.env` (Apify + Groq), so "Try with a sample recipe" completes
+   end-to-end (the YouTube sample resolved via URL dedup, near-instant).
+2. **No dev build was needed** — the app runs in **Expo Go SDK 54** directly (Reanimated 4 / worklets /
+   expo-video are all bundled in Go 54; NativeWind is JS-only). Cached Expo Go 54 was installed to the sim
+   with `xcrun simctl`; `npx expo start --port 8091 --go` served the JS. No `prebuild`/`expo run:ios`.
 
 ## Per-sub-story walkthrough (flow + where each AC lives)
 

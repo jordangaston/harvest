@@ -31,6 +31,16 @@ that replaces the old FAB menu, per-platform **import coaching** with a real sam
 - **`expo export --platform ios`: success (5.02 MB bundle)** — every new screen integrates through Metro/
   NativeWind/Reanimated/expo-router.
 
+## Live demo video
+A real screen recording of the full flow runs in **Expo Go (SDK 54)** on an iPhone 16 simulator against the
+local backend (server + Postgres, live Apify/Groq keys): `docs/sprint-onboarding/demos/onboarding-demo.mp4`
+(~88s, h264). It walks the home checklist → Add-a-recipe sheet → social platforms → YouTube import-coaching
+carousel (3 slides) → **Try with a sample recipe**, which runs a real import and lands on the imported
+**Buffalo Chicken Hot Pockets** recipe with a Save-to-cookbook sheet. Four key frames sit beside it in
+`demos/` (`onboarding-demo-frame-1..4-*.png`). This supersedes the earlier "sim screenshots not captured"
+note in `DEMOS.md` — the environmental blockers (import keys + a no-prebuild run path) were both resolved:
+Expo Go SDK 54 runs the app with no dev build, and the pipeline keys were present in `server/.env`.
+
 ## Binding-doc compliance
 No `bg-white` on Harvest surfaces (sheets `bg-cream`, rows `bg-card`); the only white is the OS-share-sheet
 mock art in the coaching carousels — the sanctioned `AGENTS.md` OS-mimic exception. Motion via `lib/motion.ts`
