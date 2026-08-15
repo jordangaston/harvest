@@ -1,151 +1,154 @@
-# Serverless migration spike — recommendation
+# Serverless re-architecture (Cloudflare) — recommendation
 
-**Verdict: No. Keep the backend as one long-lived process.** A pure serverless-function
-deployment cannot run Harvest's durable core, and the one serverless split that *would* work
-buys nothing today while adding cost and moving parts. Ship the existing single process to a
-container host.
+**Verdict: Yes. A full Cloudflare-serverless backend is viable, and it is the recommended shape.**
+Cloudflare Workflows preserves the exact durability guarantee DBOS gave us — a failed step resumes,
+it does not restart — with **no long-lived process**. The HTTP layer, the durable pipeline, the
+async model, and the data layer all have first-party Cloudflare homes. One piece does not fit the
+Workers runtime — **video decoding (ffmpeg)** — and it has a bounded serverless answer. Everything
+else ports.
 
-This is a spike, not a migration. Nothing in the production runtime changed. The proof code
-lives in `server/spike/` and the existing suite stays green and offline.
+This is a spike, not a migration. Production `src/` is untouched and its suite stays green (91/91).
+The prototype lives in `server/spike-cf/` and runs entirely in `wrangler dev` local emulation.
 
-## The question
+## Recommended target
 
-Can the Fastify + DBOS + Postgres backend run on serverless functions (Vercel Functions / AWS
-Lambda) instead of a long-lived Node process — and should it?
+| Layer | Today | Cloudflare target |
+|-------|-------|-------------------|
+| HTTP API | Fastify (long-lived) | **Worker + Hono** — same routes, same Zod validation |
+| Durable pipeline | DBOS workflow + steps | **Cloudflare Workflow** — `WorkflowEntrypoint` + `step.do()` |
+| Async intake | `DBOS.startWorkflow` | Worker triggers the Workflow directly (Queues only if we need buffering) |
+| Database | Postgres + `pg` pool | **D1** (SQLite) + Drizzle `sqlite-core` |
+| Scheduled work | — (none) | Cron Triggers (not needed today) |
 
-## Answer in one paragraph
+No process stays alive between requests. An isolate serves a request and stops; the Workflow engine,
+not a worker we run, drives the import to completion and recovers it after a fault.
 
-DBOS is a durable-execution engine: a recipe import is a checkpointed workflow that runs
-**detached from the HTTP request** and spans several network calls (scrape → OCR/ASR/VLM →
-persist). Making progress on that work, and recovering it after a crash, both require a
-**process that stays alive between requests**. A serverless function is the opposite: its
-compute exists only while a request is in flight and is frozen the instant it responds. So the
-import work a function starts is abandoned when the function returns, and nothing exists to
-resume it. We proved this on the real runtime (DBOS 4.25.14 + Postgres): a function that freezes
-at response leaves the workflow `PENDING` forever, and only a long-lived worker recovers it. The
-secondary costs (per-invocation DBOS launch, connection fan-out, a pooler that DBOS's own
-`LISTEN/NOTIFY` can't tolerate) all point the same way.
+## What the proof shows
 
-## Evidence
+`server/spike-cf/` — a Worker (Hono) drives a Cloudflare Workflow that imports a recipe into D1,
+offline. Run it with `npm run proof`. It asserts:
 
-Versions targeted: **DBOS SDK 4.25.14**, `@dbos-inc/drizzle-datasource` 4.25.14, Fastify 5.6.1,
-pg 8.16.3, Postgres 17. Platforms assessed: **Vercel Functions** (Node runtime, Fluid Compute;
-default `maxDuration` 300 s, up to 800 s, 1800 s in beta) and **AWS Lambda** (900 s hard cap).
-DBOS's own "serverless" target is **Google Cloud Run — a container**, not a function.
+| Check | Result |
+|-------|--------|
+| Clean import through durable steps | job **`ready`**, recipe persisted to D1 |
+| Faulted import (`extract` throws once) | job **`ready`** — the Workflow **resumed** |
+| Step execution counts for the faulted run | `fetch-source` **1**, `extract` **2**, `persist-and-ready` **1** |
+| Recipes linked to the faulted job | **exactly 1** (no restart, no duplicate) |
 
-### 1. DBOS durable execution needs an always-on executor (the blocker)
+The middle two rows are the durability claim. When `extract` threw, the engine re-entered `run()`,
+returned the checkpointed results of `mark-running` and `fetch-source` **without re-executing them**,
+retried only `extract`, and ran `persist-and-ready` once. That is resume-not-restart — the guarantee
+DBOS gave us — delivered with nothing kept alive. A local `wrangler dev` cannot literally evict an
+isolate on command, but a thrown step exercises the identical replay path an eviction triggers:
+`run()` re-executes and completed steps are read back from durable storage.
 
-From the DBOS docs (primary sources, verified against 4.25.14):
+## DBOS step → Workflow step
 
-- Workflows execute **in-process**. "All processes running DBOS periodically poll queues to find
-  and execute new work." An enqueued or started workflow runs inside a live executor, not on a
-  request.
-- Recovery is **launch-triggered**: "in single-node deployments this happens automatically at
-  startup when DBOS scans for incomplete (`PENDING`) workflows." Distributed recovery needs
-  coordination "through services like DBOS Conductor."
-- Recovery is **scoped to `(executorID, applicationVersion)`**. The admin server refuses to adopt
-  another version's work: an executor on a new app version "will complete existing workflows but
-  will not create new workflows."
+The pipeline's shape is unchanged. Each `@DBOS.step` becomes a `step.do(name, cb)`; the workflow still
+does only status + exceptions.
 
-A function platform provides none of this: no process persists to poll or to scan on launch, and
-each cold instance gets a fresh identity, so a later invocation would not even be a matching
-executor for a dead one's stranded workflow.
+| DBOS (`server/src/pipeline`) | Workflow step (`spike-cf/src/import-workflow.ts`) |
+|------------------------------|---------------------------------------------------|
+| `ImportWorkflow.markRunning` | `step.do('mark-running')` |
+| `ImportPipeline.fetchSource` (scrape) | `step.do('fetch-source')` |
+| `ImportPipeline.transcribe` / `describeVideo` / `readSlideRecipe` (ASR/OCR/VLM) | `step.do('extract')` in the slice; one step per provider call at full scale |
+| `ImportPipeline.extract` (LLM) | folded into `extract` in the slice; its own step at full scale |
+| `ImportWorkflow.markReady` (persist + link + status) | `step.do('persist-and-ready')` — one D1 batch |
+| `ImportWorkflow.markFailed` | `catch → step.do('mark-failed')` |
 
-**Demonstrated** (`server/spike`, real DBOS + Postgres, offline stubs):
+Two DBOS conventions survive intact: steps pass only serializable data (URLs/text, never Buffers), and
+the workflow never throws — every outcome is a recorded status. Retries move from DBOS defaults to
+per-step `{ retries: { limit, delay, backoff } }`.
 
-| Step | Result |
-|------|--------|
-| Intake returns `202`, then the function **freezes** (`process.exit`, no shutdown) | job `queued`, workflow **`PENDING`** |
-| Observe with no worker running | job stays `queued`, workflow stays **`PENDING`** — stranded |
-| A **long-lived worker** boots (`DBOS.launch` → recovery scan) | log: *"Recovering 1 workflows"*; job → **`ready`**, recipe **persisted** |
+## Database: Postgres → D1 (the biggest change)
 
-The durable guarantee is real — but it is delivered by the worker, which is exactly the
-always-on process serverless removes.
+D1 is SQLite. Drizzle moves from `pg-core` to `sqlite-core`; the queries and the repository structure
+survive, the column types and one write pattern do not.
 
-### 2. Longer function timeouts don't rescue it
+**Type map** (all applied in `spike-cf/src/schema.ts`):
 
-Vercel now runs functions up to 30 min, so a *single* import might fit inside one invocation. It
-still doesn't help. To use it you would have to abandon the async job model and make intake
-**block** for the whole import — holding a function (and its DB connections) open for minutes,
-paying active-CPU the entire time, and **still losing durability**: a freeze or timeout mid-import
-leaves a `PENDING` workflow with no process to recover it. A bigger timeout only lets you
-brute-force one import at higher cost with no recovery. The request-scoped compute model is the
-blocker, not the number of seconds.
+| Postgres | D1 / SQLite | Note |
+|----------|-------------|------|
+| `uuid` `default gen_random_uuid()` | `text` + `$defaultFn(crypto.randomUUID)` | SQLite has no server-side UUID; generate in app code |
+| `pgEnum` | `text` + `{ enum: [...] }` union | type-safe in Drizzle; add a `CHECK` if DB-level enforcement is wanted |
+| `numeric` | `text` | preserves precision, matches today's pg-`numeric`→string models |
+| `boolean` | `integer { mode: 'boolean' }` | |
+| `timestamptz` | `integer { mode: 'timestamp' }` (epoch) | ISO `text` is the alternative |
+| `enum[]` (e.g. `users.goals`) | `text { mode: 'json' }` | arrays become JSON text |
 
-### 3. Cold start
+**The one write-pattern change — transactions.** D1 has **no interactive `db.transaction()`**. Its
+atomic primitive is **`db.batch([...])`**, which runs the statements as one SQL transaction and rolls
+back on failure. `RecipeRepository.persist` (recipe + ingredients + steps in one `db.transaction`)
+becomes one `db.batch`, and because SQLite has no `RETURNING`-into-a-transaction flow, the recipe id
+is generated in app code up front so later statements in the batch can reference it. See
+`spike-cf/src/db.ts` — the whole persist-and-mark-ready is a single atomic batch.
 
-Every cold invocation pays DBOS's launch cost — connect to the system database, verify its
-schema, scan for `PENDING` workflows — before serving anything:
+**Postgres-specific behaviour, mapped:** cross-table transaction → `batch()` (above); `ON CONFLICT`
+upserts → SQLite supports the same clause (Drizzle `onConflictDoUpdate`); partial indexes → SQLite
+supports them; `LISTEN/NOTIFY` → gone with DBOS, replaced by the Workflow engine. Migrations
+regenerate from `sqlite-core` via `drizzle-kit generate` (dialect `sqlite`) and apply with
+`wrangler d1 execute --local` (dev) / `wrangler d1 migrations apply` (deploy); the existing
+`server/drizzle/*.sql` Postgres migrations do not carry over.
 
-```
-dbos_launch_ms:               328     ← unavoidable per cold start
-fastify_build_ms:              86
-first_healthz_ms:              20
-cold_start_to_first_200_ms:  1456     (includes tsx transpile; a bundled deploy trims module load, not launch)
-```
+## The key risk — Node-only APIs that Workers lacks
 
-~330 ms of mandatory Postgres-round-trip work on every cold instance, on top of module load.
+Most of the backend is already runtime-neutral (Zod, Drizzle queries, the orchestrator, `fetch`-based
+providers). The Workers runtime has no `child_process` and no filesystem, which the media path relies
+on. Enumerated from `server/src`:
 
-### 4. Connections need a pooler — that DBOS partly can't use
+| Node API / dep | Where | Works on Workers? | Serverless answer |
+|----------------|-------|-------------------|-------------------|
+| `spawn('ffmpeg')` | `fetch/media-extractor.ts` (audio + frame sampling, image scale) | **No** — no `child_process` | Move video decode to a **Cloudflare Container** (instance-scoped, not long-lived) or an external media service; the step calls it as a subrequest |
+| `tesseract.js` (WASM + web workers) and `spawn('tesseract')` | `parse/vision.ts` (local OCR) | Native binary **no**; WASM heavy/risky | **Workers AI** image-to-text binding replaces OCR outright |
+| Whisper/Groq ASR | `parse/asr.ts` (`fetch`) | Yes (HTTP) | Keep, or move to **Workers AI** Whisper to drop a vendor |
+| `node:fs/os/path` (`mkdtemp`, `tmpdir`) | `import-pipeline.ts`, `media-extractor.ts` | **No** — no filesystem | Unneeded once decode is a container/service returning text; steps already pass URLs/text |
+| `jsonwebtoken` (`node:crypto`) | `services/auth-service.ts` | Partial (needs `nodejs_compat`) | Swap to **`jose`** (Web Crypto, Workers-native) — small change |
+| `pg` | `db/index.ts` | Moot | Replaced by D1 |
+| `apify-client`, `twilio` | fetchers, OTP | Likely (HTTP SDKs); verify | Keep behind their seams, or call the REST APIs directly |
 
-One instance opens **8 Postgres connections** (3 app pool + 5 DBOS system). Serverless fan-out
-multiplies that by concurrency:
+**The single genuine blocker is video decoding.** The clean framing: move **ASR and vision to Workers
+AI** (removes tesseract and, optionally, Groq), and keep **one instance-scoped ffmpeg container** for
+the narrow job of pulling audio and sampled frames from a video URL. That container is invoked
+per-step and torn down — not a long-lived process. Images and carousels (no video decode) need no
+container at all once OCR is Workers AI. The stubs in `spike-cf/src/providers.ts` mark exactly these
+seams.
 
-```
-connection_footprint: { harvest: 3, harvest_dbos: 5 }   →  8 × N instances
-```
+## Migration outline
 
-Postgres defaults to ~100 connections, so ~12 concurrent instances exhaust it; a real function
-tier scales to hundreds. A **transaction-mode pooler** (PgBouncer / Neon / RDS Proxy) is
-mandatory for the app DB. But DBOS drives its **system DB with `LISTEN/NOTIFY`** (confirmed in the
-SDK) for workflow events and queue wake-ups — session-level features that transaction-mode
-poolers drop. So the DBOS executor needs a **direct / session-mode** connection regardless. The
-piece that most needs to be always-on is also the piece that pools worst.
+1. **Data layer.** Port `db/schema/*` to `sqlite-core` (type map above); regenerate D1 migrations;
+   rewrite the multi-row writes (`persist`, edits) from `db.transaction` to `db.batch`.
+2. **Workflow.** Port `ImportPipeline`/`ImportWorkflow` to a `WorkflowEntrypoint`, one `step.do` per
+   provider call; set per-step retries.
+3. **Media.** Move OCR/ASR to Workers AI bindings; put ffmpeg audio/frame extraction behind a
+   container (or external service) the video step calls.
+4. **HTTP.** Port Fastify routes to Hono on a Worker; swap `jsonwebtoken` → `jose`; keep Zod as-is.
+5. **Intake.** Trigger the Workflow from the intake route (add a Queue only if buffering is needed).
+6. **Cut over** behind the mobile client's existing base-URL config; run both until parity holds.
 
-## Options considered
+## Residual risks
 
-| Option | Viable on 4.25? | Why |
-|--------|:---:|-----|
-| **A. Stay long-lived** (one Fastify+DBOS process on a container host) | ✅ | The model DBOS is built for. One deployable, no pooler tax, recovery on restart. **Recommended.** |
-| B. Lift-and-shift the whole app into one function | ❌ | Durable work abandoned at response; recovery can't run; timeouts. Proven above. |
-| C. Split: serverless HTTP (reads + intake-enqueue) + long-lived DBOS worker | ⚠️ | Works, but you still run and pay for the worker — plus a pooler, cold starts, two deployables, and split-brain. No benefit until the read tier needs independent scaling. |
-| D. Fully serverless DBOS | ❌ (raw FaaS) | Needs DBOS Cloud / Conductor (managed, paid) or Cloud Run **containers** — not Vercel/Lambda functions. |
+- **Video decode needs a container.** Bounded and understood (above), but it is real infra to stand
+  up — the only piece that is not a plain Worker.
+- **D1 limits.** ~10 GB per database and no interactive transactions. Fine for this workload; revisit
+  if a write needs read-modify-write across many rows in one logical transaction (`batch` is
+  all-or-nothing but not interactive).
+- **Numeric-as-text.** Any server-side arithmetic on `numeric` columns must cast; today they are only
+  stored and echoed, so this is latent, not active.
+- **Workers AI quality parity.** OCR/VLM output must be validated against today's Tesseract+VLM tiering
+  before cutover; the tiered-fallback design (`server/CLAUDE.md`) still applies.
 
-## Recommended path: stay long-lived (A)
+## Versions targeted
 
-Deploy the existing single process to a container platform — Fly, Render, Railway, a small VM, or
-Cloud Run with `min-instances=1`. It already meets pre-launch load, keeps one deployable, needs no
-pooler, and gets DBOS crash recovery for free on restart. Cost at idle is a few dollars a month
-for a small always-on instance — cheaper in practice than the pooler + worker + function bill of a
-split.
+Wrangler **4.123.0** · compatibility-date **2026-08-14** · `nodejs_compat` · drizzle-orm **0.44.7** ·
+drizzle-kit **0.31.10** · Hono **4.13.2** · Zod **4.4.3** · Node **24**. D1 local via miniflare
+(`.wrangler/state`); unit tests via better-sqlite3 **11.10.0**. All Cloudflare APIs were confirmed
+against `developers.cloudflare.com` before coding (Workflows Workers-API, Hyperdrive/D1 bindings, D1
+`batch` semantics, Drizzle D1).
 
-**Revisit Option C only when** the read API demonstrably needs to autoscale independently of the
-importer. If we ever want managed durable execution instead of babysitting a box, **DBOS Cloud /
-Conductor** is the DBOS-blessed path — not raw functions.
-
-### Risks of A, and mitigations
-
-- **Single-process availability.** A container platform auto-restarts, and DBOS recovers
-  in-flight imports on restart. For HA, run 2+ replicas against one system DB — DBOS coordinates
-  ownership.
-- **Not "serverless-cheap" at true zero.** Mitigation: a small `min-instances=1` instance. The
-  workload isn't spiky enough for scale-to-zero to matter pre-launch.
-
-### If Option C is ever taken — rough outline
-
-1. Change intake from `DBOS.startWorkflow(...).run()` to **enqueue** onto a `WorkflowQueue`.
-2. Deploy HTTP handlers as functions (one Fastify handler via `@fastify/aws-lambda` or a Vercel
-   Node handler) for reads and intake-enqueue.
-3. Run a **long-lived worker** (container) that registers the queue and drains it, with a
-   **session-mode** connection to the DBOS system DB.
-4. Put the **app DB behind a transaction-mode pooler** for the functions.
-5. Pin **`DBOS__APPVERSION` per deploy** so recovery scoping is stable.
-
-## Reproduce the proof
+## Reproduce
 
 ```bash
-cd server && bash spike/run-proof.sh      # offline; needs the local Postgres the test suite uses
+cd server/spike-cf && npm install && npm run proof   # offline; boots wrangler dev, asserts, tears down
 ```
 
-See `server/spike/README.md`. The proof is deliberately small: cold-start numbers, one freeze,
-one recovery. It changes no production code.
+See `server/spike-cf/README.md`.

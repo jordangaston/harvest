@@ -1,70 +1,76 @@
-# Sprint report — serverless migration spike (Wave 3)
+# Sprint report — full serverless re-architecture on Cloudflare (Wave 3, v2)
 
-**Outcome:** Verdict delivered with a working proof. **Do not migrate to serverless functions;
-keep one long-lived process.** Full reasoning + evidence: `RECOMMENDATION.md`.
+**Outcome:** Verdict delivered with a working proof. **A full Cloudflare-serverless backend is
+viable and recommended — replace DBOS with Cloudflare Workflows, Fastify with a Hono Worker, and
+Postgres with D1.** No long-lived process remains. Full reasoning: `RECOMMENDATION.md`.
+
+This v2 supersedes the v1 spike, which answered the wrong question ("can DBOS run serverless" → no)
+and concluded "keep a long-lived container." That conclusion is void.
 
 ## What shipped
 
-- `RECOMMENDATION.md` — the question, four options, evidence (docs + measured proof), a single
-  recommended path with risks and a migration outline.
-- `server/spike/` — an isolated, offline proof on real DBOS 4.25.14 + Postgres: cold-start
-  numbers, a function-freeze that strands a durable workflow, and a worker that recovers it.
-- No production code changed. Existing suite: **86/86 green, offline**.
+- `RECOMMENDATION.md` — target architecture, the DBOS-step → Workflow-step map, the Postgres → D1
+  migration map (type-by-type + the `transaction` → `batch` change), the Node-only-API risk table,
+  a migration outline, and residual risks.
+- `server/spike-cf/` — a Worker (Hono) driving a Cloudflare **Workflow** that imports a recipe into
+  **D1**, offline, with no long-lived process. Proves import → `ready` through durable steps **and**
+  durable recovery. `npm run proof` runs it end to end in `wrangler dev` and asserts every claim.
+- No production code changed. Existing server suite: **91/91 green, offline**. Spike unit tests:
+  **5/5 green, offline**.
 
 ## Phases
 
-**0–1 · Reference & framing.** Read `CLAUDE.md`, `AGENTS.md`, `server/CLAUDE.md`, and the backend.
-Established the crux early: intake is a fast async enqueue (`DBOS.startWorkflow().run()` → `202` +
-polling), but the import pipeline runs **detached from the request** across several network calls.
-That decoupling is what serverless breaks.
+**0–1 · Reference & framing.** Read `BRIEF-v2-cloudflare.md`, `CLAUDE.md`, `AGENTS.md`,
+`server/CLAUDE.md`, and the pipeline. Fixed the crux early: the durability DBOS gave us (a failed
+step resumes, not restarts) must survive with nothing kept alive. That is what the proof had to show.
 
-**2 · Clarify.** No founder questions needed — the brief scoped it. One decision logged: prove the
-blocker on a faithful **local** FaaS-lifecycle emulation (real DBOS + Postgres, offline) rather
-than block on a paid hosted deploy. The blocker is architectural and platform-independent, so a
-local emulation is sufficient evidence; a hosted deploy is offered as an optional follow-up.
+**2 · Clarify (coordinator gate).** Mid-sprint the founder decided the database question: **D1, not
+Hyperdrive/Postgres.** Folded in — the proof reads/writes D1 and runs on local SQLite, no Postgres.
 
-**3 · Design.** Chose to answer with primary DBOS docs *plus* a runnable proof, not prose alone.
-Verified the DBOS 4.25.14 API surface (`startWorkflow`, `getWorkflowStatus`,
-`recoverPendingWorkflows`, admin `/dbos-workflow-recovery`) against the installed package, not
-memory.
+**3 · Design (coordinator gate).** Confirmed every Cloudflare API against `developers.cloudflare.com`
+before coding: Workflows Workers-API (`WorkflowEntrypoint`, `step.do`, retries), D1 bindings and
+`batch` semantics, Drizzle-D1. Chose the least-change ports (Hono ≈ Fastify, `sqlite-core` keeps
+Drizzle) and located the one genuine blocker (ffmpeg) up front.
 
-**4 · Pre-mortem.** Anticipated risks and how each was handled:
-- *"The proof secretly hits the network."* → run with `NODE_ENV=test` and no API keys; the suite's
-  offline stubs are selected. Verified the recovered import persists with zero network.
-- *"The freeze races the workflow to completion."* → inspected the DBOS ledger after freeze: zero
-  steps checkpointed, workflow purely `PENDING`. Deterministic across runs.
-- *"Recovery is faked."* → recovery is real `DBOS.launch` auto-recovery in a separate process;
-  DBOS logs *"Recovering 1 workflows"* and the job reaches `ready`.
+**4 · Pre-mortem.** Anticipated:
+- *"The proof secretly hits the network."* → offline stubs stand in for scrape/extract; the Worker
+  makes no external request. Verified.
+- *"Recovery is faked / the workflow restarts."* → assert exactly one recipe for the faulted job and
+  step-execution counts (`extract` twice, neighbours once), so a restart or duplicate would fail the
+  proof.
+- *"D1 can't do the persist transaction."* → confirmed from docs it has no interactive transaction;
+  designed persist as one atomic `batch` with an app-generated UUID.
 
-**5 · Implement.** Built `spike/faas-emulation.ts` (reset/coldstart/freeze/observe/recover) +
-`run-proof.sh`. Measured cold start, connection footprint, and the freeze→recover cycle.
+**5 · Implement.** Built `spike-cf/`: `schema.ts` (`sqlite-core`), `db.ts` (D1 + `batch`),
+`import-workflow.ts` (the DBOS port), `worker.ts` (Hono), offline `providers.ts`, and `proof.sh`.
 
-**6 · Demo.** `bash spike/run-proof.sh` — reproduced end to end (see `RECOMMENDATION.md` table).
+**6 · Demo.** `npm run proof` — clean import → `ready`; faulted import → resumes → `ready`;
+memoization counts and D1 integrity assert green. Reproduced from clean.
 
 ## Evidence captured
 
-- **Blocker:** freeze at response → workflow `PENDING` and never advances; a long-lived worker
-  recovers it → `ready`, recipe persisted.
-- **Cold start:** `DBOS.launch` ≈ 328 ms per cold instance; first-200 ≈ 1.46 s.
-- **Connections:** 8 per instance (3 app + 5 DBOS system) → pooler required; DBOS's system-DB
-  `LISTEN/NOTIFY` needs a session-mode connection a transaction pooler can't give.
-- **Timeouts:** the pipeline is detached and multi-minute; Vercel's 30-min ceiling doesn't help
-  because the compute is request-scoped and recovery still can't run.
+- **Durable steps:** clean import reaches `ready`, recipe persisted to D1.
+- **Recovery:** `extract` throws once → the Workflow re-enters, replays `mark-running` and
+  `fetch-source` from checkpoint **without re-running them**, retries only `extract`, persists once →
+  `ready`. Step counts: `fetch-source` 1, `extract` 2, `persist-and-ready` 1. One recipe linked.
+- **No long-lived process:** everything runs in `wrangler dev`; the isolate serves a request and stops.
+- **Node-only blocker:** ffmpeg (video decode) has no Workers equivalent → Workers AI for OCR/ASR + an
+  instance-scoped ffmpeg container for frame/audio extraction. Bounded, not architectural.
 
 ## Versions targeted
 
-DBOS SDK 4.25.14 · `@dbos-inc/drizzle-datasource` 4.25.14 · Fastify 5.6.1 · pg 8.16.3 · Postgres
-17. Platforms assessed: Vercel Functions, AWS Lambda. DBOS-blessed "serverless" = Google Cloud Run
-(container).
+Wrangler **4.123.0** · compatibility-date **2026-08-14** · `nodejs_compat` · drizzle-orm **0.44.7** ·
+drizzle-kit **0.31.10** · Hono **4.13.2** · Zod **4.4.3** · Node **24** · better-sqlite3 **11.10.0**
+(unit tests). D1 local via miniflare.
 
 ## Founder ask (optional)
 
-A hosted Vercel/Lambda deploy would re-confirm the same DBOS behavior at the cost of a paid account
-and risk of leaking the real provider keys in `server/.env`. Not needed for the verdict; available
-on request.
+None required for the verdict. A real remote deploy (paid Cloudflare account) would re-confirm the
+same behaviour on production Workflows/D1 and let us benchmark the ffmpeg-container media path;
+available on request.
 
 ## Follow-ups
 
-- Delete `server/spike/` when the spike closes (it's throwaway).
-- If Option C (serverless read tier + worker) is ever pursued, follow the migration outline in
-  `RECOMMENDATION.md`.
+- Delete `server/spike-cf/` and the obsolete `server/spike/` when the spike closes (both throwaway).
+- To execute the migration, follow the outline in `RECOMMENDATION.md`; the ffmpeg-container media path
+  is the one piece needing a design spike of its own.

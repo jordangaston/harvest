@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "harvest-cf",
+  "main": "src/worker.ts",
+  // 2026-08-14: Workflows + D1 + local dev all supported. nodejs_compat is not
+  // strictly needed for the D1/Drizzle path (no Node built-ins on the hot path),
+  // but it keeps `crypto`/`Buffer` shims available if a ported step needs them.
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "workflows": [
+    {
+      "name": "harvest-import",
+      "binding": "IMPORT_WORKFLOW",
+      "class_name": "ImportWorkflow"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "harvest_cf",
+      // Placeholder id — `wrangler dev`/`--local` uses the local SQLite under
+      // .wrangler/state and ignores this. A real deploy needs a provisioned id.
+      "database_id": "local-spike-placeholder"
+    }
+  ]
+}
