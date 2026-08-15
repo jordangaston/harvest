@@ -3,7 +3,8 @@ import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlit
 
 /**
  * The import-path slice of the Harvest schema, re-targeted from Postgres
- * (`drizzle-orm/pg-core`) to D1's SQLite dialect (`drizzle-orm/sqlite-core`).
+ * (`drizzle-orm/pg-core`) to the SQLite dialect (`drizzle-orm/sqlite-core`) that
+ * libSQL/Turso and D1 share — the driver changed (D1 → libSQL), this schema did not.
  * The full migration map is in docs/sprint-serverless-spike/RECOMMENDATION.md;
  * this file demonstrates every non-trivial pg→SQLite mapping the pipeline needs:
  *
@@ -90,7 +91,7 @@ export const importJobs = sqliteTable(
     recipeId: text('recipe_id').references(() => recipes.id),
     errorCode: text('error_code'),
     // A durable-recovery marker for the proof: how many times the faulted step
-    // has entered. Persisted in D1 so a Workflow step retry sees the prior count
+    // has entered. Persisted so a Workflow step retry sees the prior count
     // (see import-workflow.ts). Not a production column.
     faultAttempts: integer('fault_attempts').notNull().default(0),
     createdAt: integer('created_at', { mode: 'timestamp' })

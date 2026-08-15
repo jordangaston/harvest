@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { ImportStore } from './db.js';
+import { storeFromEnv } from './edge-db.js';
 import { classifySource } from './classify.js';
 import type { Env } from './import-workflow.js';
 
@@ -21,7 +21,7 @@ const CreateUser = z.object({ phone: z.string().min(1) });
 app.post('/v1/users', async (c) => {
   const body = CreateUser.safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: 'invalid_body', issues: body.error.issues }, 400);
-  const id = await ImportStore.of(c.env.DB).createUser(body.data.phone);
+  const id = await storeFromEnv(c.env).createUser(body.data.phone);
   return c.json({ user: { id } }, 201);
 });
 
@@ -39,7 +39,7 @@ app.post('/v1/imports', async (c) => {
   const classified = classifySource(body.data.source.url);
   if (!classified) return c.json({ error: 'unsupported_source' }, 422);
 
-  const store = ImportStore.of(c.env.DB);
+  const store = storeFromEnv(c.env);
   const jobId = crypto.randomUUID();
   await store.createJob({ id: jobId, userId: body.data.userId, ...classified });
   await c.env.IMPORT_WORKFLOW.create({
@@ -51,7 +51,7 @@ app.post('/v1/imports', async (c) => {
 
 /** Import polling (F-06) — the job's public projection straight from D1. */
 app.get('/v1/imports/:id', async (c) => {
-  const job = await ImportStore.of(c.env.DB).getJob(c.req.param('id'));
+  const job = await storeFromEnv(c.env).getJob(c.req.param('id'));
   if (!job) return c.json({ error: 'not_found' }, 404);
   return c.json({
     job: {

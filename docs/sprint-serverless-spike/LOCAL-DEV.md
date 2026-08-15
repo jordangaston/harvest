@@ -1,59 +1,72 @@
 # Local dev & test runbook — Cloudflare-serverless Harvest
 
-How to run and test the Cloudflare-serverless backend on your laptop, with **no Cloudflare account
-and no Postgres**. `wrangler dev` emulates Workers, Cloudflare Workflows, and D1 locally (miniflare).
-Follow this top to bottom. It describes the `server/spike-cf/` prototype today; the migrated server
+How to run and test the backend on your laptop, with **no Cloudflare account and no Turso account**.
+`wrangler dev` emulates Workers and Cloudflare Workflows locally; the database is **Turso (libSQL)**,
+which runs locally two ways — a plain `file:` SQLite for tests, and a local `turso dev` server for the
+Worker. Follow this top to bottom. It describes the `server/spike-cf/` prototype; the migrated server
 follows the same pattern.
 
-Prerequisites: Node 24 and npm. Nothing else.
+Prerequisites: Node 24, npm, and the Turso CLI (one-time, like wrangler — no account needed for the
+local server):
 
 ```bash
-cd server/spike-cf
-npm install
+curl -sSfL https://get.tur.so/install.sh | bash    # installs `turso` + local `sqld`
+cd server/spike-cf && npm install
 ```
+
+## Local database: `file:` vs Turso cloud
+
+libSQL is SQLite over a client. Where the client points is the only thing that changes between local
+and prod:
+
+| Context | `TURSO_DATABASE_URL` | Client build |
+|---------|----------------------|--------------|
+| **Node tests** | `file:…` (a local SQLite file) | `@libsql/client` (node) — opens files |
+| **Worker under `wrangler dev`** | `http://127.0.0.1:8080` (a local `turso dev` server) | `@libsql/client/web` — HTTP only |
+| **Production** | `libsql://<db>.turso.io` + `TURSO_AUTH_TOKEN` | `@libsql/client/web` — HTTP |
+
+The Worker always uses the **web** build (`src/edge-db.ts`), which cannot open a `file:` db — so even
+local Worker runs need a server. `turso dev` is that server, backed by a local file, offline.
 
 ## 1. Run locally
 
-Everything runs in one process you start and stop — there is no long-lived server.
-
-### Apply the schema to local D1 (once per schema change)
+### Apply the schema (once per schema change)
 
 ```bash
 npm run db:generate     # drizzle-kit → SQLite DDL under drizzle/*.sql
-npm run db:apply-local  # wrangler d1 execute harvest_cf --local --file=<the generated .sql>
+TURSO_DATABASE_URL=file:local.db npm run db:apply-local   # node scripts/apply-schema.mjs
 ```
 
-Local D1 is a SQLite file under `.wrangler/state/v3/d1`. To reset it, delete `.wrangler/state`.
-Run ad-hoc SQL with `npx wrangler d1 execute harvest_cf --local --command "select * from import_jobs"`.
+`apply-schema.mjs` runs the generated DDL through `@libsql/client` and works against a `file:`, a
+`turso dev` URL, or a cloud URL — the same script everywhere. (`npm run proof` applies the schema to
+its `turso dev` server for you.)
 
-### Boot the dev server
+### Boot the local libSQL server + the Worker
 
 ```bash
-npm run dev   # wrangler dev
+turso dev --db-file .turso/local.db --port 8080 &        # local libSQL at http://127.0.0.1:8080
+echo 'TURSO_DATABASE_URL=http://127.0.0.1:8080' > .dev.vars
+npm run dev                                               # wrangler dev
 ```
 
-Wrangler prints the bindings it wired — all `local`:
+Wrangler prints the Workflow binding (the DB is *not* a binding — it comes from `.dev.vars`):
 
 ```
-env.IMPORT_WORKFLOW (ImportWorkflow)   Workflow      local
-env.DB (harvest_cf)                    D1 Database   local
+env.IMPORT_WORKFLOW (ImportWorkflow)   Workflow   local
 Ready on http://127.0.0.1:8787
 ```
 
-Those bindings come from `wrangler.jsonc`:
+`wrangler.jsonc` carries only the Worker + Workflow; there is no `d1_databases` block:
 
 ```jsonc
 {
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat"],
-  "workflows": [{ "name": "harvest-import", "binding": "IMPORT_WORKFLOW", "class_name": "ImportWorkflow" }],
-  "d1_databases": [{ "binding": "DB", "database_name": "harvest_cf", "database_id": "local-spike-placeholder" }]
+  "workflows": [{ "name": "harvest-import", "binding": "IMPORT_WORKFLOW", "class_name": "ImportWorkflow" }]
+  // DB: Turso/libSQL via env (TURSO_DATABASE_URL [+ TURSO_AUTH_TOKEN]), not a binding.
 }
 ```
-
-`database_id` is a placeholder — `--local` ignores it and uses the SQLite file. A real deploy needs a
-provisioned id.
 
 ### Drive it
 
@@ -82,35 +95,37 @@ Two ways to see which durable steps ran:
 ### Env & secrets
 
 The prototype uses **offline stub providers** (`src/providers.ts`) — no scrape, no LLM, no keys —
-mirroring the existing suite's `NODE_ENV=test` offline path. The proof needs no secrets.
+mirroring the existing suite's `NODE_ENV=test` offline path. The only env it needs is the DB URL.
 
-For the migrated server's real providers, local secrets go in **`.dev.vars`** (git-ignored;
-`wrangler dev` loads it into `env`); deployed secrets use `wrangler secret put`. Keep the
-absent-key ⇒ stub-provider seam so local and CI stay hermetic by default.
+Local DB env and (later) real provider keys go in **`.dev.vars`** (git-ignored; `wrangler dev` loads
+it into `env`); deployed secrets — `TURSO_AUTH_TOKEN`, provider keys — use `wrangler secret put`. Keep
+the absent-key ⇒ stub-provider seam so local and CI stay hermetic by default.
 
 ## 2. Test — two tiers
 
-### Tier 1 — fast, offline, no wrangler (`npm test`)
+### Tier 1 — fast, offline, no server (`npm test`)
 
-Vitest against **better-sqlite3**. Covers the pure logic (mapping, source classification, the stub
-providers) and the **Drizzle `sqlite-core` layer** — the same schema and queries the Worker runs,
-exercised in plain Node as the offline D1 stand-in (`test/db.integration.test.ts`). Per
-`server/CLAUDE.md`: unit-test repos/services, integration-test routes, as few as cover all paths,
-never hit the network.
+Vitest against **`@libsql/client` with a `file:` database** — the same client build that talks to
+Turso cloud, so the queries are real. Covers the pure logic (mapping, source classification, stub
+providers) and the **libSQL data layer** (`test/db.integration.test.ts`): it drives the restored
+interactive `db.transaction()` persist and asserts the recipe, its children, the job link, and the
+terminal status all commit atomically. Per `server/CLAUDE.md`: unit-test repos/services,
+integration-test routes, as few as cover all paths, never hit the network.
 
-One caveat: the D1 persist uses **`db.batch()`**, which better-sqlite3 does not implement, so the
-batch write is not covered here — the end-to-end proof covers it against real local D1.
+Note: use a `file:` db, not `:memory:` — libSQL's in-memory database is **connection-private**, so the
+transaction's connection would see an empty schema. The test writes to a temp file and deletes it.
 
 ### Tier 2 — end-to-end proof (`npm run proof`)
 
-`scripts/proof.sh` is the harness pattern: **reset local D1 → apply schema → boot `wrangler dev` →
-drive over HTTP → assert → tear down.** It runs offline and exits non-zero on any failed assertion.
+`scripts/proof.sh` is the harness pattern: **start `turso dev` + apply schema → boot `wrangler dev` →
+drive over HTTP → assert → tear down.** It runs offline (both servers are local) and exits non-zero on
+any failed assertion.
 
 **Testing Workflow durability/recovery locally.** You cannot force-evict an isolate on a laptop, so
-reproduce the *recovery mechanism* instead of the eviction: throw once inside a step (the import
-route accepts `"faultStep":"extract"`). Cloudflare Workflows retries only that step; the engine
-re-enters `run()` and returns the completed steps' checkpointed results **without re-executing them**
-— the identical replay path an eviction triggers. Assert resume-not-restart:
+reproduce the *recovery mechanism* instead of the eviction: throw once inside a step (the import route
+accepts `"faultStep":"extract"`). Cloudflare Workflows retries only that step; the engine re-enters
+`run()` and returns the completed steps' checkpointed results **without re-executing them** — the
+identical replay path an eviction triggers. Assert resume-not-restart:
 
 ```
 faulted import → status ready, fault_attempts 2
@@ -123,24 +138,30 @@ proof; the single linked recipe is the no-restart proof.
 
 ## 3. CI
 
-Both tiers are offline, deterministic, and account-free — they map straight to CI:
+Both tiers are offline, deterministic, and account-free. The only extra step over a normal Node build
+is installing the Turso CLI for the Tier-2 local server:
 
 ```yaml
+- run: curl -sSfL https://get.tur.so/install.sh | bash   # local libSQL server for the proof
 - run: cd server/spike-cf && npm ci
-- run: cd server/spike-cf && npm test        # Tier 1 — fast
-- run: cd server/spike-cf && npm run proof    # Tier 2 — boots wrangler dev locally, asserts
+- run: cd server/spike-cf && npm test        # Tier 1 — fast, file: libSQL, no server
+- run: cd server/spike-cf && npm run proof    # Tier 2 — turso dev + wrangler dev, asserts
 ```
 
-No secrets, no services, Node 24. `proof.sh` is self-asserting, so a broken durability guarantee
-fails the build.
+No secrets, no cloud, Node 24. `proof.sh` is self-asserting, so a broken durability guarantee fails
+the build.
 
 ## 4. Gotchas (each cost a cycle)
 
-- **D1 has no interactive transaction.** Use `db.batch([...])` (one atomic SQL transaction). Generate
-  UUIDs in app code (`crypto.randomUUID()`) so a batch can reference the new row id — SQLite has no
-  `gen_random_uuid` and no `RETURNING`-into-a-transaction flow.
-- **`wrangler dev` teardown.** `proof.sh` traps `EXIT` to kill the dev PID. If a run is interrupted and
-  the port stays busy, free it with `pkill -f "wrangler dev"` (and `pkill -f workerd`).
+- **libSQL `:memory:` is connection-private.** A `db.transaction()` opens its own connection and sees
+  an empty in-memory schema → `no such table`. Use a `file:` db for anything with a transaction.
+- **`@libsql/client/web` can't open `file:`.** The Worker build is HTTP-only, so local Worker runs need
+  a `turso dev` server; only the node client (tests) opens files directly.
+- **libSQL DOES support interactive transactions** — unlike D1. `RecipeRepository.persist` keeps its
+  `db.transaction()`; there is no `db.batch()` workaround. (Ids are still app-generated with
+  `crypto.randomUUID()` — SQLite has no `gen_random_uuid`.)
+- **Teardown.** `proof.sh` traps `EXIT` to kill both the `turso dev` and `wrangler dev` PIDs. If a run
+  is interrupted and a port stays busy, `pkill -f "turso dev"` and `pkill -f "wrangler dev"`.
 - **Isolate the prototype's toolchain.** It carries its own `package.json`, `vitest.config.ts`, and
   `tsconfig.json`. Without the local vitest config, vitest walks up and runs `server/`'s Postgres
   global-setup.
@@ -151,9 +172,11 @@ fails the build.
 ## Commands, in short
 
 ```bash
-# run:  install → generate+apply schema → boot
-npm install && npm run db:generate && npm run db:apply-local && npm run dev
+# run:  install turso CLI → npm install → generate+apply schema (file:) → turso dev + wrangler dev
+npm run db:generate && TURSO_DATABASE_URL=file:local.db npm run db:apply-local
+turso dev --db-file .turso/local.db --port 8080 &
+echo 'TURSO_DATABASE_URL=http://127.0.0.1:8080' > .dev.vars && npm run dev
 # test: fast offline tier, then the end-to-end durability proof
-npm test          # vitest + better-sqlite3, no wrangler
-npm run proof     # wrangler dev + local D1, asserts resume-not-restart
+npm test          # vitest + @libsql/client (file:), no server
+npm run proof     # turso dev + wrangler dev, asserts resume-not-restart
 ```

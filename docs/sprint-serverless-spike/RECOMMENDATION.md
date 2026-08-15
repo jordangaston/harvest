@@ -2,13 +2,14 @@
 
 **Verdict: Yes. A full Cloudflare-serverless backend is viable, and it is the recommended shape.**
 Cloudflare Workflows preserves the exact durability guarantee DBOS gave us — a failed step resumes,
-it does not restart — with **no long-lived process**. The HTTP layer, the durable pipeline, the
-async model, and the data layer all have first-party Cloudflare homes. One piece does not fit the
-Workers runtime — **video decoding (ffmpeg)** — and it has a bounded serverless answer. Everything
-else ports.
+it does not restart — with **no long-lived process**. The HTTP layer, the durable pipeline, and the
+async model run on Cloudflare; the database is **Turso (libSQL)**, reached over HTTP so it needs no
+pool. One piece does not fit the Workers runtime — **video decoding (ffmpeg)** — and it has a bounded
+serverless answer. Everything else ports.
 
 This is a spike, not a migration. Production `src/` is untouched and its suite stays green (91/91).
-The prototype lives in `server/spike-cf/` and runs entirely in `wrangler dev` local emulation.
+The prototype lives in `server/spike-cf/` and runs entirely locally — `wrangler dev` for the
+Worker/Workflow, a local `turso dev` libSQL server for the database, no Cloudflare or Turso account.
 
 ## Recommended target
 
@@ -17,7 +18,7 @@ The prototype lives in `server/spike-cf/` and runs entirely in `wrangler dev` lo
 | HTTP API | Fastify (long-lived) | **Worker + Hono** — same routes, same Zod validation |
 | Durable pipeline | DBOS workflow + steps | **Cloudflare Workflow** — `WorkflowEntrypoint` + `step.do()` |
 | Async intake | `DBOS.startWorkflow` | Worker triggers the Workflow directly (Queues only if we need buffering) |
-| Database | Postgres + `pg` pool | **D1** (SQLite) + Drizzle `sqlite-core` |
+| Database | Postgres + `pg` pool | **Turso (libSQL)** + Drizzle `sqlite-core`, over `@libsql/client/web` |
 | Scheduled work | — (none) | Cron Triggers (not needed today) |
 
 No process stays alive between requests. An isolate serves a request and stops; the Workflow engine,
@@ -25,12 +26,12 @@ not a worker we run, drives the import to completion and recovers it after a fau
 
 ## What the proof shows
 
-`server/spike-cf/` — a Worker (Hono) drives a Cloudflare Workflow that imports a recipe into D1,
-offline. Run it with `npm run proof`. It asserts:
+`server/spike-cf/` — a Worker (Hono) drives a Cloudflare Workflow that imports a recipe into Turso
+(libSQL), offline, over a local `turso dev` server. Run it with `npm run proof`. It asserts:
 
 | Check | Result |
 |-------|--------|
-| Clean import through durable steps | job **`ready`**, recipe persisted to D1 |
+| Clean import through durable steps | job **`ready`**, recipe persisted via one interactive libSQL transaction |
 | Faulted import (`extract` throws once) | job **`ready`** — the Workflow **resumed** |
 | Step execution counts for the faulted run | `fetch-source` **1**, `extract` **2**, `persist-and-ready` **1** |
 | Recipes linked to the faulted job | **exactly 1** (no restart, no duplicate) |
@@ -60,15 +61,22 @@ Two DBOS conventions survive intact: steps pass only serializable data (URLs/tex
 the workflow never throws — every outcome is a recorded status. Retries move from DBOS defaults to
 per-step `{ retries: { limit, delay, backoff } }`.
 
-## Database: Postgres → D1 (the biggest change)
+## Database: Postgres → Turso (libSQL)
 
-D1 is SQLite. Drizzle moves from `pg-core` to `sqlite-core`; the queries and the repository structure
-survive, the column types and one write pattern do not.
+Turso is SQLite over **libSQL** — SQLite-compatible, but a hosted database reached over HTTP, so it
+runs from Workers with no long-lived pool. (The founder chose it over D1.) Drizzle moves from
+`pg-core` to `sqlite-core`; the **schema and the type-map are identical to any SQLite target** — the
+change from the earlier D1 plan is only the **driver and access path**, plus a transaction *win*.
 
-**Type map** (all applied in `spike-cf/src/schema.ts`):
+**Driver & access path.** `drizzle-orm/d1` (a Cloudflare binding) → `drizzle-orm/libsql` with
+`@libsql/client`. On Workers use the **`@libsql/client/web`** build — HTTP-only, Node-free, the one
+that runs on workerd (the `file:` node build does not). Connection comes from env, not a binding:
+`TURSO_DATABASE_URL` (+ `TURSO_AUTH_TOKEN` for cloud). See `spike-cf/src/edge-db.ts`.
 
-| Postgres | D1 / SQLite | Note |
-|----------|-------------|------|
+**Type map** (unchanged from any Postgres→SQLite move; applied in `spike-cf/src/schema.ts`):
+
+| Postgres | libSQL / SQLite | Note |
+|----------|-----------------|------|
 | `uuid` `default gen_random_uuid()` | `text` + `$defaultFn(crypto.randomUUID)` | SQLite has no server-side UUID; generate in app code |
 | `pgEnum` | `text` + `{ enum: [...] }` union | type-safe in Drizzle; add a `CHECK` if DB-level enforcement is wanted |
 | `numeric` | `text` | preserves precision, matches today's pg-`numeric`→string models |
@@ -76,19 +84,24 @@ survive, the column types and one write pattern do not.
 | `timestamptz` | `integer { mode: 'timestamp' }` (epoch) | ISO `text` is the alternative |
 | `enum[]` (e.g. `users.goals`) | `text { mode: 'json' }` | arrays become JSON text |
 
-**The one write-pattern change — transactions.** D1 has **no interactive `db.transaction()`**. Its
-atomic primitive is **`db.batch([...])`**, which runs the statements as one SQL transaction and rolls
-back on failure. `RecipeRepository.persist` (recipe + ingredients + steps in one `db.transaction`)
-becomes one `db.batch`, and because SQLite has no `RETURNING`-into-a-transaction flow, the recipe id
-is generated in app code up front so later statements in the batch can reference it. See
-`spike-cf/src/db.ts` — the whole persist-and-mark-ready is a single atomic batch.
+**Transactions — the win over D1.** libSQL **supports interactive `db.transaction()`**, so the
+D1 `db.batch()` workaround is gone. `RecipeRepository.persist` (recipe + ingredients + steps in one
+`db.transaction`) ports **as-is** — the proof's `persistAndReady` wraps the recipe, its children, the
+job link, and the terminal status in a single interactive transaction (`spike-cf/src/db.ts`). Ids are
+still app-generated (`crypto.randomUUID`) to keep Workflow steps replay-safe, but the atomic
+multi-row write is now the natural Drizzle transaction, not a collapsed batch.
 
-**Postgres-specific behaviour, mapped:** cross-table transaction → `batch()` (above); `ON CONFLICT`
-upserts → SQLite supports the same clause (Drizzle `onConflictDoUpdate`); partial indexes → SQLite
-supports them; `LISTEN/NOTIFY` → gone with DBOS, replaced by the Workflow engine. Migrations
-regenerate from `sqlite-core` via `drizzle-kit generate` (dialect `sqlite`) and apply with
-`wrangler d1 execute --local` (dev) / `wrangler d1 migrations apply` (deploy); the existing
-`server/drizzle/*.sql` Postgres migrations do not carry over.
+**Postgres-specific behaviour, mapped:** cross-table transaction → real `db.transaction()`;
+`ON CONFLICT` upserts → SQLite supports the same clause (Drizzle `onConflictDoUpdate`); partial
+indexes → SQLite supports them; `LISTEN/NOTIFY` → gone with DBOS, replaced by the Workflow engine.
+Migrations regenerate from `sqlite-core` via `drizzle-kit generate` (dialect `sqlite`) and apply with
+`@libsql/client` `executeMultiple` (`scripts/apply-schema.mjs`) against a local file / `turso dev`
+(dev) or a Turso cloud URL (deploy); the existing `server/drizzle/*.sql` Postgres migrations do not
+carry over.
+
+**Pricing.** Turso **Free** tier covers this workload comfortably: 100 databases, 5 GB storage,
+500 M row reads/mo, 10 M row writes/mo, 3 GB syncs (turso.tech/pricing, read Aug 2026). Paid tiers:
+Developer $4.99/mo, Scaler $24.92/mo, Pro $416.58/mo, Enterprise custom.
 
 ## The key risk — Node-only APIs that Workers lacks
 
@@ -103,7 +116,7 @@ on. Enumerated from `server/src`:
 | Whisper/Groq ASR | `parse/asr.ts` (`fetch`) | Yes (HTTP) | Keep, or move to **Workers AI** Whisper to drop a vendor |
 | `node:fs/os/path` (`mkdtemp`, `tmpdir`) | `import-pipeline.ts`, `media-extractor.ts` | **No** — no filesystem | Unneeded once decode is a container/service returning text; steps already pass URLs/text |
 | `jsonwebtoken` (`node:crypto`) | `services/auth-service.ts` | Partial (needs `nodejs_compat`) | Swap to **`jose`** (Web Crypto, Workers-native) — small change |
-| `pg` | `db/index.ts` | Moot | Replaced by D1 |
+| `pg` | `db/index.ts` | Moot | Replaced by libSQL (`@libsql/client/web`) |
 | `apify-client`, `twilio` | fetchers, OTP | Likely (HTTP SDKs); verify | Keep behind their seams, or call the REST APIs directly |
 
 **The single genuine blocker is video decoding.** The clean framing: move **ASR and vision to Workers
@@ -115,8 +128,9 @@ seams.
 
 ## Migration outline
 
-1. **Data layer.** Port `db/schema/*` to `sqlite-core` (type map above); regenerate D1 migrations;
-   rewrite the multi-row writes (`persist`, edits) from `db.transaction` to `db.batch`.
+1. **Data layer.** Port `db/schema/*` to `sqlite-core` (type map above); regenerate migrations;
+   point the repositories at `drizzle-orm/libsql` (`@libsql/client/web` on Workers). The multi-row
+   writes (`persist`, edits) keep their `db.transaction()` — libSQL supports it.
 2. **Workflow.** Port `ImportPipeline`/`ImportWorkflow` to a `WorkflowEntrypoint`, one `step.do` per
    provider call; set per-step retries.
 3. **Media.** Move OCR/ASR to Workers AI bindings; put ffmpeg audio/frame extraction behind a
@@ -129,9 +143,14 @@ seams.
 
 - **Video decode needs a container.** Bounded and understood (above), but it is real infra to stand
   up — the only piece that is not a plain Worker.
-- **D1 limits.** ~10 GB per database and no interactive transactions. Fine for this workload; revisit
-  if a write needs read-modify-write across many rows in one logical transaction (`batch` is
-  all-or-nothing but not interactive).
+- **libSQL is a network hop, not a local binding.** Unlike D1 (colocated with the Worker), every
+  query is HTTP to Turso, so it adds latency and an external dependency the Cloudflare-native path
+  avoids; interactive transactions hold a stream across round-trips, so keep them short. Mitigations
+  if this bites: Turso **embedded replicas** (a local read copy synced from cloud) or reverting the DB
+  to D1. Egress/row-count sit inside the Free tier for this workload but must be watched at scale.
+- **Even local dev needs a libSQL server for the Worker.** `@libsql/client/web` cannot open a `file:`
+  db, so the workerd proof runs a local `turso dev` server (offline, no account). Node tests use the
+  `file:` client directly. D1 gave local SQLite inside miniflare for free; libSQL does not.
 - **Numeric-as-text.** Any server-side arithmetic on `numeric` columns must cast; today they are only
   stored and echoed, so this is latent, not active.
 - **Workers AI quality parity.** OCR/VLM output must be validated against today's Tesseract+VLM tiering
@@ -140,16 +159,19 @@ seams.
 ## Versions targeted
 
 Wrangler **4.123.0** · compatibility-date **2026-08-14** · `nodejs_compat` · drizzle-orm **0.44.7** ·
-drizzle-kit **0.31.10** · Hono **4.13.2** · Zod **4.4.3** · Node **24**. D1 local via miniflare
-(`.wrangler/state`); unit tests via better-sqlite3 **11.10.0**. All Cloudflare APIs were confirmed
-against `developers.cloudflare.com` before coding (Workflows Workers-API, Hyperdrive/D1 bindings, D1
-`batch` semantics, Drizzle D1).
+drizzle-kit **0.31.10** · Hono **4.13.2** · Zod **4.4.3** · `@libsql/client` **0.17.4** · Turso CLI
+**v1.0.31** (local `turso dev` libSQL server) · Node **24**. Turso **Free** tier. APIs confirmed
+against their versioned docs before coding: Cloudflare Workflows Workers-API, `docs.turso.tech`
+(local `file:`/`turso dev`, `@libsql/client/web` on Workers), `turso.tech/pricing`, and the
+`drizzle-orm/libsql` docs (interactive transactions, client builds).
 
 ## Reproduce
 
 ```bash
-cd server/spike-cf && npm install && npm run proof   # offline; boots wrangler dev, asserts, tears down
+cd server/spike-cf && npm install && npm run proof   # offline; boots turso dev + wrangler dev, asserts, tears down
 ```
 
-See `server/spike-cf/README.md`, and **`LOCAL-DEV.md`** for the full run-and-test runbook (local
-`wrangler dev`, the two test tiers, how to test Workflow durability locally, and CI).
+The proof needs the Turso CLI for the local libSQL server (`curl -sSfL https://get.tur.so/install.sh
+| bash` — one-time, like wrangler; no account). See `server/spike-cf/README.md`, and **`LOCAL-DEV.md`**
+for the full run-and-test runbook (local `turso dev` + `wrangler dev`, the two test tiers, how to test
+Workflow durability locally, and CI).

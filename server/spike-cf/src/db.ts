@@ -1,28 +1,32 @@
-import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
+import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
 import { eq, sql } from 'drizzle-orm';
+import type { Client } from '@libsql/client';
 import { schema, importJobs, importJobRecipes, recipes, ingredients, recipeSteps } from './schema.js';
 import type { RecipeRow } from './mapping.js';
 import type { ImportInput, ImportErrorCode, SourceType } from './domain.js';
 
-export type Db = DrizzleD1Database<typeof schema>;
+export type Db = LibSQLDatabase<typeof schema>;
 
-/** Wrap a D1 binding in a Drizzle client (per-invocation — no long-lived pool). */
-export function makeDb(d1: D1Database): Db {
-  return drizzle(d1, { schema });
+/**
+ * Wrap a libSQL client in a Drizzle client. The caller supplies the client so the
+ * client *build* stays at the edge: a Worker passes `@libsql/client/web` (HTTP,
+ * no Node), a Node test passes `@libsql/client` with a `file:` URL. Both satisfy
+ * the same `Client` interface, so this layer is build-agnostic.
+ */
+export function makeDb(client: Client): Db {
+  return drizzle(client, { schema });
 }
 
 /**
- * D1 data access for the import path. Postgres's cross-table transaction
- * (`db.transaction`) is NOT available on D1 — its atomic primitive is
- * `db.batch([...])`, which runs the statements as one SQL transaction and rolls
- * back on any failure. Ids are generated in app code (SQLite has no
- * `gen_random_uuid` and D1 has no `RETURNING`-into-a-transaction pattern), which
- * also lets a batch reference the new recipe id across statements.
+ * libSQL (Turso) data access for the import path. Turso is SQLite over libSQL and
+ * **supports interactive transactions**, so the Postgres `db.transaction()` shape
+ * is restored — no D1 `db.batch()` workaround. Ids are still generated in app code
+ * (SQLite has no `gen_random_uuid`), which keeps the workflow steps replay-safe.
  */
 export class ImportStore {
   constructor(private readonly db: Db) {}
-  static of(d1: D1Database) {
-    return new ImportStore(makeDb(d1));
+  static of(client: Client) {
+    return new ImportStore(makeDb(client));
   }
 
   /** Create a user (the import's owner). Returns the new id. */
@@ -43,15 +47,16 @@ export class ImportStore {
   }
 
   /**
-   * Persist a recipe and mark the job `ready` in ONE atomic D1 batch: recipe →
-   * ingredients → steps → job-recipe link → job status. Either the whole import
-   * lands or none of it does. Mirrors RecipeRepository.persist + markReady,
-   * collapsed into a single batch because D1 has no interactive transaction.
+   * Persist a recipe and mark the job `ready` in ONE interactive transaction:
+   * recipe → ingredients → steps → job-recipe link → job status. Either the whole
+   * import lands or none of it does. This is the exact `RecipeRepository.persist`
+   * shape from `server/src` — restored, because libSQL gives us real transactions
+   * that D1 forced us to collapse into a batch.
    */
   async persistAndReady(row: RecipeRow, input: ImportInput): Promise<string> {
     const recipeId = crypto.randomUUID();
-    await this.db.batch([
-      this.db.insert(recipes).values({
+    await this.db.transaction(async (tx) => {
+      await tx.insert(recipes).values({
         id: recipeId,
         userId: input.userId,
         title: row.title,
@@ -62,25 +67,29 @@ export class ImportStore {
         totalMinutes: row.totalMinutes,
         imageUrl: row.imageUrl,
         confidence: row.confidence,
-      }),
-      ...row.ingredients.map((ing, i) =>
-        this.db.insert(ingredients).values({
-          recipeId,
-          position: i,
-          name: ing.name,
-          amount: ing.amount,
-          unit: ing.unit,
-          quantityText: ing.quantityText,
-          icon: null,
-        }),
-      ),
-      ...row.steps.map((text, i) => this.db.insert(recipeSteps).values({ recipeId, position: i, text })),
-      this.db.insert(importJobRecipes).values({ importJobId: input.jobId, recipeId, position: 0 }),
-      this.db
+      });
+      if (row.ingredients.length) {
+        await tx.insert(ingredients).values(
+          row.ingredients.map((ing, i) => ({
+            recipeId,
+            position: i,
+            name: ing.name,
+            amount: ing.amount,
+            unit: ing.unit,
+            quantityText: ing.quantityText,
+            icon: null,
+          })),
+        );
+      }
+      if (row.steps.length) {
+        await tx.insert(recipeSteps).values(row.steps.map((text, i) => ({ recipeId, position: i, text })));
+      }
+      await tx.insert(importJobRecipes).values({ importJobId: input.jobId, recipeId, position: 0 });
+      await tx
         .update(importJobs)
         .set({ status: 'ready', progress: 100, recipeId, updatedAt: new Date() })
-        .where(eq(importJobs.id, input.jobId)),
-    ]);
+        .where(eq(importJobs.id, input.jobId));
+    });
     return recipeId;
   }
 
@@ -95,8 +104,8 @@ export class ImportStore {
   /**
    * Increment the job's fault counter and return the NEW value. The proof's
    * recovery marker: a Workflow step calls this on entry; a retry after a thrown
-   * error sees the incremented count in D1 and stops faulting — proving the
-   * step's side effects and the surrounding durable state survive the failure.
+   * error sees the incremented count, proving the surrounding durable state (and
+   * the completed upstream steps) survived the failure.
    */
   async bumpFaultAttempts(jobId: string): Promise<number> {
     const [row] = await this.db

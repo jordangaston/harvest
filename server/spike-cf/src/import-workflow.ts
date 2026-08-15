@@ -1,11 +1,10 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
-import { ImportStore } from './db.js';
+import { storeFromEnv, type DbEnv } from './edge-db.js';
 import { fetchSource, extract } from './providers.js';
 import { toRecipeRow, hasRecipe } from './mapping.js';
 import { ImportError, type ImportInput } from './domain.js';
 
-export interface Env {
-  DB: D1Database;
+export interface Env extends DbEnv {
   IMPORT_WORKFLOW: Workflow;
 }
 
@@ -24,7 +23,7 @@ export interface Env {
 export class ImportWorkflow extends WorkflowEntrypoint<Env, ImportInput> {
   async run(event: WorkflowEvent<ImportInput>, step: WorkflowStep): Promise<void> {
     const input = event.payload;
-    const store = ImportStore.of(this.env.DB);
+    const store = storeFromEnv(this.env);
 
     // Retry policy for the network-shaped steps — bounded + fast so a transient
     // failure resumes quickly and a hard failure fails the step (→ catch below).
