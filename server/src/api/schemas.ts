@@ -12,6 +12,8 @@ export const verifyOtpSchema = z.object({
 export const createUserSchema = z.object({
   user: z.object({
     phone_number: z.string(),
+    code: z.string(),
+    name: z.string().trim().min(1),
     onboarding: OnboardingSchema.optional(),
   }),
 });

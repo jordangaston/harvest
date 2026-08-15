@@ -97,7 +97,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   /** POST /v1/users — creates (or resolves an existing) user and returns a session. Public. */
   app.post('/v1/users', async (request) => {
     const { user } = createUserSchema.parse(request.body);
-    const resolved = await users.createUser({ phoneNumber: user.phone_number, onboarding: user.onboarding });
+    const resolved = await users.createUser({
+      phoneNumber: user.phone_number,
+      code: user.code,
+      name: user.name,
+      onboarding: user.onboarding,
+    });
     return sessionResponse(resolved);
   });
 

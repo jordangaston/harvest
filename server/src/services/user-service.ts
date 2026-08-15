@@ -5,10 +5,12 @@ import { normalizeE164 } from '../util/phone.js';
 import { toPublicUser, type User, type Onboarding } from '../models/user.js';
 import { InvalidOtpError, RefreshInvalidError } from '../api/errors.js';
 
-/** Create an account for an already-verified phone (verification happens
- * separately at POST /v1/otps/verify). */
+/** Create an account: the OTP code is verified here before provisioning, so an
+ * unverified phone can never create an account. */
 export interface CreateUserRequest {
   phoneNumber: string;
+  code: string;
+  name: string;
   onboarding?: Onboarding;
 }
 
@@ -38,16 +40,18 @@ export class UserService {
   }
 
   /**
-   * Creates (or returns the existing) user for an already-verified phone, with a session.
+   * Verifies the OTP code, then creates (or returns the existing) user with a session.
    *
-   * @param req - The verified phone and optional onboarding payload.
+   * @param req - The phone, its OTP code, the user's name, and optional onboarding.
    * @returns The user, a fresh session, and whether it was newly created.
+   * @throws {InvalidOtpError} If the code is wrong — before any DB access.
    */
   async createUser(req: CreateUserRequest): Promise<Resolution> {
+    if (!(await this.otpService.verifyOtp(req.phoneNumber, req.code))) throw new InvalidOtpError();
     const phone = normalizeE164(req.phoneNumber);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone, req.onboarding), true);
+    return this.session(await this.provision(phone, req.name, req.onboarding), true);
   }
 
   /**
@@ -106,7 +110,7 @@ export class UserService {
     const phone = normalizeE164(otp.phone_number);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone), true);
+    return this.session(await this.provision(phone, null), true);
   }
 
   /**
@@ -162,15 +166,16 @@ export class UserService {
    * `onboarding_completed_at` when onboarding was supplied at signup).
    *
    * @param phone - E.164 phone; the caller must have normalized it.
+   * @param name - The user's name, or null when provisioned by OTP sign-in.
    * @param onboarding - Optional typed onboarding to persist.
    * @returns The inserted user.
    */
-  private async provision(phone: string, onboarding?: Onboarding): Promise<User> {
+  private async provision(phone: string, name: string | null, onboarding?: Onboarding): Promise<User> {
     const { privateKey, publicKey } = this.authService.generateKeyPair();
     const columns = onboarding
       ? { ...onboardingColumns(onboarding), onboardingCompletedAt: new Date() }
       : {};
-    return this.repo.insert({ phone, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
+    return this.repo.insert({ phone, name, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
   }
 }
 

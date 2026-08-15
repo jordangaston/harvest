@@ -29,7 +29,7 @@ let phoneSeq = 0;
 
 async function mintBearer(): Promise<{ token: string; userId: string }> {
   const phone = `+1555558${String(1000 + phoneSeq++).slice(-4)}`;
-  const res = await app.inject({ method: 'POST', url: '/v1/users', payload: { user: { phone_number: phone } } });
+  const res = await app.inject({ method: 'POST', url: '/v1/users', payload: { user: { phone_number: phone, code: '123456', name: 'Test' } } });
   const body = res.json();
   return { token: body.auth.access_token.jwt, userId: body.user.id };
 }

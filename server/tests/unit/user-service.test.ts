@@ -23,6 +23,7 @@ class FakeUserRepository {
     const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined));
     const user = UserSchema.parse({
       id: randomUUID(),
+      name: null,
       accessTokenNonce: 0,
       refreshTokenNonce: 0,
       goals: null,
@@ -62,19 +63,25 @@ beforeEach(() => {
 
 describe('UserService', () => {
   it('creates a new user (isNew) then reuses it for the same phone (not new)', async () => {
-    const first = await service.createUser({ phoneNumber: '+15555550123', onboarding: { age: 'from_25_to_34' } });
+    const first = await service.createUser({
+      phoneNumber: '+15555550123',
+      code: '123456',
+      name: 'Ada',
+      onboarding: { age: 'from_25_to_34' },
+    });
     expect(first.isNew).toBe(true);
+    expect(first.user.name).toBe('Ada');
     expect(first.user.age).toBe('from_25_to_34');
     expect(first.user.onboardingCompletedAt).toBeInstanceOf(Date);
     expect(auth.verify(first.tokens.access_token.jwt, first.user.jwtPublicKey, 'access').sub).toBe(first.user.id);
 
-    const second = await service.createUser({ phoneNumber: '+15555550123' });
+    const second = await service.createUser({ phoneNumber: '+15555550123', code: '123456', name: 'Ada' });
     expect(second.isNew).toBe(false);
     expect(second.user.id).toBe(first.user.id);
   });
 
   it('signs in by OTP: good code resolves the user, bad code is rejected and provisions nothing', async () => {
-    const created = await service.createUser({ phoneNumber: '+15555550123' });
+    const created = await service.createUser({ phoneNumber: '+15555550123', code: '123456', name: 'Ada' });
     const signed = await service.signIn({ otp: { phone_number: '+15555550123', code: '123456' } });
     expect(signed.isNew).toBe(false);
     expect(signed.user.id).toBe(created.user.id);
@@ -84,7 +91,7 @@ describe('UserService', () => {
   });
 
   it('signs in by refresh token; rejects a stale nonce', async () => {
-    const created = await service.createUser({ phoneNumber: '+15555550124' });
+    const created = await service.createUser({ phoneNumber: '+15555550124', code: '123456', name: 'Ada' });
     const refreshed = await service.signIn({ refresh_token: created.tokens.refresh_token.jwt });
     expect(refreshed.user.id).toBe(created.user.id);
 
@@ -93,7 +100,7 @@ describe('UserService', () => {
   });
 
   it('getMe returns only public fields', async () => {
-    const created = await service.createUser({ phoneNumber: '+15555550125' });
-    expect(await service.getMe(created.user.id)).toEqual({ id: created.user.id, phone: '+15555550125' });
+    const created = await service.createUser({ phoneNumber: '+15555550125', code: '123456', name: 'Ada' });
+    expect(await service.getMe(created.user.id)).toEqual({ id: created.user.id, phone: '+15555550125', name: 'Ada' });
   });
 });

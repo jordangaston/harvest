@@ -78,6 +78,13 @@
       "when": 1786821499417,
       "tag": "0010_freezing_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786821938238,
+      "tag": "0011_sticky_zarek",
+      "breakpoints": true
     }
   ]
 }

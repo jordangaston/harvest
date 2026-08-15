@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "./config";
-import { ensureSession, provisionUser, refreshSession } from "./auth";
-import type { Session } from "./session";
+import { refreshSession } from "./auth";
+import { getSession, clearSession, type Session } from "./session";
 
 /** A structured API failure carrying the HTTP status and the server error code. */
 export class ApiError extends Error {
@@ -26,17 +26,22 @@ function request(path: string, init: RequestInit, session: Session): Promise<Res
 }
 
 /**
- * Calls a protected endpoint with the current session. On 401 it refreshes (or
- * re-provisions if refresh fails) and retries once. Returns parsed JSON, or
- * undefined for 204. Throws {@link ApiError} on a non-2xx response.
+ * Calls a protected endpoint with the current session. On 401 it refreshes and
+ * retries once; if the refresh fails the session is cleared and the caller must
+ * re-authenticate (there is no account without a verified phone). Returns parsed
+ * JSON, or undefined for 204. Throws {@link ApiError} on a non-2xx response.
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  let session = await ensureSession();
+  const session = await getSession();
+  if (!session) throw new ApiError(401, "NO_SESSION", "sign in required");
   let res = await request(path, init, session);
 
   if (res.status === 401) {
-    session = await refreshSession(session).catch(() => provisionUser());
-    res = await request(path, init, session);
+    const refreshed = await refreshSession(session).catch(async () => {
+      await clearSession();
+      throw new ApiError(401, "REAUTH_REQUIRED", "session expired, sign in again");
+    });
+    res = await request(path, init, refreshed);
   }
 
   if (res.status === 204) return undefined as T;
