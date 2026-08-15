@@ -68,6 +68,7 @@ export default function RootLayout() {
             <Stack.Screen name="(app)" />
             <Stack.Screen name="import" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="import-source" options={{ animation: "slide_from_bottom" }} />
+            <Stack.Screen name="unlock-importing" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="importing" options={{ animation: "fade" }} />
           </Stack>
         </SafeAreaProvider>
