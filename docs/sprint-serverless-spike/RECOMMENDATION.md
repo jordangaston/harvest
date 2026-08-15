@@ -151,4 +151,5 @@ against `developers.cloudflare.com` before coding (Workflows Workers-API, Hyperd
 cd server/spike-cf && npm install && npm run proof   # offline; boots wrangler dev, asserts, tears down
 ```
 
-See `server/spike-cf/README.md`.
+See `server/spike-cf/README.md`, and **`LOCAL-DEV.md`** for the full run-and-test runbook (local
+`wrangler dev`, the two test tiers, how to test Workflow durability locally, and CI).

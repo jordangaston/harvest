@@ -17,10 +17,12 @@ The Harvest recipe-import pipeline runs on Cloudflare with **zero long-lived pro
 
 ## Run
 
+Full runbook (run + test + CI + gotchas): **`docs/sprint-serverless-spike/LOCAL-DEV.md`**.
+
 ```bash
 npm install
 npm run db:generate      # drizzle-kit → SQLite DDL (already committed under drizzle/)
-npm test                 # offline unit tests (mapping, classify, providers)
+npm test                 # offline tests: pure logic + Drizzle sqlite-core on better-sqlite3
 npm run proof            # the end-to-end proof (boots wrangler dev, asserts, tears down)
 ```
 

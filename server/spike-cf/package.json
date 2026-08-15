@@ -6,7 +6,7 @@
   "description": "SPIKE — Cloudflare-serverless target for the Harvest backend (Workers + Workflows + D1). Not production.",
   "scripts": {
     "db:generate": "drizzle-kit generate",
-    "db:apply-local": "wrangler d1 execute harvest_cf --local --file=./drizzle/0000_init.sql",
+    "db:apply-local": "wrangler d1 execute harvest_cf --local --file=$(ls drizzle/*.sql | head -1)",
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
