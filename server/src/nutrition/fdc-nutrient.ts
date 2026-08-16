@@ -1,4 +1,4 @@
-import { LABEL_CORE_KEYS, type LabelCoreKey } from '../models/label-core.js';
+import type { LabelCoreKey } from '../models/label-core.js';
 
 /**
  * USDA FDC nutrient numbers keyed by symbolic name — the eight label-core macros plus
@@ -31,18 +31,7 @@ const NUMBER_TO_LABEL_CORE: Record<string, LabelCoreKey> = {
   [FDC_NUTRIENT.sodium]: 'milligrams_of_sodium',
 };
 
-/** The FDC nutrient number backing each label-core key (the reverse of the above). */
-export const LABEL_CORE_TO_FDC_NUMBER: Record<LabelCoreKey, string> = Object.fromEntries(
-  LABEL_CORE_KEYS.map((key) => [key, fdcNumberForLabelCore(key)]),
-) as Record<LabelCoreKey, string>;
-
 /** Maps an FDC nutrient number back to its `LabelCoreKey`, or undefined if not a macro. */
 export function labelCoreForFdcNumber(number: string): LabelCoreKey | undefined {
   return NUMBER_TO_LABEL_CORE[number];
-}
-
-function fdcNumberForLabelCore(key: LabelCoreKey): string {
-  const number = Object.entries(NUMBER_TO_LABEL_CORE).find(([, k]) => k === key)?.[0];
-  if (!number) throw new Error(`no FDC nutrient number for label-core key ${key}`);
-  return number;
 }

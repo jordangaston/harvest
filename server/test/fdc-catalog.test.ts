@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { normalize } from '../src/nutrition/normalize.js';
-import { FDC_NUTRIENT, labelCoreForFdcNumber, LABEL_CORE_TO_FDC_NUMBER } from '../src/nutrition/fdc-nutrient.js';
+import { FDC_NUTRIENT, labelCoreForFdcNumber } from '../src/nutrition/fdc-nutrient.js';
 import { LABEL_CORE_KEYS } from '../src/models/label-core.js';
 import { insertFdcFoods } from '../scripts/build-fdc-catalog.js';
 import { FDC_FIXTURE, SALMON_FDC_ID, seedFdcFixture } from './fixtures/fdc-foods.fixture.js';
@@ -52,12 +52,9 @@ describe('Test Case 2: normalize() drop/keep cases (AC-4)', () => {
 });
 
 describe('Test Case 3: FDC_NUTRIENT maps the eight macros (AC-5)', () => {
-  it('maps every label-core key to a number and back', () => {
-    for (const key of LABEL_CORE_KEYS) {
-      const number = LABEL_CORE_TO_FDC_NUMBER[key];
-      expect(number).toBeTruthy();
-      expect(labelCoreForFdcNumber(number)).toBe(key);
-    }
+  it('reaches every label-core key from some FDC nutrient number (no macro is unmappable)', () => {
+    const reachable = new Set(Object.values(FDC_NUTRIENT).map(labelCoreForFdcNumber));
+    for (const key of LABEL_CORE_KEYS) expect(reachable.has(key)).toBe(true);
   });
 
   it('maps representative numbers back to label-core keys', () => {
