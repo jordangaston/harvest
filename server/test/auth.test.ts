@@ -1,15 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient } from "@libsql/client";
-import { makeDb, type Database } from "../src/db.js";
+import { type Database } from "../src/db.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { AuthService } from "../src/services/auth-service.js";
 import { UserService } from "../src/services/user-service.js";
 import { StubOtpProvider } from "../src/providers/otp-provider.js";
 import { buildApp } from "../src/index.js";
+import { migratedFileDb } from "./helpers/migrated-db.js";
 import type { User } from "../src/models/user.js";
 
 /**
@@ -18,19 +14,13 @@ import type { User } from "../src/models/user.js";
  * provider is the stub (no Twilio env), fixed code '123456'.
  */
 let db: Database;
-let dir: string;
+let cleanup: () => void;
 
 beforeEach(async () => {
-  const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
-  const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith(".sql"));
-  if (!sqlFile) throw new Error("run `npm run db:generate` first — no drizzle/*.sql found");
-  dir = mkdtempSync(join(tmpdir(), "harvest-auth-"));
-  const client = createClient({ url: `file:${join(dir, "t.db")}` });
-  await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), "utf8"));
-  db = makeDb(client);
+  ({ db, cleanup } = await migratedFileDb());
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => cleanup());
 
 /** Insert a user with a real ES256 keypair so its tokens verify. */
 async function makeUser(phone = "+15555550100"): Promise<User> {

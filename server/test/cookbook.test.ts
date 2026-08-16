@@ -1,12 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient } from "@libsql/client";
-import { makeDb, type Database } from "../src/db.js";
+import { type Database } from "../src/db.js";
 import { RecipeRepository, type RecipeInput } from "../src/repositories/recipe-repository.js";
 import { buildApp } from "../src/index.js";
+import { migratedFileDb } from "./helpers/migrated-db.js";
 
 /**
  * Integration tests for cookbook CRUD + recipe membership — ported from the original
@@ -25,22 +21,16 @@ const RECIPE: RecipeInput = {
 };
 
 let db: Database;
-let dir: string;
+let cleanup: () => void;
 let app: ReturnType<typeof buildApp>;
 let phoneSeq = 0;
 
 beforeEach(async () => {
-  const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
-  const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith(".sql"));
-  if (!sqlFile) throw new Error("run `npm run db:generate` first — no drizzle/*.sql found");
-  dir = mkdtempSync(join(tmpdir(), "harvest-cookbook-"));
-  const client = createClient({ url: `file:${join(dir, "t.db")}` });
-  await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), "utf8"));
-  db = makeDb(client);
+  ({ db, cleanup } = await migratedFileDb());
   app = buildApp(db);
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => cleanup());
 
 async function mintBearer(): Promise<{ token: string; userId: string }> {
   const phone = `+1555558${String(1000 + phoneSeq++).slice(-4)}`;

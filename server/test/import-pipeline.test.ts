@@ -1,12 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
-import { makeDb, type Database } from "../src/db.js";
+import { type Database } from "../src/db.js";
 import { importJobs } from "../src/schema.js";
+import { migratedFileDb } from "./helpers/migrated-db.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { ImportJobRepository } from "../src/repositories/import-job-repository.js";
 import { RecipeRepository } from "../src/repositories/recipe-repository.js";
@@ -23,7 +19,7 @@ import type { ImportInput } from "../src/import-domain.js";
  * We test the pipeline, not WDK's recovery. Mirrors the S1 test harness.
  */
 let db: Database;
-let dir: string;
+let cleanup: () => void;
 
 const CARBONARA: ExtractedRecipeData = {
   title: "Carbonara",
@@ -46,16 +42,10 @@ const input = (over: Partial<ImportInput> = {}): ImportInput => ({
 });
 
 beforeEach(async () => {
-  const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
-  const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith(".sql"));
-  if (!sqlFile) throw new Error("run `npm run db:generate` first");
-  dir = mkdtempSync(join(tmpdir(), "harvest-s2-"));
-  const client = createClient({ url: `file:${join(dir, "t.db")}` });
-  await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), "utf8"));
-  db = makeDb(client);
+  ({ db, cleanup } = await migratedFileDb());
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => cleanup());
 
 const seedJob = async () => {
   const user = await UserRepository.create(db).insert({ phone: "+15555550001", jwtPrivateKey: "k", jwtPublicKey: "p" });

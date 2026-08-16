@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { openSync, readFileSync, readdirSync } from "node:fs";
+import { openSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createClient } from "@libsql/client";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import { makeDb } from "../../../src/db.js";
 
 /**
  * Vitest global setup for the live e2e tier. Boots ONE `vercel dev` for the whole
@@ -31,7 +33,10 @@ function loadEnvLocal(): Record<string, string> {
   return env;
 }
 
-/** Drop every app table, then apply the generated DDL — a clean slate per run. */
+/**
+ * Drop every table — INCLUDING `__drizzle_migrations` so the migrator re-applies
+ * from zero — then run all journal migrations in order via the drizzle migrator.
+ */
 async function resetDatabase(env: Record<string, string>): Promise<void> {
   const url = env.TURSO_DATABASE_URL;
   if (!url) throw new Error("TURSO_DATABASE_URL missing from .env.local");
@@ -44,9 +49,7 @@ async function resetDatabase(env: Record<string, string>): Promise<void> {
     await client.execute(`DROP TABLE IF EXISTS \`${row.name as string}\``);
   }
 
-  const sqlFile = readdirSync(resolve(SERVER_DIR, "drizzle")).find((f) => f.endsWith(".sql"));
-  if (!sqlFile) throw new Error("no drizzle/*.sql — run `npm run db:generate`");
-  await client.executeMultiple(readFileSync(resolve(SERVER_DIR, "drizzle", sqlFile), "utf8"));
+  await migrate(makeDb(client), { migrationsFolder: resolve(SERVER_DIR, "drizzle") });
   client.close();
 }
 

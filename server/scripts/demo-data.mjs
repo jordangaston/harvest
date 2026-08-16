@@ -9,11 +9,12 @@
 //
 // Run: `npm run demo`  (tsx, so it imports the TS repositories directly).
 import { createClient } from '@libsql/client';
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 import { makeDb } from '../src/db.js';
 import { users, recipes, ingredients, recipeSteps, importJobs, importJobRecipes } from '../src/schema.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
@@ -22,11 +23,10 @@ import { RecipeRepository } from '../src/repositories/recipe-repository.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', 'drizzle');
-const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith('.sql'));
 const dir = mkdtempSync(join(tmpdir(), 'harvest-demo-'));
 const client = createClient({ url: `file:${join(dir, 'demo.db')}` });
-await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), 'utf8'));
 const db = makeDb(client);
+await migrate(db, { migrationsFolder: drizzleDir });
 
 const userRepo = UserRepository.create(db);
 const jobRepo = ImportJobRepository.create(db);

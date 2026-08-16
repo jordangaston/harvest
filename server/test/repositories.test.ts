@@ -1,17 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createClient } from '@libsql/client';
 import { eq } from 'drizzle-orm';
-import { makeDb, type Database } from '../src/db.js';
+import { type Database } from '../src/db.js';
 import { recipes, ingredients, recipeSteps, importJobRecipes } from '../src/schema.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { ImportJobRepository } from '../src/repositories/import-job-repository.js';
 import { RecipeRepository, type RecipeInput } from '../src/repositories/recipe-repository.js';
 import { CookbookRepository } from '../src/repositories/cookbook-repository.js';
 import { CookbookExistsError } from '../src/errors.js';
+import { migratedFileDb } from './helpers/migrated-db.js';
 
 /**
  * Fast offline data-layer tests — @libsql/client with a local `file:` database
@@ -20,7 +16,7 @@ import { CookbookExistsError } from '../src/errors.js';
  * so an interactive transaction's connection shares the schema.
  */
 let db: Database;
-let dir: string;
+let cleanup: () => void;
 
 const newRecipe = (over: Partial<RecipeInput> = {}): RecipeInput => ({
   title: 'Creamy Garlic Chicken',
@@ -42,16 +38,10 @@ const makeUser = (phone = '+15555550100') =>
   UserRepository.create(db).insert({ phone, jwtPrivateKey: 'k', jwtPublicKey: 'p' });
 
 beforeEach(async () => {
-  const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
-  const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith('.sql'));
-  if (!sqlFile) throw new Error('run `npm run db:generate` first — no drizzle/*.sql found');
-  dir = mkdtempSync(join(tmpdir(), 'harvest-libsql-'));
-  const client = createClient({ url: `file:${join(dir, 't.db')}` });
-  await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), 'utf8'));
-  db = makeDb(client);
+  ({ db, cleanup } = await migratedFileDb());
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => cleanup());
 
 describe('UserRepository', () => {
   it('inserts, reads by id/phone, round-trips onboarding JSON arrays, and bumps nonces', async () => {

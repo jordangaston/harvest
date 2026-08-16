@@ -1,10 +1,6 @@
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient } from "@libsql/client";
-import { makeDb, type Database } from "../../src/db.js";
+import { type Database } from "../../src/db.js";
 import { buildApp } from "../../src/index.js";
+import { migratedFileDb } from "./migrated-db.js";
 
 /**
  * Shared fast-tier harness for the ported Wave-2 suites (grocery, meal-plan,
@@ -22,13 +18,7 @@ export interface Harness {
 
 /** Creates a fresh migrated db + app. `await` it in `beforeEach`; `cleanup()` in `afterEach`. */
 export async function makeHarness(): Promise<Harness> {
-  const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "drizzle");
-  const sqlFile = readdirSync(drizzleDir).find((f) => f.endsWith(".sql"));
-  if (!sqlFile) throw new Error("run `npm run db:generate` first — no drizzle/*.sql found");
-  const dir = mkdtempSync(join(tmpdir(), "harvest-wave2-"));
-  const client = createClient({ url: `file:${join(dir, "t.db")}` });
-  await client.executeMultiple(readFileSync(join(drizzleDir, sqlFile), "utf8"));
-  const db = makeDb(client);
+  const { db, cleanup } = await migratedFileDb();
   const app = buildApp(db);
   let phoneSeq = 0;
 
@@ -48,6 +38,6 @@ export async function makeHarness(): Promise<Harness> {
     app,
     mintBearer,
     auth: (token) => ({ authorization: `Bearer ${token}`, "content-type": "application/json" }),
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup,
   };
 }

@@ -14,8 +14,7 @@ src/queue-consumer.ts   # Nitro plugin: Vercel Queue consumer → starts the wor
 src/workflows/          # durable import workflow + media steps (ASR/OCR/extract)
 src/fetch/, src/parse/  # provider fetchers (Apify, YouTube, Pinterest, website) + extractors
 src/repositories/, src/models/  # Drizzle repos + Zod domain models (boundary parsing)
-drizzle/                # generated SQLite DDL
-scripts/apply-schema.mjs  # apply DDL to a file: (or Turso) libSQL
+drizzle/                # versioned migrations (drizzle-kit generate → migrate)
 test/                   # fast offline suite (38 tests, `npm test`)
 tests/e2e/              # live e2e over `vercel dev` (`npm run test:e2e`) — real providers
 ```
@@ -27,7 +26,8 @@ npm install
 npm test              # fast offline suite (38 tests) — no network
 npm run test:e2e      # live e2e: boots vercel dev, real scrape + ffmpeg + Groq (slow, $)
 npm run dev           # nitro dev (NITRO_PRESET=vercel)
-npm run db:generate   # regenerate drizzle/*.sql from schema.ts
+npm run db:generate   # generate a new versioned migration from schema.ts
+npm run db:migrate    # apply pending migrations to the Turso target (.env.local creds)
 ```
 
 The e2e tier reads `.env.local` (Turso creds + APIFY_TOKEN + GROQ_API_KEY) and boots one
