@@ -1,13 +1,14 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { users, type NewUser } from '../db/schema/index.js';
+import type { Database } from '../db.js';
+import { users, type NewUser } from '../schema.js';
 import { UserSchema, type User } from '../models/user.js';
 
 export class UserRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
+  /** Wire from a caller-supplied db. (S1 has no env-configured singleton yet; a
+   * later story adds `db` as a shared singleton and drops the argument.) */
+  static create(db: Database) {
     return new UserRepository(db);
   }
 

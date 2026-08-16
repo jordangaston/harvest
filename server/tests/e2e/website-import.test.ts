@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { FastifyInstance } from 'fastify';
-import { pool } from '../../src/db/index.js';
-import { buildApp } from '../../src/api/app.js';
-import { initDbos, shutdownDbos } from '../../src/pipeline/bootstrap.js';
-import { terminateOcr } from '../../src/parse/vision.js';
+import { pool, buildApp, initDbos, shutdownDbos, terminateOcr, type AppCompat } from './helpers/edge-harness.js';
 import type { PublicRecipe } from '../../src/models/recipe.js';
 
 // LIVE end-to-end (npm run test:e2e). Drives the real API against a recipe
@@ -16,7 +12,7 @@ const CASES = {
   numberedBlob: 'https://www.halfbakedharvest.com/strawberry-and-cream-stuffed-croissant-french-toast/',
 } as const;
 
-let app: FastifyInstance;
+let app: AppCompat;
 let phoneSeq = 0;
 
 async function mintBearer(): Promise<string> {

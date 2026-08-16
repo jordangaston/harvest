@@ -1,7 +1,8 @@
-import { CookbookRepository } from '../repositories/cookbook-repository.js';
-import { RecipeRepository } from '../repositories/recipe-repository.js';
-import { toPublicCookbook, type PublicCookbook } from '../models/cookbook.js';
-import { NotFoundError } from '../api/errors.js';
+import type { Database } from "../db.js";
+import { CookbookRepository } from "../repositories/cookbook-repository.js";
+import { RecipeRepository } from "../repositories/recipe-repository.js";
+import { toPublicCookbook, type PublicCookbook } from "../models/cookbook.js";
+import { NotFoundError } from "../errors.js";
 
 /** The show-cookbook payload: the cookbook plus its recipe cards. */
 export interface CookbookView {
@@ -11,8 +12,8 @@ export interface CookbookView {
 
 /**
  * Cookbook reads and writes. Cookbooks are owner-scoped; a cookbook that isn't the
- * caller's reads as not found. Recipe membership is set here, ensuring the recipe is
- * in the caller's library first.
+ * caller's reads as not found. Recipe membership is set here, ensuring the recipe
+ * exists first.
  */
 export class CookbookService {
   constructor(
@@ -20,16 +21,13 @@ export class CookbookService {
     private readonly recipes: RecipeRepository,
   ) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
-    return new CookbookService(CookbookRepository.create(), RecipeRepository.create());
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database) {
+    return new CookbookService(CookbookRepository.create(db), RecipeRepository.create(db));
   }
 
   /**
    * Creates a cookbook for the user.
-   * @param userId - Owner.
-   * @param name - Non-empty, trimmed name.
-   * @returns The created cookbook (0 recipes).
    * @throws {CookbookExistsError} 409 on a duplicate name.
    */
   async create(userId: string, name: string): Promise<PublicCookbook> {
@@ -37,10 +35,7 @@ export class CookbookService {
     return toPublicCookbook({ cookbook, recipeCount: 0, coverImageUrl: null });
   }
 
-  /**
-   * Lists the user's cookbooks, newest first, with counts and covers.
-   * @param userId - Owner.
-   */
+  /** Lists the user's cookbooks, newest first, with counts and covers. */
   async list(userId: string): Promise<PublicCookbook[]> {
     const summaries = await this.cookbooks.listForUser(userId);
     return summaries.map(toPublicCookbook);
@@ -48,8 +43,6 @@ export class CookbookService {
 
   /**
    * Returns a cookbook and its recipes.
-   * @param userId - Owner.
-   * @param cookbookId - Cookbook to show.
    * @throws {NotFoundError} 404 if the cookbook isn't the caller's.
    */
   async get(userId: string, cookbookId: string): Promise<CookbookView> {
@@ -60,9 +53,6 @@ export class CookbookService {
 
   /**
    * Sets the recipe's membership across the caller's cookbooks.
-   * @param userId - Owner.
-   * @param recipeId - Recipe to file.
-   * @param cookbookIds - The complete set of the caller's cookbooks the recipe should sit in.
    * @returns The applied (owned) cookbook ids.
    * @throws {NotFoundError} 404 if the recipe id is unknown.
    */

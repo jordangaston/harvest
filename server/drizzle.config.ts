@@ -1,13 +1,9 @@
 import { defineConfig } from 'drizzle-kit';
 
-const url =
-  process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/harvest';
-
+// SQLite dialect → drizzle-kit emits SQLite DDL for libSQL/Turso. The generated
+// .sql is applied with scripts/apply-schema.mjs over @libsql/client.
 export default defineConfig({
-  schema: './src/db/schema/index.ts',
+  dialect: 'sqlite',
+  schema: './src/schema.ts',
   out: './drizzle',
-  dialect: 'postgresql',
-  dbCredentials: { url },
-  verbose: true,
-  strict: true,
 });

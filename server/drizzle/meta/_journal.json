@@ -1,68 +1,12 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1785721870364,
-      "tag": "0000_volatile_zarda",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1785729986708,
-      "tag": "0001_same_satana",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1785960684257,
-      "tag": "0002_complete_runaways",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1785982928123,
-      "tag": "0003_chemical_franklin_richards",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1785989010728,
-      "tag": "0004_spotty_onslaught",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1785989510285,
-      "tag": "0005_outstanding_crusher_hogan",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1786141782215,
-      "tag": "0006_c6_recipe_ownership",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1786141814157,
-      "tag": "0007_c2_onboarding_enums",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1786141847352,
-      "tag": "0008_c4_c5_nutrition",
+      "version": "6",
+      "when": 1786841169821,
+      "tag": "0000_melodic_stick",
       "breakpoints": true
     }
   ]

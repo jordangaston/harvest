@@ -1,197 +1,181 @@
-import { cpus } from 'node:os';
-import { spawn, spawnSync } from 'node:child_process';
-import { createScheduler, createWorker, type Scheduler } from 'tesseract.js';
-import { env } from '../config/env.js';
-import { fetchWithRetry } from './http.js';
+import { createWorker } from "tesseract.js";
+import { retryAfterSeconds } from "./http.js";
 
 /**
- * Frame vision (O-05): read on-screen text off sampled video frames (or a photo).
- * The default reader is local Tesseract — printed recipe slides are its ideal
- * case, and it runs on CPU with no per-minute token cap, so a carousel's slides
- * OCR in parallel in seconds. `GroqVision` (Qwen-VL) remains as a swap-in option
- * for a GPU-offloaded path; the stub returns fixed text so tests run offline.
+ * Frame vision (O-05): read on-screen text off a video frame or carousel slide.
+ * Ported from server/src/parse/vision.ts, adapted for the WDK per-frame fan-out.
+ *
+ * The primary reader is local Tesseract via the WASM build (NOT the native
+ * `tesseract` binary — the WASM path runs in a deployed Vercel function). Each
+ * `readFrame` step is its own invocation, so it OCRs a single frame with a
+ * throwaway worker — there's no shared in-process pool to manage across
+ * invocations (that's the fan-out's whole point).
+ *
+ * A frame with the weak-OCR signature (ingredient-ish text but no method / very
+ * short) escalates to Groq Qwen-VL. Groq's ~8k TPM cap is respected at the
+ * workflow layer: GroqVision surfaces a rate-limit as `GroqRateLimitError` so the
+ * step can back off via WDK's `RetryableError` — no frame is dropped.
  */
 
-const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// ponytail: model id from the Groq vision docs at build time; swap if Groq
-// renames it — it's the only knob, no code change needed.
-const QWEN_VL_MODEL = 'qwen/qwen3.6-27b';
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+// ponytail: model id from the Groq vision docs; swap the id if Groq renames it —
+// it's the only knob, no code change needed.
+const QWEN_VL_MODEL = "qwen/qwen3-32b";
+// ponytail: OpenAI VLM fallback model id from the gpt-5.6-luna doc; swap if renamed.
+const OPENAI_VL_MODEL = "gpt-5.6-luna";
 const PROMPT =
-  'Transcribe every piece of on-screen text in these recipe video frames — including ingredient ' +
-  'names and amounts, cooking times, temperatures, heat settings, and any timers or measurements ' +
-  'shown on screen. Preserve all numbers and units exactly. Text only.';
+  "Transcribe every piece of on-screen text in this recipe video frame — including ingredient " +
+  "names and amounts, cooking times, temperatures, heat settings, and any timers or measurements " +
+  "shown on screen. Preserve all numbers and units exactly. Text only.";
 
+/** A single-image OCR reader — the per-frame unit the fan-out runs. */
 export interface FrameReader {
-  readFrames(images: Buffer[]): Promise<string>;
+  readFrame(image: Buffer): Promise<string>;
 }
 
-/** Real Qwen-VL via Groq. Groq caps images per request; we send at most 5. */
-export class GroqVision implements FrameReader {
-  /** @param apiKey - Groq API key for Bearer auth. */
-  constructor(private readonly apiKey: string) {}
-
-  /** Wire the singleton env key. */
-  static create(): GroqVision {
-    return new GroqVision(env.GROQ_API_KEY!);
+/** Groq rate-limited the request; carries the server's suggested backoff (seconds). */
+export class GroqRateLimitError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super("GROQ_RATE_LIMIT");
+    this.name = "GroqRateLimitError";
   }
-
-  /**
-   * @param images - Frame/photo buffers; only the first 5 are sent.
-   * @returns The on-screen text, or `''` if none.
-   * @throws Error - On a non-2xx Groq response.
-   */
-  async readFrames(images: Buffer[]): Promise<string> {
-    const content = [
-      { type: 'text', text: PROMPT },
-      ...images.slice(0, 5).map((img) => ({
-        type: 'image_url',
-        image_url: { url: `data:image/jpeg;base64,${img.toString('base64')}` },
-      })),
-    ];
-    const res = await fetchWithRetry(GROQ_CHAT_URL, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
-      // Qwen-VL reasons before answering; `hidden` drops the <think> block so the
-      // response is the transcribed text only, not the model's reasoning.
-      body: JSON.stringify({ model: QWEN_VL_MODEL, reasoning_format: 'hidden', messages: [{ role: 'user', content }] }),
-    });
-    if (!res.ok) throw new Error(`Groq vision failed — HTTP ${res.status}`);
-    const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-    return json.choices[0]?.message.content ?? '';
-  }
-}
-
-/** Worker pool size — one per core (leaving one free), capped so a big box
- * doesn't spawn dozens of workers. A carousel's slides OCR across the pool. */
-const OCR_POOL_SIZE = Math.min(8, Math.max(1, cpus().length - 1));
-
-/** One shared Tesseract worker pool for the process, built on first use. */
-let schedulerPromise: Promise<Scheduler> | null = null;
-
-function ocrScheduler(): Promise<Scheduler> {
-  schedulerPromise ??= (async () => {
-    const scheduler = createScheduler();
-    await Promise.all(
-      Array.from({ length: OCR_POOL_SIZE }, async () => scheduler.addWorker(await createWorker('eng'))),
-    );
-    return scheduler;
-  })();
-  return schedulerPromise;
-}
-
-/** Terminate the OCR pool (for a clean test/process shutdown; no-op if unused). */
-export async function terminateOcr(): Promise<void> {
-  if (!schedulerPromise) return;
-  const scheduler = await schedulerPromise;
-  schedulerPromise = null;
-  await scheduler.terminate();
 }
 
 /**
- * Local OCR via Tesseract (CPU, no rate limit). Recognizes every image in
- * parallel across the shared worker pool and joins the transcribed text.
+ * Local OCR via Tesseract's WASM build. One frame per call; a fresh worker per
+ * invocation (the fan-out gives each frame its own function, so a shared pool
+ * would span nothing). Terminates the worker so the invocation exits clean.
  */
 export class TesseractReader implements FrameReader {
-  /**
-   * @param images - Frame/slide/photo buffers.
-   * @returns The transcribed on-screen text of all images, joined.
-   */
-  async readFrames(images: Buffer[]): Promise<string> {
-    const scheduler = await ocrScheduler();
-    const results = await Promise.all(images.map((img) => scheduler.addJob('recognize', img)));
-    return results.map((result) => result.data.text).join('\n');
-  }
-}
-
-/** Max concurrent OCR processes — one per core, so a big carousel doesn't
- * oversubscribe the box. Shared across every reader call in the process. */
-const OCR_CONCURRENCY = Math.max(1, cpus().length);
-let ocrRunning = 0;
-const ocrWaiters: (() => void)[] = [];
-
-/** Run `task` once an OCR slot is free, releasing it (and the next waiter) after. */
-async function withOcrSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (ocrRunning >= OCR_CONCURRENCY) await new Promise<void>((resolve) => ocrWaiters.push(resolve));
-  ocrRunning++;
-  try {
-    return await task();
-  } finally {
-    ocrRunning--;
-    ocrWaiters.shift()?.();
-  }
-}
-
-/** Whether the native `tesseract` binary is on PATH (probed once). */
-let nativeTesseract: boolean | null = null;
-function hasNativeTesseract(): boolean {
-  if (nativeTesseract === null) {
+  async readFrame(image: Buffer): Promise<string> {
+    const worker = await createWorker("eng");
     try {
-      nativeTesseract = spawnSync('tesseract', ['--version']).status === 0;
-    } catch {
-      nativeTesseract = false;
+      const { data } = await worker.recognize(image);
+      return data.text;
+    } finally {
+      await worker.terminate();
     }
   }
-  return nativeTesseract;
 }
 
-/** OCR one image with the native binary (stdin → stdout), bounded by the pool. */
-function nativeRecognize(image: Buffer): Promise<string> {
-  return withOcrSlot(
-    () =>
-      new Promise<string>((resolve, reject) => {
-        const child = spawn('tesseract', ['-', 'stdout', '-l', 'eng'], { stdio: ['pipe', 'pipe', 'ignore'] });
-        const chunks: Buffer[] = [];
-        child.stdout.on('data', (chunk) => chunks.push(chunk));
-        child.on('error', reject);
-        child.on('close', (code) =>
-          code === 0 ? resolve(Buffer.concat(chunks).toString()) : reject(new Error(`tesseract exited ${code}`)),
-        );
-        child.stdin.on('error', reject);
-        child.stdin.end(image);
-      }),
-  );
+/** Real Qwen-VL via Groq — the escalation reader for a weak-OCR frame. */
+export class GroqVision implements FrameReader {
+  constructor(private readonly apiKey: string) {}
+
+  static create(): GroqVision {
+    return new GroqVision(process.env.GROQ_API_KEY!);
+  }
+
+  /**
+   * @throws GroqRateLimitError - On a 429 (TPM cap), so the caller can back off.
+   * @throws Error - On any other non-2xx Groq response.
+   */
+  async readFrame(image: Buffer): Promise<string> {
+    const res = await fetch(GROQ_CHAT_URL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: QWEN_VL_MODEL, reasoning_format: "hidden", messages: [{ role: "user", content: visionContent(image) }] }),
+    });
+    if (res.status === 429) throw new GroqRateLimitError(retryAfterSeconds(res) || 60);
+    if (!res.ok) throw new Error(`Groq vision failed — HTTP ${res.status}`);
+    const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+    return json.choices[0]?.message.content ?? "";
+  }
+}
+
+/** The base64 data-URL `image_url` content parts for a frame — shared by both VLMs. */
+function visionContent(image: Buffer): Array<Record<string, unknown>> {
+  return [
+    { type: "text", text: PROMPT },
+    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image.toString("base64")}` } },
+  ];
+}
+
+/** OpenAI gpt-5.6-luna VLM — the escalation fallback when Groq rate-limits/errors. */
+export class OpenAiVision implements FrameReader {
+  constructor(private readonly apiKey: string) {}
+
+  static create(): OpenAiVision {
+    return new OpenAiVision(process.env.OPENAI_API_KEY!);
+  }
+
+  async readFrame(image: Buffer): Promise<string> {
+    const res = await fetch(OPENAI_CHAT_URL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: OPENAI_VL_MODEL, messages: [{ role: "user", content: visionContent(image) }] }),
+    });
+    if (!res.ok) throw new Error(`OpenAI vision failed — HTTP ${res.status}`);
+    const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+    return json.choices[0]?.message.content ?? "";
+  }
 }
 
 /**
- * Local OCR via the native tesseract binary. Each image is a separate process,
- * so recognition runs across every core (2-4x faster than the WASM build) with
- * no worker pool to manage. Concurrency is bounded to the core count.
+ * The VLM escalation reader with Groq primary and an OpenAI fallback. On a Groq 429
+ * or any other error, tries OpenAI. If OpenAI also fails and the Groq failure was a
+ * rate-limit, re-throws `GroqRateLimitError` so the workflow's WDK backoff still
+ * fires — otherwise the frame's Tesseract read stands (the caller swallows a plain
+ * error).
  */
-export class NativeTesseractReader implements FrameReader {
-  /**
-   * @param images - Frame/slide/photo buffers.
-   * @returns The transcribed text of all images, joined.
-   */
-  async readFrames(images: Buffer[]): Promise<string> {
-    const texts = await Promise.all(images.map((img) => nativeRecognize(img)));
-    return texts.join('\n');
+export class FallbackVision implements FrameReader {
+  constructor(
+    private readonly primary: FrameReader,
+    private readonly fallback: FrameReader,
+  ) {}
+
+  async readFrame(image: Buffer): Promise<string> {
+    try {
+      return await this.primary.readFrame(image);
+    } catch (err) {
+      try {
+        return await this.fallback.readFrame(image);
+      } catch {
+        throw err;
+      }
+    }
   }
 }
 
 /** Dev/test double: no network, no CPU spend. */
 export class StubVision implements FrameReader {
-  static readonly TEXT = 'Garlic Butter Chicken\n2 chicken breasts\n3 cloves garlic\n2 tbsp butter';
+  static readonly TEXT = "Garlic Butter Chicken\n2 chicken breasts\n3 cloves garlic\n2 tbsp butter";
 
-  /** @returns Fixed on-screen text. */
-  async readFrames(_images: Buffer[]): Promise<string> {
+  async readFrame(_image: Buffer): Promise<string> {
     return StubVision.TEXT;
   }
 }
 
-/** The offline stub under test, else local Tesseract OCR — the native binary
- * when present (fastest), else the bundled WASM build (portable). Swap in
- * GroqVision here for a GPU-offloaded path. */
-export function selectVision(): FrameReader {
-  if (env.NODE_ENV === 'test') return new StubVision();
-  return hasNativeTesseract() ? new NativeTesseractReader() : new TesseractReader();
+/**
+ * Whether a frame's OCR text is "weak" — has ingredient-ish content but no method,
+ * or is too short to trust. This is the escalation signature: Tesseract can read a
+ * dense stylized card's ingredients while garbling/missing the numbered method.
+ * Such a frame escalates to the VLM; a clean read stands. Ported from the server's
+ * escalate-only-the-failing-card heuristic.
+ */
+const WEAK_OCR_MIN_CHARS = 40;
+const INGREDIENT_HINT = /\b(\d|cup|tbsp|tsp|teaspoon|tablespoon|gram|g\b|ounce|oz|lb|pound|clove|slice)\b/i;
+const METHOD_HINT = /\b(mix|stir|bake|cook|fry|heat|add|combine|whisk|simmer|boil|roast|preheat|pour|serve|blend|season|fold|saut)\w*/i;
+
+export function isWeakOcr(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < WEAK_OCR_MIN_CHARS) return true;
+  return INGREDIENT_HINT.test(trimmed) && !METHOD_HINT.test(trimmed);
 }
 
-/** A more capable reader to fall back to when Tesseract half-reads a dense,
- * stylized carousel slide — it reads the ingredient list but garbles/misses the
- * method, yielding a steps-less recipe. The Qwen-VL VLM reads the whole card,
- * method included. Used only for the few slides that need recovery (not every
- * slide — 11 parallel VLM calls exceed the model's token-per-minute cap and drop
- * recipes), so `null` when unkeyed or under test disables the escalation. */
+/** Tesseract (WASM) under normal env; the offline stub when unkeyed/under test. */
+export function selectVision(): FrameReader {
+  return process.env.NODE_ENV === "test" ? new StubVision() : new TesseractReader();
+}
+
+/**
+ * The VLM escalation reader, or null when unkeyed/under test (escalation off).
+ * Groq primary, with an OpenAI gpt-5.6-luna fallback on a Groq 429/error when
+ * OPENAI_API_KEY is present.
+ */
 export function selectVisionEscalation(): FrameReader | null {
-  return env.NODE_ENV !== 'test' && env.GROQ_API_KEY ? GroqVision.create() : null;
+  if (process.env.NODE_ENV === "test" || !process.env.GROQ_API_KEY) return null;
+  const groq = GroqVision.create();
+  return process.env.OPENAI_API_KEY ? new FallbackVision(groq, OpenAiVision.create()) : groq;
 }

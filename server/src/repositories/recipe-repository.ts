@@ -1,10 +1,9 @@
 import { eq, and, desc } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { recipes, ingredients, recipeSteps } from '../db/schema/index.js';
-import type { SourceType } from '../db/schema/enums.js';
+import type { Database } from '../db.js';
+import { recipes, ingredients, recipeSteps, type SourceType } from '../schema.js';
 import { RecipeSchema, type Recipe, type RecipeDetail } from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
-import type { Nutrition } from '../nutrition/label-core.js';
+import type { Nutrition } from '../models/label-core.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** What the parse provider hands the repository to persist. */
@@ -26,27 +25,22 @@ export interface RecipeInput {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 /**
- * Persists a parsed recipe owned by its creator (C6). One transaction writes the
- * recipe (with its `user_id`, C4 servings estimate, and C5 nutrition), its
- * ingredients (each with separated amount/unit/quantity_text, C3, and an O-09 icon
- * key), and its steps. Saving into a cookbook is a separate `cookbook_recipes`
- * concern — a recipe's owner is `recipes.user_id`, not a saved_recipes row.
- *
- * ponytail: BR-07 thumbnail re-host is deferred — imageUrl is stored as-is and
- * the mobile app hotlinks it; re-host to object storage when hotlinking breaks.
+ * Persists a parsed recipe owned by its creator (C6). One interactive transaction
+ * writes the recipe (with its `user_id`, C4 servings estimate, and C5 nutrition),
+ * its ingredients (separated amount/unit/quantity_text, C3, and an O-09 icon key),
+ * and its steps. Saving into a cookbook is a separate `cookbook_recipes` concern.
  */
 export class RecipeRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create(): RecipeRepository {
+  /** Wire from a caller-supplied db. */
+  static create(db: Database): RecipeRepository {
     return new RecipeRepository(db);
   }
 
   /**
    * Fetches one recipe with its ordered ingredients and steps. Recipes are shared
-   * (canonical) entities, so any caller can read any recipe — browsing isn't
-   * gated on ownership.
+   * (canonical) entities, so any caller can read any recipe.
    * @param recipeId - Recipe to fetch.
    * @returns The recipe aggregate, or null if no recipe has that id.
    */
@@ -88,7 +82,7 @@ export class RecipeRepository {
   }
 
   /**
-   * Inserts the recipe row (numeric fields are stringified for pg).
+   * Inserts the recipe row (numeric fields are stringified).
    * @param tx - Active transaction client.
    * @param recipe - Recipe to insert; absent optionals become null.
    * @param userId - The owner.
@@ -165,9 +159,8 @@ export class RecipeRepository {
   }
 
   /**
-   * Edits a recipe's ingredients and/or steps in place (C6 — copy-on-write is
-   * gone; the owner edits the canonical row). One transaction. Authorization is
-   * the caller's concern (via {@link findOwner}).
+   * Edits a recipe's ingredients and/or steps in place (C6). One transaction.
+   * Authorization is the caller's concern (via {@link findOwner}).
    * @param recipeId - Recipe to edit.
    * @param edit - New structured ingredients and/or step texts (full replacements).
    */

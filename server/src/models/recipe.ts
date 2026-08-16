@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { LABEL_CORE_KEYS } from '../nutrition/label-core.js';
+import { LABEL_CORE_KEYS } from './label-core.js';
 
 // Domain model for a recipe row. Repositories parse rows into this at the
-// boundary. `confidence` and the nutrition macros are stored as numeric → text by
-// pg, hence nullable strings here (matching the existing `confidence` convention).
+// boundary. `confidence` and the nutrition macros are stored as numeric → text,
+// hence nullable strings here. Timestamps come back as Dates via drizzle
+// `mode: 'timestamp'`, so the `.date()` still holds.
 export const RecipeSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -29,7 +30,7 @@ export const RecipeSchema = z.object({
 
 export type Recipe = z.infer<typeof RecipeSchema>;
 
-/** An ingredient row as read from the DB (pg `numeric` amount comes back as a string). */
+/** An ingredient row as read from the DB (numeric amount comes back as a string). */
 export interface IngredientDetail {
   name: string;
   icon: string | null;

@@ -1,9 +1,11 @@
-import { UserRepository } from '../repositories/user-repository.js';
-import { AuthService, type Tokens } from './auth-service.js';
-import { OtpService } from './otp-service.js';
-import { normalizeE164 } from '../util/phone.js';
-import { toPublicUser, type User, type Onboarding } from '../models/user.js';
-import { InvalidOtpError, RefreshInvalidError } from '../api/errors.js';
+import type { Database } from "../db.js";
+import { dbFromEnv } from "../edge-db.js";
+import { UserRepository } from "../repositories/user-repository.js";
+import { AuthService, type Tokens } from "./auth-service.js";
+import { OtpService } from "./otp-service.js";
+import { normalizeE164 } from "../util/phone.js";
+import { toPublicUser, type User, type Onboarding } from "../models/user.js";
+import { InvalidOtpError, RefreshInvalidError } from "../errors.js";
 
 /** Create an account for an already-verified phone (verification happens
  * separately at POST /v1/otps/verify). */
@@ -32,9 +34,10 @@ export class UserService {
     private readonly otpService: OtpService,
   ) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
-    return new UserService(UserRepository.create(), AuthService.create(), OtpService.create());
+  /** Wire dependencies. `db` defaults to the env-configured Turso client; tests
+   * pass a local `file:` db so the whole service runs offline. */
+  static create(db: Database = dbFromEnv()) {
+    return new UserService(UserRepository.create(db), AuthService.create(), OtpService.create());
   }
 
   /**
@@ -70,7 +73,7 @@ export class UserService {
    * @returns The user id, or null if the token is invalid/revoked.
    */
   async authenticateAccessToken(token: string): Promise<string | null> {
-    const user = await this.userForToken(token, 'access');
+    const user = await this.userForToken(token, "access");
     return user?.id ?? null;
   }
 
@@ -107,7 +110,7 @@ export class UserService {
    * @throws {RefreshInvalidError} If the token is invalid, expired, or revoked.
    */
   private async resolveByRefreshToken(token: string): Promise<Resolution> {
-    const user = await this.userForToken(token, 'refresh');
+    const user = await this.userForToken(token, "refresh");
     if (!user) throw new RefreshInvalidError();
     return this.session(user, false);
   }
@@ -122,13 +125,13 @@ export class UserService {
    * @returns The owning user, or null on any failure (unknown user, bad
    *   signature, wrong type, or stale nonce).
    */
-  private async userForToken(token: string, type: 'access' | 'refresh'): Promise<User | null> {
+  private async userForToken(token: string, type: "access" | "refresh"): Promise<User | null> {
     const sub = this.authService.decodeSub(token);
     const user = sub && (await this.repo.findById(sub));
     if (!user) return null;
     try {
       const { nonce } = this.authService.verify(token, user.jwtPublicKey, type);
-      const current = type === 'access' ? user.accessTokenNonce : user.refreshTokenNonce;
+      const current = type === "access" ? user.accessTokenNonce : user.refreshTokenNonce;
       return nonce === current ? user : null;
     } catch {
       return null;

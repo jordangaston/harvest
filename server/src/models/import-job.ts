@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 // Domain model for an import job. Repositories parse rows into this at the
-// boundary. Failure detail lives in `errorCode` (e.g. NO_RECIPE), never an
-// extra status value — a finished-but-empty import is `failed` + NO_RECIPE.
+// boundary. Failure detail lives in `errorCode` (e.g. NO_RECIPE), never an extra
+// status value — a finished-but-empty import is `failed` + NO_RECIPE.
 export const ImportJobSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -19,8 +19,8 @@ export const ImportJobSchema = z.object({
 export type ImportJob = z.infer<typeof ImportJobSchema>;
 export type ImportJobStatus = ImportJob['status'];
 
-/** The public job shape returned to clients (AC-9): only these fields, never
- * `user_id`, `source_ref`, or any internal column. snake_case; null fields omitted.
+/** The public job shape returned to clients: only these fields, never `user_id`,
+ * `source_ref`, or any internal column. snake_case; null fields omitted.
  * `recipe_id` is the primary recipe; `recipe_ids` is the full ordered set a
  * slideshow import produced. */
 export interface PublicJob {
@@ -34,8 +34,8 @@ export interface PublicJob {
 }
 
 /**
- * Maps a job to its public shape (AC-9), dropping internal columns and omitting
- * null error/recipe fields.
+ * Maps a job to its public shape, dropping internal columns and omitting null
+ * error/recipe fields.
  * @param job - The domain job.
  * @param recipeIds - The recipes the import produced, in order (empty until ready).
  * @returns The client-safe projection.
