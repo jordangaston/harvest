@@ -179,20 +179,32 @@ const transcript_ = transcribe;
 async function nutritionStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
   "use step";
   const estimator = NutritionEstimator.create(dbFromEnv());
-  return Promise.all(
-    recipes.map(async (recipe) => {
-      const servings = resolvedServings(recipe);
-      const estimate = await estimator.run(recipe.ingredients, servings, recipe.nutrition);
-      const matched = countMatched(estimate);
-      console.log(
-        `[step] nutrition job=${input.jobId} title=${recipe.title} ingredients=${recipe.ingredients.length} ` +
-          `outcome=${outcomeLabel(estimate)} score=${estimate.nrfScore ?? "none"} matched=${matched}`,
-      );
-      return { ...recipe, estimate };
-    }),
-  );
+  return Promise.all(recipes.map((recipe) => enrichOne(estimator, recipe, input)));
 }
 nutritionStep.maxRetries = 3;
+
+/**
+ * Enrich one recipe with its estimate, logging the outcome. Nutrition is best-effort
+ * enrichment, so a scoring failure returns the recipe unenriched (it still persists with
+ * its parsed nutrition, or none) rather than failing an import that would otherwise succeed.
+ */
+async function enrichOne(
+  estimator: NutritionEstimator,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const estimate = await estimator.run(recipe.ingredients, resolvedServings(recipe), recipe.nutrition);
+    console.log(
+      `[step] nutrition job=${input.jobId} title=${recipe.title} ingredients=${recipe.ingredients.length} ` +
+        `outcome=${outcomeLabel(estimate)} score=${estimate.nrfScore ?? "none"} matched=${countMatched(estimate)}`,
+    );
+    return { ...recipe, estimate };
+  } catch (err) {
+    console.log(`[step] nutrition job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
 
 /** The servings the recipe persists with (mirrors `toRecipeInput`'s C4 default of 4). */
 function resolvedServings(recipe: ExtractedRecipeData): number {
