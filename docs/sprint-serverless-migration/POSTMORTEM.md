@@ -104,6 +104,23 @@ required.
 paraphrase is a pointer, not a spec — verify the exact routes, shapes, and visibility against the
 original, add nothing it lacks, and let the original's own tests catch a drifted contract.
 
+## 10. A long migration must reconcile onto a moving `main`, and the merge is a port, not a keep-mine
+
+The branch was cut from a pre-Wave-2 `main`; while the migration ran, `main` gained meal-planning,
+grocery, account-deletion, and a shared recipe list. Merging naively would have regressed those
+features. The merge's 14 conflicts split cleanly by intent: content conflicts on rewritten files
+(keep the new stack, fold in the feature delta), and modify/delete conflicts on old-stack files (stay
+deleted, but port the functionality). The old Fastify/Postgres code was the *contract*, not the
+implementation — every new route re-implemented on Workers/WDK/Turso, then checked for exact route
+parity against `main`.
+
+**Lesson.** On a migration that outlives a few `main` cycles, treat the merge as another porting pass,
+not a conflict-clicking exercise: for each incoming feature, keep the target architecture and
+re-implement the behaviour, and gate "done" on route/endpoint parity with `main` so nothing regresses.
+A cwd-vs-bundle path bug (the catalog seed) and a squashed migration that dropped stale pg-core deltas
+were both caught only because the reconcile ended in a real `vercel dev` smoke, not just a green unit
+suite.
+
 ## What went well
 
 - Reading the versioned docs first meant the WDK/Queues/Turso APIs were right the first time.

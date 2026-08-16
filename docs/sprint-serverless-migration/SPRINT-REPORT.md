@@ -7,6 +7,17 @@ The Harvest backend is migrated. `server/` **is** the serverless Vercel stack �
 intake, and Turso (libSQL) for the database. The old Fastify + DBOS + Postgres implementation is gone.
 There is no `server-edge/`; the migration happened in place.
 
+The branch is **reconciled onto current `main`** — the Wave-2 backend (meal-planning, grocery lists,
+account deletion, the shared recipe list, the common-ingredients picker, `users.name`) is merged and
+ported to the Vercel/Turso stack, so the migration covers the **full current backend contract**.
+Route parity with `main` is exact — **all 25 endpoints present, zero regression** — and the branch is
+pushed to PR #24. The full contract: `POST /v1/otps`, `POST /v1/otps/verify`, `POST /v1/users`,
+`POST /v1/users/sign_in`, `GET /v1/users/me`, `DELETE /v1/users/me`, `POST /v1/imports`,
+`GET /v1/imports/:id`, `GET /v1/recipes`, `GET/PATCH/DELETE /v1/recipes/:id`,
+`PUT /v1/recipes/:id/cookbooks`, `POST/GET /v1/cookbooks`, `GET /v1/cookbooks/:id`,
+`GET/POST /v1/meal-plan`, `DELETE /v1/meal-plan/:id`, `GET/POST /v1/grocery_items`,
+`PATCH/DELETE /v1/grocery_items/:id`, `GET /v1/ingredients/common`, `GET /healthz`.
+
 **Definition of done — met.** The existing end-to-end tests (`server/tests/e2e/*`) pass against the
 migrated stack under `vercel dev`, driving real imports through the real providers (Apify scraping,
 Groq ASR/vision/LLM, ffmpeg):
@@ -53,6 +64,7 @@ A real request produces a real result end to end:
 | **Consolidation** | Done | `server-edge/` merged into `server/` in place; old DBOS/Fastify/Postgres removed; existing e2e rewired and green |
 | **OpenAI fallback tier** | Done | Groq primary → OpenAI fallback (whisper-1 for ASR, gpt-5.6-luna for extraction/vision) on rate-limit/error, keyed off `OPENAI_API_KEY` |
 | **CRUD routes** | Done | Cookbooks (create/list/get), recipe edit (PATCH), recipe delete (DELETE), and recipe→cookbook membership (PUT) ported over the existing repositories, matching the original contract exactly; cookbook + recipe integration tests ported and green |
+| **Wave-2 reconcile** | Done | Merged current `main`; ported meal-planning, grocery lists (bundled USDA catalog), `GET /v1/recipes`, `GET /v1/ingredients/common`, `DELETE /v1/users/me` (cascade), and `users.name` to the Vercel/Turso stack. Route parity with main is exact (25/25) — zero regression. Pushed to PR #24 |
 
 ## Layer mapping delivered
 
@@ -68,10 +80,12 @@ A real request produces a real result end to end:
 
 ## Test & demo evidence
 
-- **Fast + integration suite** (`npm test`): 64 green (7 files) — repositories + interactive-transaction
+- **Fast + integration suite** (`npm test`): 101 green (14 files) — repositories + interactive-transaction
   atomicity, workflow logic via `@workflow/vitest`, queue-consumer idempotency, media arg-builders +
   fan-out selection + a real fixture-clip ffmpeg extraction, auth mint/verify/revoke, the Groq→OpenAI
-  fallback routing, and the ported cookbook (6) + recipe (7) integration tests over `file:` libSQL.
+  fallback routing, the cookbook (6) + recipe (7) integration tests, and the ported Wave-2 tests
+  (meal-plan 9, recipes-list 4, grocery 7, grocery-unit 7, user-delete 3, ingredient 5, icon-lockstep 2)
+  — all over `file:` libSQL.
 - **e2e suite** (`npm run test:e2e`): boots one `vercel dev`, resets Turso, drives the real imports
   above to green. Slow and real (minutes per import, real provider spend).
 - `npx tsc --noEmit` clean. `git status` clean of secrets (`.env.local`, `.vercel/`, OIDC tokens, the
