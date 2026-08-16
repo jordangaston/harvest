@@ -25,6 +25,7 @@ export const RecipeSchema = z.object({
   gramsOfProtein: z.string().nullable(),
   milligramsOfSodium: z.string().nullable(),
   nutritionSource: z.enum(['parsed', 'computed']).nullable(),
+  nrfScore: z.string().nullable(),
   createdAt: z.date(),
 });
 
@@ -46,9 +47,10 @@ export interface RecipeDetail {
   steps: string[];
 }
 
-/** Nutrition-Facts label core on the public recipe (snake_case strings). */
+/** Nutrition-Facts label core on the public recipe (snake_case strings). `estimated`
+ * is true when computed from ingredients, false when parsed from the source. */
 export type PublicNutrition = {
-  source: 'parsed' | 'computed';
+  estimated: boolean;
   calories?: string;
   grams_of_fat?: string;
   grams_of_saturated_fat?: string;
@@ -73,6 +75,7 @@ export interface PublicRecipe {
   ingredients: { name: string; icon?: string; quantity_text?: string; amount?: string; unit?: string }[];
   steps: string[];
   nutrition?: PublicNutrition;
+  nrf_score?: number;
 }
 
 /** A recipe as read for a list view (camelCase). `ingredientNames`/`cookbookIds`
@@ -146,13 +149,16 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
   if (recipe.imageUrl) publicRecipe.image_url = recipe.imageUrl;
   const nutrition = toPublicNutrition(recipe);
   if (nutrition) publicRecipe.nutrition = nutrition;
+  if (recipe.nrfScore != null) publicRecipe.nrf_score = Number(recipe.nrfScore);
   return publicRecipe;
 }
 
-/** Projects the nutrition columns to the public shape, or undefined when unknown. */
+/** Projects the nutrition columns to the public shape, or undefined when unknown.
+ * `estimated` derives from `nutrition_source` (`'computed'` ⇒ true). Confidence is
+ * never serialized. */
 function toPublicNutrition(recipe: Recipe): PublicNutrition | undefined {
   if (!recipe.nutritionSource) return undefined;
-  const nutrition: PublicNutrition = { source: recipe.nutritionSource };
+  const nutrition: PublicNutrition = { estimated: recipe.nutritionSource === 'computed' };
   for (const key of LABEL_CORE_KEYS) {
     const value = recipe[NUTRITION_COLUMN[key]] as string | null;
     if (value != null) nutrition[key] = value;
