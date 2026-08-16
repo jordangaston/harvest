@@ -42,6 +42,20 @@ const HOW_HEARD = [
   'other',
 ] as const;
 const AGE_BANDS = ['under_24', 'from_25_to_34', 'from_35_to_44', 'from_45_to_54', 'over_55'] as const;
+// W2 meal-plan slot + grocery aisle (pgEnum → text{enum}).
+const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+const GROCERY_AISLES = [
+  'produce',
+  'meat_seafood',
+  'dairy_eggs_fridge',
+  'bakery',
+  'pantry',
+  'herbs_spices',
+  'frozen',
+  'beverages',
+  'household',
+  'other',
+] as const;
 
 /** UUID text primary key, generated in app code (SQLite has no gen_random_uuid). */
 const uuidPk = () =>
@@ -60,6 +74,7 @@ export const users = sqliteTable(
   {
     id: uuidPk(),
     phone: text('phone').notNull(),
+    name: text('name'),
     jwtPrivateKey: text('jwt_private_key').notNull(),
     jwtPublicKey: text('jwt_public_key').notNull(),
     accessTokenNonce: integer('access_token_nonce').notNull().default(0),
@@ -200,6 +215,52 @@ export const cookbookRecipes = sqliteTable(
   ],
 );
 
+// W2 meal-plan: one recipe assigned to a (date, meal) slot of a user's plan. A
+// "plan" is just this user's rows in a date range — no week/plan container. Both
+// FKs cascade. `date` is an absolute calendar date (pg `date` → 'YYYY-MM-DD' text).
+export const mealPlanEntries = sqliteTable(
+  'meal_plan_entries',
+  {
+    id: uuidPk(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    meal: text('meal', { enum: MEAL_SLOTS }).notNull(),
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('meal_plan_entries_user_date_idx').on(t.userId, t.date)],
+);
+
+// W2 grocery list: one flat, per-user list. `amount`+`unit` carry a structured
+// quantity; `quantity_text` holds a freeform amount when there's no numeric amount.
+// `aisle`/`icon` are denormalized from the catalog at add time. `source_recipe_id`
+// (null = manual) is `set null` so deleting a recipe keeps its items.
+export const groceryItems = sqliteTable(
+  'grocery_items',
+  {
+    id: uuidPk(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    amount: text('amount'), // pg numeric → text
+    unit: text('unit'),
+    quantityText: text('quantity_text'),
+    aisle: text('aisle', { enum: GROCERY_AISLES }).notNull(),
+    icon: text('icon').notNull().default('default'),
+    checked: integer('checked', { mode: 'boolean' }).notNull().default(false),
+    sourceRecipeId: text('source_recipe_id').references(() => recipes.id, { onDelete: 'set null' }),
+    position: integer('position').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('grocery_items_user_idx').on(t.userId)],
+);
+
 export const schema = {
   users,
   recipes,
@@ -209,6 +270,8 @@ export const schema = {
   importJobRecipes,
   cookbooks,
   cookbookRecipes,
+  mealPlanEntries,
+  groceryItems,
 };
 export type Schema = typeof schema;
 
@@ -218,3 +281,6 @@ export type NewImportJob = typeof importJobs.$inferInsert;
 
 /** Source-type union, shared with the domain models. */
 export type SourceType = (typeof SOURCE_TYPES)[number];
+/** Meal-plan slot + grocery aisle unions, shared with the domain models. */
+export type MealSlot = (typeof MEAL_SLOTS)[number];
+export type GroceryAisle = (typeof GROCERY_AISLES)[number];

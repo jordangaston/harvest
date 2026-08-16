@@ -48,6 +48,7 @@ export type Onboarding = z.infer<typeof OnboardingSchema>;
 export const UserSchema = z.object({
   id: z.string().uuid(),
   phone: z.string(),
+  name: z.string().nullable(),
   jwtPrivateKey: z.string(),
   jwtPublicKey: z.string(),
   accessTokenNonce: z.number().int(),
@@ -68,8 +69,8 @@ export type User = z.infer<typeof UserSchema>;
 /**
  * Projects a user to the API-safe shape — never key material or nonces.
  * @param user - The domain user.
- * @returns Only the id and phone.
+ * @returns The id, phone, and name (name null until the user provides one).
  */
-export function toPublicUser(user: User): { id: string; phone: string } {
-  return { id: user.id, phone: user.phone };
+export function toPublicUser(user: User): { id: string; phone: string; name: string | null } {
+  return { id: user.id, phone: user.phone, name: user.name };
 }

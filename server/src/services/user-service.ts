@@ -11,6 +11,7 @@ import { InvalidOtpError, RefreshInvalidError } from "../errors.js";
  * separately at POST /v1/otps/verify). */
 export interface CreateUserRequest {
   phoneNumber: string;
+  name?: string;
   onboarding?: Onboarding;
 }
 
@@ -50,7 +51,16 @@ export class UserService {
     const phone = normalizeE164(req.phoneNumber);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone, req.onboarding), true);
+    return this.session(await this.provision(phone, req.name ?? null, req.onboarding), true);
+  }
+
+  /**
+   * Permanently deletes the caller's account and every row they own. The token
+   * subject is the only account a caller can name, so no extra ownership check.
+   * @param userId - The authenticated user id.
+   */
+  deleteAccount(userId: string): Promise<void> {
+    return this.repo.deleteAccount(userId);
   }
 
   /**
@@ -83,7 +93,7 @@ export class UserService {
    * @param sub - The user id (a verified token's subject).
    * @returns The public user, or null if no such user.
    */
-  getMe(sub: string): Promise<{ id: string; phone: string } | null> {
+  getMe(sub: string): Promise<{ id: string; phone: string; name: string | null } | null> {
     return this.repo.findById(sub).then((user) => (user ? toPublicUser(user) : null));
   }
 
@@ -99,7 +109,7 @@ export class UserService {
     const phone = normalizeE164(otp.phone_number);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone), true);
+    return this.session(await this.provision(phone, null), true);
   }
 
   /**
@@ -155,15 +165,16 @@ export class UserService {
    * `onboarding_completed_at` when onboarding was supplied at signup).
    *
    * @param phone - E.164 phone; the caller must have normalized it.
+   * @param name - The user's name, or null when provisioned by OTP sign-in.
    * @param onboarding - Optional typed onboarding to persist.
    * @returns The inserted user.
    */
-  private async provision(phone: string, onboarding?: Onboarding): Promise<User> {
+  private async provision(phone: string, name: string | null, onboarding?: Onboarding): Promise<User> {
     const { privateKey, publicKey } = this.authService.generateKeyPair();
     const columns = onboarding
       ? { ...onboardingColumns(onboarding), onboardingCompletedAt: new Date() }
       : {};
-    return this.repo.insert({ phone, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
+    return this.repo.insert({ phone, name, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
   }
 }
 

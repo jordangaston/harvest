@@ -55,3 +55,10 @@ export class NotFoundError extends AppError {
     super('NOT_FOUND', 404, 'not found');
   }
 }
+
+export class InvalidRangeError extends AppError {
+  /** 400 INVALID_RANGE — the meal-plan start/end range is missing, malformed, or too wide. */
+  constructor(message = 'start and end must be valid dates no more than 31 days apart') {
+    super('INVALID_RANGE', 400, message);
+  }
+}

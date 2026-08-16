@@ -1,7 +1,7 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, or, exists, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, ingredients, recipeSteps, type SourceType } from '../schema.js';
-import { RecipeSchema, type Recipe, type RecipeDetail } from '../models/recipe.js';
+import { recipes, ingredients, recipeSteps, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
+import { RecipeSchema, type Recipe, type RecipeDetail, type RecipeCard, type RecipeCardPage } from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
 import { mapIngredientIcon } from '../parse/icons.js';
@@ -159,6 +159,101 @@ export class RecipeRepository {
   }
 
   /**
+   * One page of the caller's library — recipes they own ∪ recipes in any of their
+   * cookbooks, deduped (one row per recipe), newest first. Keyset-paginated on
+   * `(created_at, id)` so ties don't overlap or skip. `expand` opts into the
+   * per-recipe ingredient names and the caller's cookbook ids holding it.
+   * @param userId - The library owner.
+   * @param opts - `limit` page size, optional `cursor` (from a prior page), and `expand` flags.
+   * @returns The page's cards plus the next `pageToken` (null at the end).
+   */
+  async listCards(
+    userId: string,
+    opts: { limit: number; cursor?: string; expand: { ingredientNames: boolean; cookbookIds: boolean } },
+  ): Promise<RecipeCardPage> {
+    const inCookbook = exists(
+      this.db
+        .select({ one: sql`1` })
+        .from(cookbookRecipes)
+        .innerJoin(cookbooks, eq(cookbooks.id, cookbookRecipes.cookbookId))
+        .where(and(eq(cookbookRecipes.recipeId, recipes.id), eq(cookbooks.userId, userId))),
+    );
+    const visible = or(eq(recipes.userId, userId), inCookbook);
+    const decoded = opts.cursor ? decodeCursor(opts.cursor) : null;
+    // SQLite has no row-value tuple comparison; expand `(created_at, id) < (c, i)`
+    // by hand. `created_at` is stored as an epoch (timestamp mode), so bind the
+    // cursor's Date the same way drizzle binds the column.
+    const keyset = decoded
+      ? or(
+          sql`${recipes.createdAt} < ${decoded.createdAt}`,
+          and(sql`${recipes.createdAt} = ${decoded.createdAt}`, sql`${recipes.id} < ${decoded.id}`),
+        )
+      : undefined;
+
+    const rows = await this.db
+      .select({
+        id: recipes.id,
+        title: recipes.title,
+        imageUrl: recipes.imageUrl,
+        totalMinutes: recipes.totalMinutes,
+        createdAt: recipes.createdAt,
+      })
+      .from(recipes)
+      .where(and(visible, keyset))
+      .orderBy(desc(recipes.createdAt), desc(recipes.id))
+      .limit(opts.limit + 1);
+
+    const hasMore = rows.length > opts.limit;
+    const page = rows.slice(0, opts.limit);
+    const ids = page.map((r) => r.id);
+    const names = opts.expand.ingredientNames ? await this.ingredientNamesByRecipe(ids) : null;
+    const cbIds = opts.expand.cookbookIds ? await this.cookbookIdsByRecipe(userId, ids) : null;
+
+    const cards: RecipeCard[] = page.map((r) => {
+      const card: RecipeCard = { id: r.id, title: r.title, imageUrl: r.imageUrl, totalMinutes: r.totalMinutes };
+      if (names) card.ingredientNames = names.get(r.id) ?? [];
+      if (cbIds) card.cookbookIds = cbIds.get(r.id) ?? [];
+      return card;
+    });
+    const last = page[page.length - 1];
+    return { cards, pageToken: hasMore && last ? encodeCursor(last.createdAt, last.id) : null };
+  }
+
+  /** Maps each recipe id → its ordered ingredient names (empty ids → empty map). */
+  private async ingredientNamesByRecipe(recipeIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: ingredients.recipeId, name: ingredients.name })
+      .from(ingredients)
+      .where(inArray(ingredients.recipeId, recipeIds))
+      .orderBy(ingredients.recipeId, ingredients.position);
+    for (const row of rows) {
+      const list = map.get(row.recipeId) ?? [];
+      list.push(row.name);
+      map.set(row.recipeId, list);
+    }
+    return map;
+  }
+
+  /** Maps each recipe id → the caller's cookbook ids holding it (caller-scoped). */
+  private async cookbookIdsByRecipe(userId: string, recipeIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: cookbookRecipes.recipeId, cookbookId: cookbookRecipes.cookbookId })
+      .from(cookbookRecipes)
+      .innerJoin(cookbooks, eq(cookbooks.id, cookbookRecipes.cookbookId))
+      .where(and(eq(cookbooks.userId, userId), inArray(cookbookRecipes.recipeId, recipeIds)));
+    for (const row of rows) {
+      const list = map.get(row.recipeId) ?? [];
+      list.push(row.cookbookId);
+      map.set(row.recipeId, list);
+    }
+    return map;
+  }
+
+  /**
    * Edits a recipe's ingredients and/or steps in place (C6). One transaction.
    * Authorization is the caller's concern (via {@link findOwner}).
    * @param recipeId - Recipe to edit.
@@ -201,6 +296,18 @@ export class RecipeRepository {
       await tx.insert(recipeSteps).values(steps.map((text, i) => ({ recipeId, position: i, text })));
     }
   }
+}
+
+/** Encodes a keyset cursor from a row's `(created_at, id)`. `created_at` is stored
+ * as epoch seconds (drizzle `mode: 'timestamp'`), so the cursor carries that int. */
+function encodeCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${Math.floor(createdAt.getTime() / 1000)}|${id}`, 'utf8').toString('base64url');
+}
+
+/** Decodes a keyset cursor back to its `createdAt` epoch-seconds int and `id`. */
+function decodeCursor(token: string): { createdAt: number; id: string } {
+  const [createdAt, id] = Buffer.from(token, 'base64url').toString('utf8').split('|');
+  return { createdAt: Number(createdAt), id: id! };
 }
 
 /** One structured ingredient → its insert row (position + O-09 icon on the name). */

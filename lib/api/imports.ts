@@ -1,5 +1,6 @@
 import { apiFetch, ApiError } from "./client";
 import type { ImportJob } from "./types";
+import { analytics } from "../analytics";
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_BUDGET_MS = 120_000; // imports (esp. video/carousel) can take minutes; server has no timeout.
@@ -53,7 +54,10 @@ export async function runImport(url: string, onProgress?: (progress: number) => 
     onProgress?.(current.progress);
     if (current.status === "ready") {
       const ids = current.recipe_ids?.length ? current.recipe_ids : current.recipe_id ? [current.recipe_id] : [];
-      if (ids.length) return { status: "ready", recipeIds: ids };
+      if (ids.length) {
+        analytics.track("Recipe Imported", { recipe_count: ids.length });
+        return { status: "ready", recipeIds: ids };
+      }
     }
     if (current.status === "failed") {
       return { status: current.error_code && NO_RECIPE_CODES.has(current.error_code) ? "no_recipe" : "failed" };

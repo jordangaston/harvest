@@ -75,6 +75,43 @@ export interface PublicRecipe {
   nutrition?: PublicNutrition;
 }
 
+/** A recipe as read for a list view (camelCase). `ingredientNames`/`cookbookIds`
+ * are populated only when the caller expands them. */
+export interface RecipeCard {
+  id: string;
+  title: string;
+  imageUrl: string | null;
+  totalMinutes: number | null;
+  ingredientNames?: string[];
+  cookbookIds?: string[];
+}
+
+/** One page of recipe cards plus the cursor for the next page (null at the end). */
+export interface RecipeCardPage {
+  cards: RecipeCard[];
+  pageToken: string | null;
+}
+
+/** The public recipe-card shape: snake_case, null/absent fields omitted. */
+export interface PublicRecipeCard {
+  id: string;
+  title: string;
+  image_url?: string;
+  total_minutes?: number;
+  ingredient_names?: string[];
+  cookbook_ids?: string[];
+}
+
+/** Maps a recipe card to its public shape, omitting null/absent optionals. */
+export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
+  const out: PublicRecipeCard = { id: card.id, title: card.title };
+  if (card.imageUrl) out.image_url = card.imageUrl;
+  if (card.totalMinutes != null) out.total_minutes = card.totalMinutes;
+  if (card.ingredientNames) out.ingredient_names = card.ingredientNames;
+  if (card.cookbookIds) out.cookbook_ids = card.cookbookIds;
+  return out;
+}
+
 /** Maps the numeric recipe columns onto the snake_case label-core keys. */
 const NUTRITION_COLUMN: Record<(typeof LABEL_CORE_KEYS)[number], keyof Recipe> = {
   calories: 'calories',

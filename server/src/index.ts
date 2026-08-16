@@ -8,10 +8,13 @@ import { UserService, type Resolution } from "./services/user-service.js";
 import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
 import { CookbookService } from "./services/cookbook-service.js";
+import { MealPlanService } from "./services/meal-plan-service.js";
+import { GroceryService } from "./services/grocery-service.js";
+import { toPublicGroceryItem } from "./models/grocery-item.js";
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
 import { InvalidPhoneError } from "./util/phone.js";
-import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError } from "./errors.js";
+import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError } from "./errors.js";
 import {
   createUserSchema,
   signInSchema,
@@ -20,6 +23,11 @@ import {
   createCookbookSchema,
   setMembershipSchema,
   updateRecipeSchema,
+  listRecipesQuerySchema,
+  createMealPlanEntrySchema,
+  mealPlanRangeQuerySchema,
+  addGroceryItemsSchema,
+  patchGroceryItemSchema,
 } from "./schemas.js";
 
 /**
@@ -42,6 +50,8 @@ export function buildApp(db: Database) {
   const imports = new ImportService();
   const recipes = RecipeService.create(db);
   const cookbooks = CookbookService.create(db);
+  const mealPlan = MealPlanService.create(db);
+  const groceries = GroceryService.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -68,7 +78,7 @@ app.post("/v1/otps/verify", async (c) => {
 /** POST /v1/users — creates (or resolves an existing) user and returns a session. Public. */
 app.post("/v1/users", async (c) => {
   const { user } = createUserSchema.parse(await c.req.json());
-  const resolved = await users.createUser({ phoneNumber: user.phone_number, onboarding: user.onboarding });
+  const resolved = await users.createUser({ phoneNumber: user.phone_number, name: user.name, onboarding: user.onboarding });
   return c.json(sessionResponse(resolved), 201);
 });
 
@@ -82,6 +92,13 @@ app.post("/v1/users/sign_in", async (c) => {
 app.get("/v1/users/me", guard, async (c) => {
   const me = await users.getMe(c.get("authUserId")!);
   return c.json({ user: me });
+});
+
+/** DELETE /v1/users/me — permanently deletes the caller and cascades all their
+ * data (recipes, cookbooks, meal-plan entries, grocery items, import jobs). 204. */
+app.delete("/v1/users/me", guard, async (c) => {
+  await users.deleteAccount(c.get("authUserId")!);
+  return c.body(null, 204);
 });
 
 /** POST /v1/imports — enqueues an import for the caller. Requires bearer token. 202. */
@@ -105,6 +122,14 @@ app.get("/v1/imports/:id", guard, async (c) => {
   const job = await imports.get(c.get("authUserId")!, c.req.param("id")!);
   if (!job) throw new NotFoundError();
   return c.json({ job });
+});
+
+/** GET /v1/recipes — one page of the caller's library (owned ∪ cookbook recipes),
+ * newest first. Cursor-paginated via `page_token`; `expand` opts into extra fields. */
+app.get("/v1/recipes", guard, async (c) => {
+  const { page_token, page_size, expand } = listRecipesQuerySchema.parse(c.req.query());
+  const expandSet = new Set((expand ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+  return c.json(await recipes.listCards(c.get("authUserId")!, { pageSize: page_size, cursor: page_token, expand: expandSet }));
 });
 
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer
@@ -156,6 +181,73 @@ app.get("/v1/cookbooks", guard, async (c) => {
  * Requires bearer token; 404 if it isn't the caller's. */
 app.get("/v1/cookbooks/:id", guard, async (c) => {
   return c.json(await cookbooks.get(c.get("authUserId")!, c.req.param("id")!));
+});
+
+/** GET /v1/meal-plan?start&end — the caller's entries in an inclusive date range,
+ * each with its recipe card. 400 if the range is missing, malformed, or > 31 days. */
+app.get("/v1/meal-plan", guard, async (c) => {
+  const { start, end } = mealPlanRangeQuerySchema.parse(c.req.query());
+  const days = (Date.parse(end) - Date.parse(start)) / 86_400_000;
+  if (!(days >= 0 && days <= 31)) throw new InvalidRangeError();
+  const entries = await mealPlan.listRange(c.get("authUserId")!, start, end);
+  return c.json({ entries });
+});
+
+/** POST /v1/meal-plan — assigns a recipe to a (date, meal) slot, appended to the
+ * slot. 201 with the entry; 404 if the recipe is unknown. */
+app.post("/v1/meal-plan", guard, async (c) => {
+  const { entry } = createMealPlanEntrySchema.parse(await c.req.json());
+  const created = await mealPlan.add(c.get("authUserId")!, entry.date, entry.meal, entry.recipe_id);
+  return c.json({ entry: created }, 201);
+});
+
+/** DELETE /v1/meal-plan/:id — removes one of the caller's entries. 404 if not the
+ * caller's; 204 on success. */
+app.delete("/v1/meal-plan/:id", guard, async (c) => {
+  await mealPlan.remove(c.get("authUserId")!, c.req.param("id")!);
+  return c.body(null, 204);
+});
+
+/** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */
+app.get("/v1/grocery_items", guard, async (c) => {
+  const items = await groceries.list(c.get("authUserId")!);
+  return c.json({ items: items.map(toPublicGroceryItem) });
+});
+
+/** POST /v1/grocery_items — adds one or many items. Resolves aisle/icon + default
+ * unit and merges by name+unit. 201. */
+app.post("/v1/grocery_items", guard, async (c) => {
+  const { items } = addGroceryItemsSchema.parse(await c.req.json());
+  const created = await groceries.add(
+    c.get("authUserId")!,
+    items.map((i) => ({
+      name: i.name,
+      amount: i.amount ?? null,
+      unit: i.unit ?? null,
+      quantityText: i.quantity_text ?? null,
+      sourceRecipeId: i.source_recipe_id ?? null,
+    })),
+  );
+  return c.json({ items: created.map(toPublicGroceryItem) }, 201);
+});
+
+/** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the caller's. */
+app.patch("/v1/grocery_items/:id", guard, async (c) => {
+  const patch = patchGroceryItemSchema.parse(await c.req.json());
+  const item = await groceries.patch(c.get("authUserId")!, c.req.param("id")!, patch);
+  return c.json({ item: toPublicGroceryItem(item) });
+});
+
+/** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the caller's. */
+app.delete("/v1/grocery_items/:id", guard, async (c) => {
+  await groceries.remove(c.get("authUserId")!, c.req.param("id")!);
+  return c.body(null, 204);
+});
+
+/** GET /v1/ingredients/common?q= — the common-ingredients catalog for the picker
+ * and Meal Planning. `q` filters by substring. */
+app.get("/v1/ingredients/common", guard, async (c) => {
+  return c.json({ ingredients: groceries.common(c.req.query("q")) });
 });
 
   app.onError((error, c) => {

@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { users, type NewUser } from '../schema.js';
+import { users, recipes, cookbooks, importJobs, mealPlanEntries, groceryItems, type NewUser } from '../schema.js';
 import { UserSchema, type User } from '../models/user.js';
 
 export class UserRepository {
@@ -40,6 +40,27 @@ export class UserRepository {
   async insert(values: NewUser): Promise<User> {
     const [row] = await this.db.insert(users).values(values).returning();
     return UserSchema.parse(row);
+  }
+
+  /**
+   * Permanently deletes a user and every row they own, in one transaction.
+   *
+   * Order respects the foreign keys: `import_jobs`, `meal_plan_entries`, and
+   * `grocery_items` (which reference recipes) go before `recipes`; `recipes` then
+   * cascades its ingredients, steps, and join rows; `cookbooks` and the user row
+   * follow.
+   *
+   * @param userId - The user to delete (the authenticated caller).
+   */
+  async deleteAccount(userId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.delete(importJobs).where(eq(importJobs.userId, userId));
+      await tx.delete(mealPlanEntries).where(eq(mealPlanEntries.userId, userId));
+      await tx.delete(groceryItems).where(eq(groceryItems.userId, userId));
+      await tx.delete(recipes).where(eq(recipes.userId, userId));
+      await tx.delete(cookbooks).where(eq(cookbooks.userId, userId));
+      await tx.delete(users).where(eq(users.id, userId));
+    });
   }
 
   /**

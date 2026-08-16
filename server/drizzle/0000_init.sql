@@ -19,6 +19,24 @@ CREATE TABLE `cookbooks` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `cookbooks_user_name_uidx` ON `cookbooks` (`user_id`,`name`);--> statement-breakpoint
 CREATE INDEX `cookbooks_user_idx` ON `cookbooks` (`user_id`,`created_at`);--> statement-breakpoint
+CREATE TABLE `grocery_items` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`name` text NOT NULL,
+	`amount` text,
+	`unit` text,
+	`quantity_text` text,
+	`aisle` text NOT NULL,
+	`icon` text DEFAULT 'default' NOT NULL,
+	`checked` integer DEFAULT false NOT NULL,
+	`source_recipe_id` text,
+	`position` integer DEFAULT 0 NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`source_recipe_id`) REFERENCES `recipes`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `grocery_items_user_idx` ON `grocery_items` (`user_id`);--> statement-breakpoint
 CREATE TABLE `import_job_recipes` (
 	`import_job_id` text NOT NULL,
 	`recipe_id` text NOT NULL,
@@ -56,6 +74,19 @@ CREATE TABLE `ingredients` (
 	FOREIGN KEY (`recipe_id`) REFERENCES `recipes`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `meal_plan_entries` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`date` text NOT NULL,
+	`meal` text NOT NULL,
+	`recipe_id` text NOT NULL,
+	`position` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`recipe_id`) REFERENCES `recipes`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `meal_plan_entries_user_date_idx` ON `meal_plan_entries` (`user_id`,`date`);--> statement-breakpoint
 CREATE TABLE `recipe_steps` (
 	`id` text PRIMARY KEY NOT NULL,
 	`recipe_id` text NOT NULL,
@@ -92,6 +123,7 @@ CREATE INDEX `recipes_user_idx` ON `recipes` (`user_id`,`created_at`);--> statem
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`phone` text NOT NULL,
+	`name` text,
 	`jwt_private_key` text NOT NULL,
 	`jwt_public_key` text NOT NULL,
 	`access_token_nonce` integer DEFAULT 0 NOT NULL,

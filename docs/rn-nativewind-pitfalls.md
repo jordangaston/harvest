@@ -57,3 +57,13 @@ and reload the app in the simulator. A disconnected dev server serves a stale bu
 A sub-3-second toast or a mount animation can't be caught with discrete screenshots (latency
 loses it). Record video, extract frames at **native resolution**, and crop — a downscaled
 frame also hides thin low-contrast text.
+
+## Linking / deep links
+
+### iOS `Linking.canOpenURL` needs the scheme whitelisted, or it silently returns false
+On iOS, `canOpenURL("instagram://")` returns `false` for any scheme not listed in
+`ios.infoPlist.LSApplicationQueriesSchemes` (app.json) — so a "gated then open" deep-link button
+reads as dead even when the app is installed. Two-part fix: (1) declare the schemes you query;
+(2) don't gate on `canOpenURL` at all — `try { await Linking.openURL(scheme) } catch { openURL(webFallback) }`,
+which opens the app when present and falls back to the https URL otherwise, so the button always acts.
+`openURL` doesn't require the whitelist the way `canOpenURL` does.
