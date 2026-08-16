@@ -1,7 +1,0 @@
-node_modules/
-.wrangler/
-.turso/
-.dev.vars
-dist/
-*.db
-*.log
