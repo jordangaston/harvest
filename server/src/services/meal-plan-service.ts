@@ -1,7 +1,8 @@
+import type { Database } from '../db.js';
 import { MealPlanRepository } from '../repositories/meal-plan-repository.js';
 import { RecipeRepository } from '../repositories/recipe-repository.js';
 import type { MealPlanEntryView, MealSlot } from '../models/meal-plan.js';
-import { NotFoundError } from '../api/errors.js';
+import { NotFoundError } from '../errors.js';
 
 /**
  * Meal-plan reads and writes, all owner-scoped. Adding checks the recipe exists
@@ -13,9 +14,9 @@ export class MealPlanService {
     private readonly recipes: RecipeRepository,
   ) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
-    return new MealPlanService(MealPlanRepository.create(), RecipeRepository.create());
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database) {
+    return new MealPlanService(MealPlanRepository.create(db), RecipeRepository.create(db));
   }
 
   /**

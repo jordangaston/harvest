@@ -3,10 +3,12 @@
  * from TikTok's public oEmbed endpoint. Returns `null` when the post is
  * private/removed so the caller can fall back to a higher tier.
  * Docs: https://developers.tiktok.com/doc/embed-videos/
+ *
+ * Ported verbatim from server/src/fetch/tiktok-oembed.ts (main), swapping the
+ * eager `env` module for a direct `process.env.NODE_ENV` read.
  */
-import { env } from '../config/env.js';
 
-const OEMBED_ENDPOINT = 'https://www.tiktok.com/oembed';
+const OEMBED_ENDPOINT = "https://www.tiktok.com/oembed";
 
 /** A TikTok post's free caption + thumbnail, as read from oEmbed. */
 export interface TikTokOembedResult {
@@ -38,15 +40,15 @@ export class TikTokOembed {
 
     const payload = (await response.json()) as OembedPayload;
     if (!payload.title && !payload.thumbnail_url) return null;
-    return { caption: payload.title ?? '', thumbnailUrl: payload.thumbnail_url ?? '' };
+    return { caption: payload.title ?? "", thumbnailUrl: payload.thumbnail_url ?? "" };
   }
 }
 
 /** Dev/test double: returns a fixed payload, no network. */
 export class StubTikTokOembed {
   static readonly PAYLOAD: TikTokOembedResult = {
-    caption: 'Crockpot Chicken Teriyaki — full recipe below',
-    thumbnailUrl: 'https://p16.tiktokcdn.com/stub-thumb.jpg',
+    caption: "Crockpot Chicken Teriyaki — full recipe below",
+    thumbnailUrl: "https://p16.tiktokcdn.com/stub-thumb.jpg",
   };
 
   /** @returns The fixed stub payload (no network). */
@@ -61,5 +63,5 @@ export class StubTikTokOembed {
  */
 // ponytail: no creds to gate on, so tests run the stub, everything else is live.
 export function selectTikTokOembed(): TikTokOembed | StubTikTokOembed {
-  return env.NODE_ENV === 'test' ? new StubTikTokOembed() : TikTokOembed.create();
+  return process.env.NODE_ENV === "test" ? new StubTikTokOembed() : TikTokOembed.create();
 }

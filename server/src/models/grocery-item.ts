@@ -1,7 +1,20 @@
 import { z } from 'zod';
-import { groceryAisleEnum } from '../db/schema/enums.js';
 
-/** pg `numeric` comes back as a string (or null); coerce to a number|null. */
+/** Grocery aisle values, mirroring the `grocery_aisle` enum in schema.ts. */
+const GROCERY_AISLES = [
+  'produce',
+  'meat_seafood',
+  'dairy_eggs_fridge',
+  'bakery',
+  'pantry',
+  'herbs_spices',
+  'frozen',
+  'beverages',
+  'household',
+  'other',
+] as const;
+
+/** numeric amount comes back as a string (or null); coerce to a number|null. */
 const numericNullable = z
   .union([z.number(), z.string(), z.null()])
   .transform((v) => (v == null ? null : Number(v)));
@@ -18,7 +31,7 @@ export const GroceryItemSchema = z.object({
   amount: numericNullable,
   unit: z.string().nullable(),
   quantityText: z.string().nullable(),
-  aisle: z.enum(groceryAisleEnum.enumValues),
+  aisle: z.enum(GROCERY_AISLES),
   icon: z.string(),
   checked: z.boolean(),
   sourceRecipeId: z.string().uuid().nullable(),

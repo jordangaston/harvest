@@ -1,16 +1,16 @@
-import crypto from 'node:crypto';
-import jwt, { type SignOptions } from 'jsonwebtoken';
-import type { User } from '../models/user.js';
+import crypto from "node:crypto";
+import jwt, { type SignOptions } from "jsonwebtoken";
+import type { User } from "../models/user.js";
 
-const ACCESS_TTL: SignOptions['expiresIn'] = '15m';
-const REFRESH_TTL: SignOptions['expiresIn'] = '30d';
+const ACCESS_TTL: SignOptions["expiresIn"] = "15m";
+const REFRESH_TTL: SignOptions["expiresIn"] = "30d";
 
 export interface Tokens {
   access_token: { jwt: string; expires_at: number };
   refresh_token: { jwt: string; expires_at: number };
 }
 
-type TokenType = 'access' | 'refresh';
+type TokenType = "access" | "refresh";
 
 // Owns sessions: a per-user ECDSA keypair signs ES256 access/refresh tokens.
 // A `nonce` in each token, checked against the user row, allows revocation.
@@ -26,10 +26,10 @@ export class AuthService {
    * @returns The private key (pkcs8) and public key (spki).
    */
   generateKeyPair(): { privateKey: string; publicKey: string } {
-    return crypto.generateKeyPairSync('ec', {
-      namedCurve: 'P-256',
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    return crypto.generateKeyPairSync("ec", {
+      namedCurve: "P-256",
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
   }
 
@@ -41,8 +41,8 @@ export class AuthService {
    */
   mintTokens(user: User): Tokens {
     return {
-      access_token: this.sign(user, 'access', ACCESS_TTL),
-      refresh_token: this.sign(user, 'refresh', REFRESH_TTL),
+      access_token: this.sign(user, "access", ACCESS_TTL),
+      refresh_token: this.sign(user, "refresh", REFRESH_TTL),
     };
   }
 
@@ -56,7 +56,7 @@ export class AuthService {
    * @throws If the signature/expiry is invalid, or the token's type is not `type`.
    */
   verify(token: string, publicKey: string, type: TokenType): { sub: string; nonce: number } {
-    const claims = jwt.verify(token, publicKey, { algorithms: ['ES256'] }) as {
+    const claims = jwt.verify(token, publicKey, { algorithms: ["ES256"] }) as {
       sub: string;
       type: TokenType;
       nonce: number;
@@ -86,10 +86,10 @@ export class AuthService {
    * @param ttl - Expiry, as a jsonwebtoken duration.
    * @returns The signed JWT and its expiry (unix seconds).
    */
-  private sign(user: User, type: TokenType, ttl: SignOptions['expiresIn']): { jwt: string; expires_at: number } {
-    const nonce = type === 'access' ? user.accessTokenNonce : user.refreshTokenNonce;
+  private sign(user: User, type: TokenType, ttl: SignOptions["expiresIn"]): { jwt: string; expires_at: number } {
+    const nonce = type === "access" ? user.accessTokenNonce : user.refreshTokenNonce;
     const token = jwt.sign({ sub: user.id, type, nonce }, user.jwtPrivateKey, {
-      algorithm: 'ES256',
+      algorithm: "ES256",
       expiresIn: ttl,
     });
     const { exp } = jwt.decode(token) as { exp: number };

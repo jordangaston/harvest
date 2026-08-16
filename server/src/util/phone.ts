@@ -1,10 +1,10 @@
-import { parsePhoneNumberWithError } from 'libphonenumber-js';
+import { parsePhoneNumberWithError } from "libphonenumber-js";
 
 export class InvalidPhoneError extends Error {
   /** @param raw - The unparseable input, kept for the caller/error message. */
   constructor(public readonly raw: string) {
-    super('invalid phone number');
-    this.name = 'InvalidPhoneError';
+    super("invalid phone number");
+    this.name = "InvalidPhoneError";
   }
 }
 

@@ -1,5 +1,5 @@
 import { str } from './apify-fetcher.js';
-import type { ExtractedRecipe } from './website.js';
+import type { ExtractedRecipe } from '../parse/website.js';
 
 /**
  * Pinterest fetch (Tier 0/1, no creds): Pinterest isn't locked down like IG/TikTok,

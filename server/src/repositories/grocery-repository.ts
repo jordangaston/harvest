@@ -1,6 +1,6 @@
 import { and, eq, sql, asc, getTableColumns } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { groceryItems, recipes } from '../db/schema/index.js';
+import type { Database } from '../db.js';
+import { groceryItems, recipes } from '../schema.js';
 import { GroceryItemSchema, type GroceryItem } from '../models/grocery-item.js';
 
 /** Fields the service hands the repository to insert one item. */
@@ -21,7 +21,8 @@ export interface InsertGroceryItem {
 export class GroceryRepository {
   constructor(private readonly db: Database) {}
 
-  static create(): GroceryRepository {
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database): GroceryRepository {
     return new GroceryRepository(db);
   }
 

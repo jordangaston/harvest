@@ -2,7 +2,8 @@ import { GroceryRepository } from '../repositories/grocery-repository.js';
 import { GroceryCatalog } from '../grocery/catalog.js';
 import { type GroceryItem } from '../models/grocery-item.js';
 import type { CatalogEntry } from '../grocery/aisle-map.js';
-import { NotFoundError } from '../api/errors.js';
+import type { Database } from '../db.js';
+import { NotFoundError } from '../errors.js';
 
 /** One item to add — from the manual sheet (one) or a recipe (many). */
 export interface AddGroceryItem {
@@ -24,8 +25,9 @@ export class GroceryService {
     private readonly catalog: GroceryCatalog,
   ) {}
 
-  static create(): GroceryService {
-    return new GroceryService(GroceryRepository.create(), GroceryCatalog.create());
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database): GroceryService {
+    return new GroceryService(GroceryRepository.create(db), GroceryCatalog.create());
   }
 
   /**

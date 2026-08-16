@@ -9,7 +9,7 @@ import {
   CATALOG_SUPPLEMENT,
   type CatalogEntry,
 } from '../src/grocery/aisle-map.js';
-import type { GroceryAisle } from '../src/db/schema/enums.js';
+import type { GroceryAisle } from '../src/schema.js';
 
 /**
  * Builds `server/seed/grocery-catalog.json` from USDA Foundation Foods (offline,

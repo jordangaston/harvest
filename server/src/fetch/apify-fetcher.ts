@@ -1,12 +1,14 @@
-import { ApifyClient } from 'apify-client';
-import { env } from '../config/env.js';
-import type { SourceType } from '../db/schema/enums.js';
+import { ApifyClient } from "apify-client";
+import type { SourceType } from "../schema.js";
 
 /**
  * Apify fetch (Tier 1/2, needs APIFY_TOKEN): scrape a social post's caption,
  * thumbnail, video URL, and outbound link. Each platform runs its own actor;
  * outputs map onto one flat shape so callers don't branch on the provider.
  * Coded to the apify-client docs; tests drive StubApifyFetcher (no runs, no spend).
+ *
+ * Ported verbatim from server/src/fetch/apify-fetcher.ts (main), swapping the
+ * eager `env` module for direct `process.env` reads (the migrated convention).
  */
 
 /** A scraped post, normalized across platforms. Every field is best-effort. */
@@ -24,7 +26,7 @@ export interface FetchedPost {
 }
 
 /** Platforms an Apify actor exists for. Website/photo never route here. */
-export type ApifyPlatform = Extract<SourceType, 'instagram' | 'tiktok' | 'facebook' | 'pinterest'>;
+export type ApifyPlatform = Extract<SourceType, "instagram" | "tiktok" | "facebook" | "pinterest">;
 
 export interface SourceFetcher {
   fetchPost(platform: ApifyPlatform, url: string): Promise<FetchedPost>;
@@ -34,10 +36,10 @@ export interface SourceFetcher {
  * Instagram actor is the general post scraper (not the reel-only one) so a single
  * URL resolves whether it's a reel, a single photo, or a multi-image carousel. */
 const ACTORS: Record<ApifyPlatform, string> = {
-  instagram: 'apify/instagram-scraper',
-  tiktok: 'clockworks/tiktok-video-scraper',
-  facebook: 'apivault_labs/facebook-reels-video-scraper',
-  pinterest: 'dltik/pinterest-scraper',
+  instagram: "apify/instagram-scraper",
+  tiktok: "clockworks/tiktok-video-scraper",
+  facebook: "apivault_labs/facebook-reels-video-scraper",
+  pinterest: "dltik/pinterest-scraper",
 };
 
 export class ApifyFetcher implements SourceFetcher {
@@ -49,7 +51,7 @@ export class ApifyFetcher implements SourceFetcher {
    * @returns A live fetcher.
    */
   static create(): ApifyFetcher {
-    return new ApifyFetcher(new ApifyClient({ token: env.APIFY_TOKEN }));
+    return new ApifyFetcher(new ApifyClient({ token: process.env.APIFY_TOKEN }));
   }
 
   /**
@@ -71,24 +73,24 @@ export class ApifyFetcher implements SourceFetcher {
 export class StubApifyFetcher implements SourceFetcher {
   static readonly FIXTURES: Record<ApifyPlatform, FetchedPost> = {
     tiktok: {
-      caption: 'Garlic butter fried rice — full recipe on my site',
-      thumbnailUrl: 'https://p16.tiktokcdn.com/stub.jpg',
-      videoUrl: 'https://v16.tiktokcdn.com/stub.mp4',
-      outboundLink: 'https://iamneverfull.com/garlic-butter-fried-rice-recipe/',
+      caption: "Garlic butter fried rice — full recipe on my site",
+      thumbnailUrl: "https://p16.tiktokcdn.com/stub.jpg",
+      videoUrl: "https://v16.tiktokcdn.com/stub.mp4",
+      outboundLink: "https://iamneverfull.com/garlic-butter-fried-rice-recipe/",
     },
     instagram: {
-      caption: 'Red potato salad — steps below',
-      thumbnailUrl: 'https://instagram.fcdn.com/stub.jpg',
+      caption: "Red potato salad — steps below",
+      thumbnailUrl: "https://instagram.fcdn.com/stub.jpg",
     },
     facebook: {
-      caption: 'Creamy sausage pasta reel',
-      thumbnailUrl: 'https://fb.cdn.com/stub.jpg',
-      videoUrl: 'https://fb.cdn.com/stub.mp4',
+      caption: "Creamy sausage pasta reel",
+      thumbnailUrl: "https://fb.cdn.com/stub.jpg",
+      videoUrl: "https://fb.cdn.com/stub.mp4",
     },
     pinterest: {
-      caption: 'Garlic parmesan chicken and potatoes',
-      thumbnailUrl: 'https://i.pinimg.com/stub.jpg',
-      outboundLink: 'https://theferventmama.com/garlic-parmesan-chicken-and-potatoes/',
+      caption: "Garlic parmesan chicken and potatoes",
+      thumbnailUrl: "https://i.pinimg.com/stub.jpg",
+      outboundLink: "https://theferventmama.com/garlic-parmesan-chicken-and-potatoes/",
     },
   };
 
@@ -108,7 +110,7 @@ export class StubApifyFetcher implements SourceFetcher {
  * images in ~1-2s — versus a browser-scraping actor's 6-16s. Non-Instagram
  * platforms delegate to the Apify fallback. Coded to the HikerAPI v1 docs.
  */
-const HIKER_BASE = 'https://api.hikerapi.com';
+const HIKER_BASE = "https://api.hikerapi.com";
 
 export class HikerFetcher implements SourceFetcher {
   /**
@@ -122,8 +124,8 @@ export class HikerFetcher implements SourceFetcher {
 
   /** Wire from HIKER_API_KEY; other platforms fall back to Apify (or the stub). */
   static create(): HikerFetcher {
-    const fallback = env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
-    return new HikerFetcher(env.HIKER_API_KEY!, fallback);
+    const fallback = process.env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
+    return new HikerFetcher(process.env.HIKER_API_KEY!, fallback);
   }
 
   /**
@@ -134,7 +136,7 @@ export class HikerFetcher implements SourceFetcher {
    * @throws Error - On a non-2xx HikerAPI response.
    */
   async fetchPost(platform: ApifyPlatform, url: string): Promise<FetchedPost> {
-    if (platform !== 'instagram') return this.fallback.fetchPost(platform, url);
+    if (platform !== "instagram") return this.fallback.fetchPost(platform, url);
     const endpoint = `${HIKER_BASE}/v1/media/by/url?url=${encodeURIComponent(url)}`;
     // Bounded + one retry: a bare fetch has no timeout, so a stalled connection
     // (e.g. HikerAPI throttling under load) would hang the workflow step forever.
@@ -142,7 +144,7 @@ export class HikerFetcher implements SourceFetcher {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const res = await fetch(endpoint, {
-          headers: { 'x-access-key': this.apiKey, accept: 'application/json' },
+          headers: { "x-access-key": this.apiKey, accept: "application/json" },
           signal: AbortSignal.timeout(HIKER_TIMEOUT_MS),
         });
         if (!res.ok) throw new Error(`HikerAPI failed — HTTP ${res.status}`);
@@ -152,7 +154,7 @@ export class HikerFetcher implements SourceFetcher {
         lastError = err;
       }
     }
-    throw lastError instanceof Error ? lastError : new Error('HikerAPI request failed');
+    throw lastError instanceof Error ? lastError : new Error("HikerAPI request failed");
   }
 }
 
@@ -176,21 +178,21 @@ function mapHikerMedia(media: Record<string, unknown>): FetchedPost {
  * actor when APIFY_TOKEN is set; else the offline stub. Going live is an env swap.
  */
 export function selectSourceFetcher(): SourceFetcher {
-  if (env.HIKER_API_KEY) return HikerFetcher.create();
-  return env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
+  if (process.env.HIKER_API_KEY) return HikerFetcher.create();
+  return process.env.APIFY_TOKEN ? ApifyFetcher.create() : new StubApifyFetcher();
 }
 
 /** Actor input shapes — each actor names its single-URL field differently. */
 function buildInput(platform: ApifyPlatform, url: string): Record<string, unknown> {
   switch (platform) {
-    case 'instagram':
-      return { directUrls: [url], resultsType: 'posts', resultsLimit: 1, addParentData: false };
-    case 'tiktok':
+    case "instagram":
+      return { directUrls: [url], resultsType: "posts", resultsLimit: 1, addParentData: false };
+    case "tiktok":
       return { postURLs: [url], resultsPerPage: 1, shouldDownloadVideos: false };
-    case 'facebook':
+    case "facebook":
       return { startUrls: [{ url }] };
-    case 'pinterest':
-      return { startUrls: [{ url }], proxyConfig: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] } };
+    case "pinterest":
+      return { startUrls: [{ url }], proxyConfig: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] } };
   }
 }
 
@@ -198,22 +200,22 @@ function buildInput(platform: ApifyPlatform, url: string): Record<string, unknow
 function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefined): FetchedPost {
   if (!item) return {};
   switch (platform) {
-    case 'tiktok':
-      return { caption: str(item.text), thumbnailUrl: str(nested(item.videoMeta, 'coverUrl')), videoUrl: str(item.webVideoUrl) };
-    case 'instagram':
+    case "tiktok":
+      return { caption: str(item.text), thumbnailUrl: str(nested(item.videoMeta, "coverUrl")), videoUrl: str(item.webVideoUrl) };
+    case "instagram":
       return {
         caption: str(item.caption),
         thumbnailUrl: str(item.displayUrl),
         videoUrl: str(item.videoUrl),
         images: strArray(item.images),
       };
-    case 'facebook':
+    case "facebook":
       return {
         caption: str(item.text ?? item.caption),
         thumbnailUrl: str(item.thumbnailUrl ?? item.previewImageUrl),
         videoUrl: str(item.videoUrl ?? item.url),
       };
-    case 'pinterest':
+    case "pinterest":
       // Pinterest exposes no video_url — image + outbound link → website path (Q-01).
       return { caption: str(item.title ?? item.description), thumbnailUrl: str(item.image_url), outboundLink: str(item.link) };
   }
@@ -221,17 +223,17 @@ function mapItem(platform: ApifyPlatform, item: Record<string, unknown> | undefi
 
 /** The value if it's a non-empty string, else undefined. */
 export function str(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** The non-empty string elements of an array, or undefined when there are none. */
 export function strArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const urls = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  const urls = value.filter((v): v is string => typeof v === "string" && v.length > 0);
   return urls.length > 0 ? urls : undefined;
 }
 
 /** Read `key` off `value` when it's an object, else undefined. */
 function nested(value: unknown, key: string): unknown {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
 }

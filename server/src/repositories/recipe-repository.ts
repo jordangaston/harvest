@@ -1,10 +1,9 @@
 import { eq, and, desc, or, exists, inArray, sql } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { recipes, ingredients, recipeSteps, cookbooks, cookbookRecipes } from '../db/schema/index.js';
-import type { SourceType } from '../db/schema/enums.js';
+import type { Database } from '../db.js';
+import { recipes, ingredients, recipeSteps, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
 import { RecipeSchema, type Recipe, type RecipeDetail, type RecipeCard, type RecipeCardPage } from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
-import type { Nutrition } from '../nutrition/label-core.js';
+import type { Nutrition } from '../models/label-core.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** What the parse provider hands the repository to persist. */
@@ -26,27 +25,22 @@ export interface RecipeInput {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 /**
- * Persists a parsed recipe owned by its creator (C6). One transaction writes the
- * recipe (with its `user_id`, C4 servings estimate, and C5 nutrition), its
- * ingredients (each with separated amount/unit/quantity_text, C3, and an O-09 icon
- * key), and its steps. Saving into a cookbook is a separate `cookbook_recipes`
- * concern — a recipe's owner is `recipes.user_id`, not a saved_recipes row.
- *
- * ponytail: BR-07 thumbnail re-host is deferred — imageUrl is stored as-is and
- * the mobile app hotlinks it; re-host to object storage when hotlinking breaks.
+ * Persists a parsed recipe owned by its creator (C6). One interactive transaction
+ * writes the recipe (with its `user_id`, C4 servings estimate, and C5 nutrition),
+ * its ingredients (separated amount/unit/quantity_text, C3, and an O-09 icon key),
+ * and its steps. Saving into a cookbook is a separate `cookbook_recipes` concern.
  */
 export class RecipeRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create(): RecipeRepository {
+  /** Wire from a caller-supplied db. */
+  static create(db: Database): RecipeRepository {
     return new RecipeRepository(db);
   }
 
   /**
    * Fetches one recipe with its ordered ingredients and steps. Recipes are shared
-   * (canonical) entities, so any caller can read any recipe — browsing isn't
-   * gated on ownership.
+   * (canonical) entities, so any caller can read any recipe.
    * @param recipeId - Recipe to fetch.
    * @returns The recipe aggregate, or null if no recipe has that id.
    */
@@ -73,22 +67,29 @@ export class RecipeRepository {
   }
 
   /**
-   * Inserts recipe + ingredients + steps in one transaction, owned by `userId`.
+   * Inserts recipe + ingredients + steps, owned by `userId`. Opens its own
+   * transaction, or joins a caller's `tx` when the write must commit atomically
+   * with other rows (the import persist links the job in the same transaction).
    * @param recipe - Parsed recipe the provider hands over to persist.
    * @param userId - The creator/owner (`recipes.user_id`).
+   * @param tx - Executor; a caller's transaction client, else the db singleton.
    * @returns The new recipe id.
    */
-  async persist(recipe: RecipeInput, userId: string): Promise<string> {
-    return this.db.transaction(async (tx) => {
-      const recipeId = await this.insertRecipe(tx, recipe, userId);
-      await this.insertIngredients(tx, recipeId, recipe.ingredients);
-      await this.insertSteps(tx, recipeId, recipe.steps);
-      return recipeId;
-    });
+  async persist(recipe: RecipeInput, userId: string, tx?: Tx): Promise<string> {
+    if (tx) return this.persistWith(tx, recipe, userId);
+    return this.db.transaction((t) => this.persistWith(t, recipe, userId));
+  }
+
+  /** Writes the recipe aggregate on an active transaction client. */
+  private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
+    const recipeId = await this.insertRecipe(tx, recipe, userId);
+    await this.insertIngredients(tx, recipeId, recipe.ingredients);
+    await this.insertSteps(tx, recipeId, recipe.steps);
+    return recipeId;
   }
 
   /**
-   * Inserts the recipe row (numeric fields are stringified for pg).
+   * Inserts the recipe row (numeric fields are stringified).
    * @param tx - Active transaction client.
    * @param recipe - Recipe to insert; absent optionals become null.
    * @param userId - The owner.
@@ -186,8 +187,14 @@ export class RecipeRepository {
     );
     const visible = or(eq(recipes.userId, userId), inCookbook);
     const decoded = opts.cursor ? decodeCursor(opts.cursor) : null;
+    // SQLite has no row-value tuple comparison; expand `(created_at, id) < (c, i)`
+    // by hand. `created_at` is stored as an epoch (timestamp mode), so bind the
+    // cursor's Date the same way drizzle binds the column.
     const keyset = decoded
-      ? sql`(${recipes.createdAt}, ${recipes.id}) < (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
+      ? or(
+          sql`${recipes.createdAt} < ${decoded.createdAt}`,
+          and(sql`${recipes.createdAt} = ${decoded.createdAt}`, sql`${recipes.id} < ${decoded.id}`),
+        )
       : undefined;
 
     const rows = await this.db
@@ -254,9 +261,8 @@ export class RecipeRepository {
   }
 
   /**
-   * Edits a recipe's ingredients and/or steps in place (C6 — copy-on-write is
-   * gone; the owner edits the canonical row). One transaction. Authorization is
-   * the caller's concern (via {@link findOwner}).
+   * Edits a recipe's ingredients and/or steps in place (C6). One transaction.
+   * Authorization is the caller's concern (via {@link findOwner}).
    * @param recipeId - Recipe to edit.
    * @param edit - New structured ingredients and/or step texts (full replacements).
    */
@@ -299,15 +305,16 @@ export class RecipeRepository {
   }
 }
 
-/** Encodes a keyset cursor from a row's `(created_at, id)`. */
+/** Encodes a keyset cursor from a row's `(created_at, id)`. `created_at` is stored
+ * as epoch seconds (drizzle `mode: 'timestamp'`), so the cursor carries that int. */
 function encodeCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}|${id}`, 'utf8').toString('base64url');
+  return Buffer.from(`${Math.floor(createdAt.getTime() / 1000)}|${id}`, 'utf8').toString('base64url');
 }
 
-/** Decodes a keyset cursor back to its `createdAt` ISO string and `id`. */
-function decodeCursor(token: string): { createdAt: string; id: string } {
+/** Decodes a keyset cursor back to its `createdAt` epoch-seconds int and `id`. */
+function decodeCursor(token: string): { createdAt: number; id: string } {
   const [createdAt, id] = Buffer.from(token, 'base64url').toString('utf8').split('|');
-  return { createdAt, id };
+  return { createdAt: Number(createdAt), id: id! };
 }
 
 /** One structured ingredient → its insert row (position + O-09 icon on the name). */

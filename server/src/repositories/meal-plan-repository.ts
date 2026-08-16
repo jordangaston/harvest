@@ -1,6 +1,6 @@
 import { and, eq, gte, lte, asc, sql } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { mealPlanEntries, recipes } from '../db/schema/index.js';
+import type { Database } from '../db.js';
+import { mealPlanEntries, recipes } from '../schema.js';
 import type { MealPlanEntryView, MealSlot } from '../models/meal-plan.js';
 
 /**
@@ -11,8 +11,8 @@ import type { MealPlanEntryView, MealSlot } from '../models/meal-plan.js';
 export class MealPlanRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create(): MealPlanRepository {
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database): MealPlanRepository {
     return new MealPlanRepository(db);
   }
 

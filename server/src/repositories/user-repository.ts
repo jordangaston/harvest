@@ -1,16 +1,14 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { users, recipes, cookbooks, importJobs, type NewUser } from '../db/schema/index.js';
+import type { Database } from '../db.js';
+import { users, recipes, cookbooks, importJobs, mealPlanEntries, groceryItems, type NewUser } from '../schema.js';
 import { UserSchema, type User } from '../models/user.js';
-
-/** A drizzle transaction client — the type passed to each write in `deleteAccount`. */
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export class UserRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
+  /** Wire from a caller-supplied db. (S1 has no env-configured singleton yet; a
+   * later story adds `db` as a shared singleton and drops the argument.) */
+  static create(db: Database) {
     return new UserRepository(db);
   }
 
@@ -47,28 +45,18 @@ export class UserRepository {
   /**
    * Permanently deletes a user and every row they own, in one transaction.
    *
-   * Order respects the foreign keys: `import_jobs` and the meal-plan / grocery
-   * rows (which reference recipes) go before `recipes`; `recipes` then cascades
-   * its ingredients, steps, and join rows; `cookbooks` and the user row follow.
-   * `meal_plan_entries` and `grocery_items` live on sibling branches, so their
-   * deletes are guarded by `to_regclass` — a no-op until those tables exist, and
-   * correct once they do.
+   * Order respects the foreign keys: `import_jobs`, `meal_plan_entries`, and
+   * `grocery_items` (which reference recipes) go before `recipes`; `recipes` then
+   * cascades its ingredients, steps, and join rows; `cookbooks` and the user row
+   * follow.
    *
    * @param userId - The user to delete (the authenticated caller).
    */
   async deleteAccount(userId: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.delete(importJobs).where(eq(importJobs.userId, userId));
-      // Sibling-branch tables (Meal Planning, Grocery List). Guarded so this is
-      // a no-op until they exist, and correct once they do. Deleted before
-      // `recipes` because they carry `recipe_id` FKs. Fully static SQL — no
-      // dynamic identifier on a destructive path.
-      if (await tableExists(tx, 'meal_plan_entries')) {
-        await tx.execute(sql`delete from meal_plan_entries where user_id = ${userId}`);
-      }
-      if (await tableExists(tx, 'grocery_items')) {
-        await tx.execute(sql`delete from grocery_items where user_id = ${userId}`);
-      }
+      await tx.delete(mealPlanEntries).where(eq(mealPlanEntries.userId, userId));
+      await tx.delete(groceryItems).where(eq(groceryItems.userId, userId));
       await tx.delete(recipes).where(eq(recipes.userId, userId));
       await tx.delete(cookbooks).where(eq(cookbooks.userId, userId));
       await tx.delete(users).where(eq(users.id, userId));
@@ -87,14 +75,4 @@ export class UserRepository {
         : { refreshTokenNonce: sql`${users.refreshTokenNonce} + 1` };
     await this.db.update(users).set(set).where(eq(users.id, id));
   }
-}
-
-/**
- * Whether a table exists in the public schema. Lets `deleteAccount` clean up
- * sibling-branch tables that may not have merged yet. `name` is a fixed source
- * literal, bound as a value to `to_regclass`.
- */
-async function tableExists(tx: Tx, name: 'meal_plan_entries' | 'grocery_items'): Promise<boolean> {
-  const { rows } = await tx.execute<{ reg: string | null }>(sql`select to_regclass(${'public.' + name}) as reg`);
-  return rows[0]?.reg != null;
 }

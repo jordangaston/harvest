@@ -1,16 +1,17 @@
-import { UserRepository } from '../repositories/user-repository.js';
-import { AuthService, type Tokens } from './auth-service.js';
-import { OtpService } from './otp-service.js';
-import { normalizeE164 } from '../util/phone.js';
-import { toPublicUser, type User, type Onboarding } from '../models/user.js';
-import { InvalidOtpError, RefreshInvalidError } from '../api/errors.js';
+import type { Database } from "../db.js";
+import { dbFromEnv } from "../edge-db.js";
+import { UserRepository } from "../repositories/user-repository.js";
+import { AuthService, type Tokens } from "./auth-service.js";
+import { OtpService } from "./otp-service.js";
+import { normalizeE164 } from "../util/phone.js";
+import { toPublicUser, type User, type Onboarding } from "../models/user.js";
+import { InvalidOtpError, RefreshInvalidError } from "../errors.js";
 
-/** Create an account: the OTP code is verified here before provisioning, so an
- * unverified phone can never create an account. */
+/** Create an account for an already-verified phone (verification happens
+ * separately at POST /v1/otps/verify). */
 export interface CreateUserRequest {
   phoneNumber: string;
-  code: string;
-  name: string;
+  name?: string;
   onboarding?: Onboarding;
 }
 
@@ -34,24 +35,32 @@ export class UserService {
     private readonly otpService: OtpService,
   ) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
-    return new UserService(UserRepository.create(), AuthService.create(), OtpService.create());
+  /** Wire dependencies. `db` defaults to the env-configured Turso client; tests
+   * pass a local `file:` db so the whole service runs offline. */
+  static create(db: Database = dbFromEnv()) {
+    return new UserService(UserRepository.create(db), AuthService.create(), OtpService.create());
   }
 
   /**
-   * Verifies the OTP code, then creates (or returns the existing) user with a session.
+   * Creates (or returns the existing) user for an already-verified phone, with a session.
    *
-   * @param req - The phone, its OTP code, the user's name, and optional onboarding.
+   * @param req - The verified phone and optional onboarding payload.
    * @returns The user, a fresh session, and whether it was newly created.
-   * @throws {InvalidOtpError} If the code is wrong — before any DB access.
    */
   async createUser(req: CreateUserRequest): Promise<Resolution> {
-    if (!(await this.otpService.verifyOtp(req.phoneNumber, req.code))) throw new InvalidOtpError();
     const phone = normalizeE164(req.phoneNumber);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone, req.name, req.onboarding), true);
+    return this.session(await this.provision(phone, req.name ?? null, req.onboarding), true);
+  }
+
+  /**
+   * Permanently deletes the caller's account and every row they own. The token
+   * subject is the only account a caller can name, so no extra ownership check.
+   * @param userId - The authenticated user id.
+   */
+  deleteAccount(userId: string): Promise<void> {
+    return this.repo.deleteAccount(userId);
   }
 
   /**
@@ -74,7 +83,7 @@ export class UserService {
    * @returns The user id, or null if the token is invalid/revoked.
    */
   async authenticateAccessToken(token: string): Promise<string | null> {
-    const user = await this.userForToken(token, 'access');
+    const user = await this.userForToken(token, "access");
     return user?.id ?? null;
   }
 
@@ -84,18 +93,8 @@ export class UserService {
    * @param sub - The user id (a verified token's subject).
    * @returns The public user, or null if no such user.
    */
-  getMe(sub: string): Promise<{ id: string; phone: string } | null> {
+  getMe(sub: string): Promise<{ id: string; phone: string; name: string | null } | null> {
     return this.repo.findById(sub).then((user) => (user ? toPublicUser(user) : null));
-  }
-
-  /**
-   * Permanently deletes the caller's account and all data they own. The token
-   * subject is the only account a caller can name, so no extra ownership check.
-   *
-   * @param userId - The authenticated user id.
-   */
-  deleteAccount(userId: string): Promise<void> {
-    return this.repo.deleteAccount(userId);
   }
 
   /**
@@ -121,7 +120,7 @@ export class UserService {
    * @throws {RefreshInvalidError} If the token is invalid, expired, or revoked.
    */
   private async resolveByRefreshToken(token: string): Promise<Resolution> {
-    const user = await this.userForToken(token, 'refresh');
+    const user = await this.userForToken(token, "refresh");
     if (!user) throw new RefreshInvalidError();
     return this.session(user, false);
   }
@@ -136,13 +135,13 @@ export class UserService {
    * @returns The owning user, or null on any failure (unknown user, bad
    *   signature, wrong type, or stale nonce).
    */
-  private async userForToken(token: string, type: 'access' | 'refresh'): Promise<User | null> {
+  private async userForToken(token: string, type: "access" | "refresh"): Promise<User | null> {
     const sub = this.authService.decodeSub(token);
     const user = sub && (await this.repo.findById(sub));
     if (!user) return null;
     try {
       const { nonce } = this.authService.verify(token, user.jwtPublicKey, type);
-      const current = type === 'access' ? user.accessTokenNonce : user.refreshTokenNonce;
+      const current = type === "access" ? user.accessTokenNonce : user.refreshTokenNonce;
       return nonce === current ? user : null;
     } catch {
       return null;

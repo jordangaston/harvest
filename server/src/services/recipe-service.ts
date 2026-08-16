@@ -1,24 +1,28 @@
-import { RecipeRepository } from '../repositories/recipe-repository.js';
-import { parseIngredientLine } from '../parse/ingredient.js';
-import { toPublicRecipe, toPublicRecipeCard, type PublicRecipe, type PublicRecipeCard } from '../models/recipe.js';
-import { NotFoundError } from '../api/errors.js';
+import type { Database } from "../db.js";
+import { RecipeRepository } from "../repositories/recipe-repository.js";
+import { parseIngredientLine } from "../parse/ingredient.js";
+import {
+  toPublicRecipe,
+  toPublicRecipeCard,
+  type PublicRecipe,
+  type PublicRecipeCard,
+} from "../models/recipe.js";
+import { NotFoundError } from "../errors.js";
 
 /**
- * Recipe reads. Recipes are shared entities, so `get` isn't owner-scoped — any
- * authenticated caller can open any recipe; a missing id 404s.
+ * Recipe reads and owner edits. Recipes are shared entities, so `get` isn't
+ * owner-scoped — any authenticated caller can open any recipe; a missing id 404s.
  */
 export class RecipeService {
   constructor(private readonly recipes: RecipeRepository) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
-    return new RecipeService(RecipeRepository.create());
+  /** Wire from a caller-supplied db (tests pass a local `file:` db). */
+  static create(db: Database) {
+    return new RecipeService(RecipeRepository.create(db));
   }
 
   /**
    * Returns a recipe by id.
-   * @param recipeId - The recipe to fetch.
-   * @returns The recipe's public projection.
    * @throws {NotFoundError} If no recipe has that id (404).
    */
   async get(recipeId: string): Promise<PublicRecipe> {
@@ -40,7 +44,7 @@ export class RecipeService {
     const page = await this.recipes.listCards(userId, {
       limit: opts.pageSize,
       cursor: opts.cursor,
-      expand: { ingredientNames: opts.expand.has('ingredient_names'), cookbookIds: opts.expand.has('cookbook_ids') },
+      expand: { ingredientNames: opts.expand.has("ingredient_names"), cookbookIds: opts.expand.has("cookbook_ids") },
     });
     return { recipes: page.cards.map(toPublicRecipeCard), page_token: page.pageToken };
   }
@@ -48,14 +52,13 @@ export class RecipeService {
   /**
    * Edits a recipe's ingredients and/or steps in place — owner only (C6). Edited
    * ingredient lines are re-parsed so scaling survives an edit (C3).
-   * @param userId - Caller; must be the recipe's creator.
-   * @param recipeId - Recipe to edit.
-   * @param edit - New ingredient lines and/or step texts.
-   * @returns The edited recipe.
-   * @throws {NotFoundError} 404 if the recipe is unknown or not the caller's (we
-   *   don't leak existence to a non-owner).
+   * @throws {NotFoundError} 404 if the recipe is unknown or not the caller's.
    */
-  async update(userId: string, recipeId: string, edit: { ingredients?: string[]; steps?: string[] }): Promise<PublicRecipe> {
+  async update(
+    userId: string,
+    recipeId: string,
+    edit: { ingredients?: string[]; steps?: string[] },
+  ): Promise<PublicRecipe> {
     if ((await this.recipes.findOwner(recipeId)) !== userId) throw new NotFoundError();
     await this.recipes.updateContent(recipeId, {
       ingredients: edit.ingredients?.map(parseIngredientLine),
@@ -66,8 +69,6 @@ export class RecipeService {
 
   /**
    * Deletes a recipe — owner only (C6). Children cascade.
-   * @param userId - Caller; must be the recipe's creator.
-   * @param recipeId - Recipe to delete.
    * @throws {NotFoundError} 404 if the recipe is unknown or not the caller's.
    */
   async remove(userId: string, recipeId: string): Promise<void> {

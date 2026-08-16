@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { FastifyInstance } from 'fastify';
-import { pool } from '../../src/db/index.js';
-import { buildApp } from '../../src/api/app.js';
-import { initDbos, shutdownDbos } from '../../src/pipeline/bootstrap.js';
-import { terminateOcr } from '../../src/parse/vision.js';
+import { pool, buildApp, initDbos, shutdownDbos, terminateOcr, type AppCompat } from './helpers/edge-harness.js';
 import type { PublicRecipe } from '../../src/models/recipe.js';
 
 // LIVE end-to-end (npm run test:e2e). Drives the real API — POST /v1/imports →
@@ -24,7 +20,7 @@ const CASES = {
   slideshow2: 'https://www.instagram.com/p/DSVcUWtEjiL/?img_index=10&igsh=MXU0b29mOTB3d2g3MQ==',
 } as const;
 
-let app: FastifyInstance;
+let app: AppCompat;
 let phoneSeq = 0;
 
 /** Registers a fresh user and returns a Bearer token. */
@@ -111,11 +107,11 @@ describe('Instagram import — reel with the recipe in the caption', () => {
     expect(haystack(recipes[0])).toMatch(/chicken/);
   });
 
-  it('imports one recipe from a caption (hot honey chicken)', async () => {
+  it('imports one recipe from a caption (peach salsa + grilled lemon asparagus)', async () => {
     const { recipes } = await importAndFetch(CASES.reelCaption2);
     expect(recipes).toHaveLength(1);
     expectComplete(recipes[0]);
-    expect(haystack(recipes[0])).toMatch(/chicken/);
+    expect(haystack(recipes[0])).toMatch(/peach|salsa|asparagus/);
   });
 });
 

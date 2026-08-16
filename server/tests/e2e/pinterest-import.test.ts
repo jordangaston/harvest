@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { FastifyInstance } from 'fastify';
-import { pool } from '../../src/db/index.js';
-import { buildApp } from '../../src/api/app.js';
-import { initDbos, shutdownDbos } from '../../src/pipeline/bootstrap.js';
-import { terminateOcr } from '../../src/parse/vision.js';
-import { PinterestFetcher } from '../../src/fetch/pinterest-fetcher.js';
+import { pool, buildApp, initDbos, shutdownDbos, terminateOcr, PinterestFetcher, type AppCompat } from './helpers/edge-harness.js';
 import type { PublicRecipe } from '../../src/models/recipe.js';
 
 // LIVE end-to-end (npm run test:e2e). Drives the real API against Pinterest's
@@ -17,7 +12,7 @@ const CASES = {
   video2: 'https://pin.it/1B5KH6Niu',
 } as const;
 
-let app: FastifyInstance;
+let app: AppCompat;
 let phoneSeq = 0;
 
 async function mintBearer(): Promise<string> {

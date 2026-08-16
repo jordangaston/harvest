@@ -1,4 +1,4 @@
-import type { GroceryAisle } from '../db/schema/enums.js';
+import type { GroceryAisle } from '../schema.js';
 
 /**
  * USDA Foundation Foods `foodCategory` → our store-walk `grocery_aisle`. The catalog

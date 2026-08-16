@@ -1,24 +1,23 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { importJobs, importJobRecipes } from '../db/schema/index.js';
-import type { SourceType } from '../db/schema/enums.js';
+import { and, eq } from 'drizzle-orm';
+import type { Database } from '../db.js';
+import { importJobs, importJobRecipes, type SourceType } from '../schema.js';
 import { ImportJobSchema, type ImportJob } from '../models/import-job.js';
 
-/** A Drizzle client for a write: the db singleton, or the transaction client
- * (`DrizzleDataSource.client`) when a status write runs inside a DBOS transaction. */
+/** A write executor: the db singleton, or a transaction client when a status
+ * write must commit atomically with other rows (the workflow's persist step). */
 export type DbExecutor = Pick<Database, 'update' | 'insert'>;
 
 /** Fields the intake supplies to create a queued job; the DB defaults the rest. */
 export interface CreateImportJobInput {
-  /** App-generated uuid used as both the row id and the DBOS workflow id, so
-   * the insert and the enqueued workflow reference the same identifier. */
+  /** App-generated uuid, used as both the row id and the workflow run id, so the
+   * insert and the started workflow reference the same identifier. */
   id: string;
   userId: string;
   sourceType: SourceType;
   sourceRef: string;
 }
 
-/** The terminal outcome the workflow persists once parsing resolves (AC-6). */
+/** The terminal outcome the workflow persists once parsing resolves. */
 export interface TerminalUpdate {
   status: 'ready' | 'failed';
   progress: number;
@@ -27,15 +26,14 @@ export interface TerminalUpdate {
 }
 
 /**
- * Data access for `import_jobs`. The workflow's status steps call these writes
- * directly (each step is DBOS-memoized, so a write lands at most once). Reads
- * are owner-scoped (`findByIdForUser`) so a job never leaks across users (AC-8).
+ * Data access for `import_jobs`. The workflow's status steps call these writes;
+ * reads are owner-scoped (`findByIdForUser`) so a job never leaks across users.
  */
 export class ImportJobRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create() {
+  /** Wire from a caller-supplied db. */
+  static create(db: Database) {
     return new ImportJobRepository(db);
   }
 
@@ -50,7 +48,7 @@ export class ImportJobRepository {
   }
 
   /**
-   * Finds a job by id, scoped to its owner so it never leaks across users (AC-8).
+   * Finds a job by id, scoped to its owner so it never leaks across users.
    * @param id - Job id.
    * @param userId - Owner the job must belong to.
    * @returns The job parsed into the domain model, or null if missing or foreign.
@@ -67,13 +65,14 @@ export class ImportJobRepository {
    * Transitions a job to `running` and bumps updated_at.
    * @param id - Job id.
    * @param progress - Progress value to record.
-   * @param tx - Executor; the workflow's transaction client when the write must
-   *   commit with the DBOS checkpoint, else the db singleton.
+   * @param tx - Executor; a transaction client when the write must commit with
+   *   other rows, else the db singleton.
    */
   async setRunning(id: string, progress: number, tx: DbExecutor = this.db): Promise<void> {
+    // Delta (b): SQLite has no now() — stamp the timestamp in JS.
     await tx
       .update(importJobs)
-      .set({ status: 'running', progress, updatedAt: sql`now()` })
+      .set({ status: 'running', progress, updatedAt: new Date() })
       .where(eq(importJobs.id, id));
   }
 
@@ -82,8 +81,7 @@ export class ImportJobRepository {
    * @param id - Job id.
    * @param update - Terminal outcome: `ready`/`failed`, progress, and either
    *   error code or recipe id (null-coalesced to null when absent).
-   * @param tx - Executor; the workflow's transaction client to commit with the
-   *   DBOS checkpoint, else the db singleton.
+   * @param tx - Executor; a transaction client to commit with other rows, else the db singleton.
    */
   async setTerminal(id: string, update: TerminalUpdate, tx: DbExecutor = this.db): Promise<void> {
     await tx
@@ -93,7 +91,7 @@ export class ImportJobRepository {
         progress: update.progress,
         errorCode: update.errorCode ?? null,
         recipeId: update.recipeId ?? null,
-        updatedAt: sql`now()`,
+        updatedAt: new Date(),
       })
       .where(eq(importJobs.id, id));
   }
@@ -103,8 +101,7 @@ export class ImportJobRepository {
    * (import_job_id, recipe_id) key, so a workflow re-run re-links safely).
    * @param jobId - The import job.
    * @param recipeIds - Persisted recipe ids, in the order to surface them.
-   * @param tx - Executor; the workflow's transaction client to commit with the
-   *   DBOS checkpoint, else the db singleton.
+   * @param tx - Executor; a transaction client to commit with other rows, else the db singleton.
    */
   async linkRecipes(jobId: string, recipeIds: string[], tx: DbExecutor = this.db): Promise<void> {
     if (recipeIds.length === 0) return;

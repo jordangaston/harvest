@@ -1,11 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mapIngredientIcon } from '../parse/icons.js';
 import { AISLE_DEFAULT_UNIT, type CatalogEntry } from './aisle-map.js';
-import type { GroceryAisle } from '../db/schema/enums.js';
+import type { GroceryAisle } from '../schema.js';
 
-const CATALOG_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'seed', 'grocery-catalog.json');
+// DECISION (serverless port): the 18.7 KB catalog is static reference data, not
+// per-user rows — it stays a BUNDLED JSON read once via readFileSync (works in the
+// Vercel Node runtime and offline in tests). Only per-user `grocery_items` live in
+// Turso; the catalog is never seeded into the DB.
+//
+// Under Nitro/`vercel dev` the module is bundled, so `import.meta.url` points into
+// node_modules — not the source tree. Resolve from the process cwd (the `server/`
+// dir for dev, tests, and the deployed function), falling back to the
+// module-relative path for any runner whose cwd differs.
+const CWD_CATALOG = join(process.cwd(), 'seed', 'grocery-catalog.json');
+const MODULE_CATALOG = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'seed', 'grocery-catalog.json');
+const CATALOG_PATH = existsSync(CWD_CATALOG) ? CWD_CATALOG : MODULE_CATALOG;
 
 /** What resolving a raw ingredient name yields: where it lives + how to draw + buy it. */
 export interface Resolved {

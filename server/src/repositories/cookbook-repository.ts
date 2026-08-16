@@ -1,14 +1,11 @@
 import { and, eq, inArray, desc } from 'drizzle-orm';
-import { db, type Database } from '../db/index.js';
-import { cookbooks, cookbookRecipes, recipes } from '../db/schema/index.js';
+import type { Database } from '../db.js';
+import { cookbooks, cookbookRecipes, recipes } from '../schema.js';
 import { CookbookSchema, type Cookbook, type CookbookSummary } from '../models/cookbook.js';
-import { CookbookExistsError } from '../api/errors.js';
+import { CookbookExistsError } from '../errors.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
-
-/** Postgres unique-violation SQLSTATE. */
-const UNIQUE_VIOLATION = '23505';
 
 /**
  * Named cookbooks and their recipe membership. A cookbook is owner-scoped; the
@@ -17,8 +14,8 @@ const UNIQUE_VIOLATION = '23505';
 export class CookbookRepository {
   constructor(private readonly db: Database) {}
 
-  /** Wire dependencies from the shared singletons. */
-  static create(): CookbookRepository {
+  /** Wire from a caller-supplied db. */
+  static create(db: Database): CookbookRepository {
     return new CookbookRepository(db);
   }
 
@@ -154,11 +151,19 @@ export class CookbookRepository {
   }
 }
 
-/** Narrows an unknown thrown value to a Postgres unique-violation, unwrapping the
- * driver/ORM error chain (drizzle wraps the pg error in `.cause`). */
+/**
+ * Delta (a): narrows a thrown value to a libSQL UNIQUE-constraint violation (not
+ * the Postgres SQLSTATE `23505`). @libsql/client throws a `LibsqlError` whose
+ * `code` is `SQLITE_CONSTRAINT` (rawCode 2067) and whose message is
+ * `SQLITE_CONSTRAINT: UNIQUE constraint failed: <cols>`. drizzle may wrap it, so
+ * walk the `.cause` chain and match on the `UNIQUE constraint failed` message —
+ * the discriminator that separates a duplicate name from any other constraint.
+ */
 function isUniqueViolation(error: unknown): boolean {
   for (let e: unknown = error; e != null; e = (e as { cause?: unknown }).cause) {
-    if (typeof e === 'object' && 'code' in e && (e as { code?: string }).code === UNIQUE_VIOLATION) return true;
+    if (typeof e !== 'object') continue;
+    const message = (e as { message?: unknown }).message;
+    if (typeof message === 'string' && message.includes('UNIQUE constraint failed')) return true;
   }
   return false;
 }

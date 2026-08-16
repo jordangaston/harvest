@@ -1,20 +1,22 @@
-import { env } from '../config/env.js';
-import { selectTikTokOembed } from './tiktok-oembed.js';
-import { str, strArray, type SourceFetcher, type FetchedPost, type ApifyPlatform } from './apify-fetcher.js';
+import { selectTikTokOembed } from "./tiktok-oembed.js";
+import { str, strArray, type SourceFetcher, type FetchedPost, type ApifyPlatform } from "./apify-fetcher.js";
 
 /**
  * LamaTok (TikTok, by the HikerAPI makers): resolve a post URL to its numeric id,
  * then one call to TikTok's private media API returns the caption, video, and a
  * slideshow's ordered images. Uses `by/id` (not `by/url`) so photo/slideshow
  * posts work too — LamaTok's `by/url` errors on them. Coded to the LamaTok docs.
+ *
+ * Ported verbatim from server/src/fetch/lamatok-fetcher.ts (main), swapping the
+ * eager `env` module for a direct `process.env.LAMATOK_API_KEY` read.
  */
 
-const LAMATOK_BASE = 'https://api.lamatok.com';
+const LAMATOK_BASE = "https://api.lamatok.com";
 const LAMATOK_TIMEOUT_MS = 30000;
 const TIKTOK_ID_RE = /\/(?:video|photo)\/(\d+)/;
 // A mobile UA so the short-link redirect resolves rather than hitting a wall.
 const RESOLVE_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
 
 /** The subset of TikTok's item shape LamaTok returns that we read. */
 interface TikTokMedia {
@@ -29,7 +31,7 @@ export class LamatokFetcher implements SourceFetcher {
 
   /** Wire from LAMATOK_API_KEY. */
   static create(): LamatokFetcher {
-    return new LamatokFetcher(env.LAMATOK_API_KEY!);
+    return new LamatokFetcher(process.env.LAMATOK_API_KEY!);
   }
 
   /**
@@ -77,7 +79,7 @@ export class LamatokFetcher implements SourceFetcher {
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${LAMATOK_BASE}${path}`, {
-      headers: { 'x-access-key': this.apiKey, accept: 'application/json' },
+      headers: { "x-access-key": this.apiKey, accept: "application/json" },
       signal: AbortSignal.timeout(LAMATOK_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`LamaTok ${path} — HTTP ${res.status}`);
@@ -96,7 +98,7 @@ class OembedTikTokFetcher implements SourceFetcher {
 /** LamaTok when keyed (full caption + video + slideshow), else caption-only
  * oEmbed (which is the offline stub under test). */
 export function selectTikTokFetcher(): SourceFetcher {
-  return env.LAMATOK_API_KEY ? LamatokFetcher.create() : new OembedTikTokFetcher();
+  return process.env.LAMATOK_API_KEY ? LamatokFetcher.create() : new OembedTikTokFetcher();
 }
 
 /** Resolve a TikTok post URL to its numeric media id — directly from a canonical
@@ -105,9 +107,9 @@ async function resolveTikTokId(url: string): Promise<string> {
   const direct = url.match(TIKTOK_ID_RE);
   if (direct) return direct[1];
   const res = await fetch(url, {
-    method: 'HEAD',
-    redirect: 'follow',
-    headers: { 'user-agent': RESOLVE_UA },
+    method: "HEAD",
+    redirect: "follow",
+    headers: { "user-agent": RESOLVE_UA },
     signal: AbortSignal.timeout(15000),
   });
   const resolved = res.url.match(TIKTOK_ID_RE);

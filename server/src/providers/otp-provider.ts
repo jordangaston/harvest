@@ -1,5 +1,7 @@
-import twilio, { type Twilio } from 'twilio';
-import { env } from '../config/env.js';
+import { createRequire } from "node:module";
+import type { Twilio } from "twilio";
+
+const nodeRequire = createRequire(import.meta.url);
 
 export interface OtpProvider {
   send(e164: string): Promise<void>;
@@ -14,13 +16,15 @@ export class TwilioVerifyOtpProvider implements OtpProvider {
   ) {}
 
   /**
-   * Wire dependencies from the shared singletons.
+   * Wire dependencies from the environment.
    *
    * @returns A provider bound to the configured Twilio Verify service.
    */
   static create(): TwilioVerifyOtpProvider {
-    const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
-    return new TwilioVerifyOtpProvider(client, env.TWILIO_VERIFY_SERVICE_SID!);
+    // Lazy require so the offline stub path never loads the twilio SDK.
+    const twilio = nodeRequire("twilio") as typeof import("twilio");
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    return new TwilioVerifyOtpProvider(client, process.env.TWILIO_VERIFY_SERVICE_SID!);
   }
 
   /**
@@ -29,7 +33,7 @@ export class TwilioVerifyOtpProvider implements OtpProvider {
    * @param e164 - The recipient in E.164 form.
    */
   async send(e164: string): Promise<void> {
-    await this.client.verify.v2.services(this.serviceSid).verifications.create({ to: e164, channel: 'sms' });
+    await this.client.verify.v2.services(this.serviceSid).verifications.create({ to: e164, channel: "sms" });
   }
 
   /**
@@ -43,13 +47,13 @@ export class TwilioVerifyOtpProvider implements OtpProvider {
     const result = await this.client.verify.v2
       .services(this.serviceSid)
       .verificationChecks.create({ to: e164, code });
-    return result.status === 'approved';
+    return result.status === "approved";
   }
 }
 
 // Dev/test provider: no SMS, no cost. Approves a single fixed code.
 export class StubOtpProvider implements OtpProvider {
-  static readonly VALID_CODE = '123456';
+  static readonly VALID_CODE = "123456";
   readonly sends: string[] = [];
 
   /**
@@ -79,6 +83,7 @@ export class StubOtpProvider implements OtpProvider {
  * @returns The Twilio provider if all three Twilio env vars are set, else the stub.
  */
 export function selectOtpProvider(): OtpProvider {
-  const configured = env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_VERIFY_SERVICE_SID;
+  const configured =
+    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_VERIFY_SERVICE_SID;
   return configured ? TwilioVerifyOtpProvider.create() : new StubOtpProvider();
 }
