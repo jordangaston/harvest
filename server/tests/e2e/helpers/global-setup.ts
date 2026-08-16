@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { openSync, readFileSync } from "node:fs";
+import { openSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createClient } from "@libsql/client";
@@ -20,27 +20,14 @@ const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", 
 const PORT = Number(process.env.E2E_PORT ?? 3000);
 const BASE_URL = `http://localhost:${PORT}`;
 
-/** Parse .env.local into a plain object (KEY=VALUE, `#` comments, no interpolation). */
-function loadEnvLocal(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const line of readFileSync(resolve(SERVER_DIR, ".env.local"), "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
-  }
-  return env;
-}
-
 /**
  * Drop every table — INCLUDING `__drizzle_migrations` so the migrator re-applies
  * from zero — then run all journal migrations in order via the drizzle migrator.
  */
-async function resetDatabase(env: Record<string, string>): Promise<void> {
-  const url = env.TURSO_DATABASE_URL;
+async function resetDatabase(): Promise<void> {
+  const url = process.env.TURSO_DATABASE_URL;
   if (!url) throw new Error("TURSO_DATABASE_URL missing from .env.local");
-  const client = createClient({ url, authToken: env.TURSO_AUTH_TOKEN });
+  const client = createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
 
   const tables = await client.execute(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_litestream%'",
@@ -71,25 +58,23 @@ async function waitForHealth(timeoutMs: number): Promise<void> {
 let devServer: ChildProcess | undefined;
 
 export async function setup(): Promise<void> {
-  const envLocal = loadEnvLocal();
+  // Load .env.local into process.env (Node 24 built-in). The spawned `vercel dev`
+  // child inherits process.env, and the beforeAll guards read process.env.APIFY_TOKEN
+  // / GROQ_API_KEY — one load covers both.
+  process.loadEnvFile(resolve(SERVER_DIR, ".env.local"));
   // `vercel dev` mints and refreshes its own short-lived VERCEL_OIDC_TOKEN (the
   // Queue API auth); the one saved in .env.local expires within hours. Passing the
   // stale value would override the fresh one and 401 every `send()`, so drop it
   // and let the CLI own it.
-  delete envLocal.VERCEL_OIDC_TOKEN;
-  const env = { ...process.env, ...envLocal };
-  // Surface the provider creds to the test process too (the beforeAll guards
-  // read process.env.APIFY_TOKEN / GROQ_API_KEY).
-  Object.assign(process.env, envLocal);
+  delete process.env.VERCEL_OIDC_TOKEN;
   process.env.E2E_BASE_URL = BASE_URL;
 
-  await resetDatabase(envLocal);
+  await resetDatabase();
 
   const logPath = process.env.E2E_DEV_LOG;
   const out = logPath ? openSync(logPath, "a") : "inherit";
   devServer = spawn("vercel", ["dev", "--listen", String(PORT), "--yes"], {
     cwd: SERVER_DIR,
-    env,
     stdio: ["ignore", out, out],
   });
 

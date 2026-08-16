@@ -20,6 +20,7 @@ import {
   signInSchema,
   requestOtpSchema,
   verifyOtpSchema,
+  createImportSchema,
   createCookbookSchema,
   setMembershipSchema,
   updateRecipeSchema,
@@ -47,7 +48,7 @@ export function buildApp(db: Database) {
   const app = new Hono<{ Variables: Vars }>();
   const users = UserService.create(db);
   const otps = OtpService.create();
-  const imports = new ImportService();
+  const imports = ImportService.create(db);
   const recipes = RecipeService.create(db);
   const cookbooks = CookbookService.create(db);
   const mealPlan = MealPlanService.create(db);
@@ -103,16 +104,8 @@ app.delete("/v1/users/me", guard, async (c) => {
 
 /** POST /v1/imports — enqueues an import for the caller. Requires bearer token. 202. */
 app.post("/v1/imports", guard, async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as {
-    source?: { url?: string };
-    image_ref?: string;
-    faultStep?: "extract";
-  };
-  const job = await imports.create(
-    c.get("authUserId")!,
-    { url: body.source?.url, image_ref: body.image_ref },
-    body.faultStep,
-  );
+  const { source, faultStep } = createImportSchema.parse(await c.req.json());
+  const job = await imports.create(c.get("authUserId")!, source, faultStep);
   if (!job) return c.json({ error: { code: "UNSUPPORTED", message: "not an importable source" } }, 422);
   return c.json({ job }, 202);
 });

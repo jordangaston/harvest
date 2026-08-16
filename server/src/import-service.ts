@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { dbFromEnv } from "./edge-db.js";
+import type { Database } from "./db.js";
 import { ImportJobRepository } from "./repositories/import-job-repository.js";
 import { classifySource, type SourceInput } from "./classify.js";
 import { toPublicJob, type PublicJob } from "./models/import-job.js";
@@ -17,6 +17,13 @@ export const IMPORT_TOPIC = "import-intake";
  * missing-or-foreign id.
  */
 export class ImportService {
+  constructor(private readonly jobs: ImportJobRepository) {}
+
+  /** Wire the job repository against the caller-supplied db. */
+  static create(db: Database): ImportService {
+    return new ImportService(ImportJobRepository.create(db));
+  }
+
   /**
    * Create a queued import from a submitted source (link or photo).
    * @returns The queued job, or null when the source isn't importable (→ 422).
@@ -25,8 +32,7 @@ export class ImportService {
     const classified = classifySource(source);
     if (!classified) return null;
     const jobId = randomUUID();
-    const jobs = ImportJobRepository.create(dbFromEnv());
-    const job = await jobs.create({ id: jobId, userId, sourceType: classified.sourceType, sourceRef: classified.ref });
+    const job = await this.jobs.create({ id: jobId, userId, sourceType: classified.sourceType, sourceRef: classified.ref });
     // Insert-then-enqueue: the app DB row and the queue live apart, and the job id
     // is the correlation key, so a failed enqueue leaves a recoverable queued row.
     // The idempotencyKey dedups a double intake within the retention window.
@@ -40,9 +46,8 @@ export class ImportService {
    * @returns The job's public projection, or null if missing/foreign (→ 404).
    */
   async get(userId: string, jobId: string): Promise<PublicJob | null> {
-    const jobs = ImportJobRepository.create(dbFromEnv());
-    const job = await jobs.findByIdForUser(jobId, userId);
+    const job = await this.jobs.findByIdForUser(jobId, userId);
     if (!job) return null;
-    return toPublicJob(job, await jobs.findRecipeIds(jobId));
+    return toPublicJob(job, await this.jobs.findRecipeIds(jobId));
   }
 }

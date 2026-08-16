@@ -88,7 +88,7 @@ describe("mapping", () => {
 describe("persistAndReady", () => {
   it("persists the recipe, links it, and marks the job ready in one flow", async () => {
     const { userId, jobId } = await seedJob();
-    const recipeId = await persistAndReady(db, [CARBONARA], input({ jobId, userId }));
+    const [recipeId] = await persistAndReady(db, [CARBONARA], input({ jobId, userId }));
 
     const detail = await RecipeRepository.create(db).findById(recipeId);
     expect(detail?.recipe.title).toBe("Carbonara");
@@ -101,9 +101,20 @@ describe("persistAndReady", () => {
     expect(await ImportJobRepository.create(db).findRecipeIds(jobId)).toEqual([recipeId]);
   });
 
+  it("persists every recipe of a carousel and links them all in slide order", async () => {
+    const { userId, jobId } = await seedJob();
+    const second: ExtractedRecipeData = { ...CARBONARA, title: "Amatriciana" };
+    const recipeIds = await persistAndReady(db, [CARBONARA, second], input({ jobId, userId }));
+
+    expect(recipeIds).toHaveLength(2);
+    expect(await ImportJobRepository.create(db).findRecipeIds(jobId)).toEqual(recipeIds);
+    const job = await ImportJobRepository.create(db).findByIdForUser(jobId, userId);
+    expect(job?.recipeId).toBe(recipeIds[0]); // headline is the first slide
+  });
+
   it("is replay-safe: re-linking the same recipe is idempotent (one link row)", async () => {
     const { userId, jobId } = await seedJob();
-    const recipeId = await persistAndReady(db, [CARBONARA], input({ jobId, userId }));
+    const [recipeId] = await persistAndReady(db, [CARBONARA], input({ jobId, userId }));
     // A replayed persist re-links the same id; onConflictDoNothing keeps one row.
     await ImportJobRepository.create(db).linkRecipes(jobId, [recipeId]);
     expect(await ImportJobRepository.create(db).findRecipeIds(jobId)).toEqual([recipeId]);

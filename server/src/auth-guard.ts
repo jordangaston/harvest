@@ -16,7 +16,7 @@ export function authGuard(users: UserService) {
       return c.json({ error: { code: "UNAUTHORIZED", message: "authentication required" } }, 401);
     }
     c.set("authUserId", userId);
-    await next();
+    return next();
   };
 }
 

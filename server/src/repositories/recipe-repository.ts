@@ -67,18 +67,25 @@ export class RecipeRepository {
   }
 
   /**
-   * Inserts recipe + ingredients + steps in one transaction, owned by `userId`.
+   * Inserts recipe + ingredients + steps, owned by `userId`. Opens its own
+   * transaction, or joins a caller's `tx` when the write must commit atomically
+   * with other rows (the import persist links the job in the same transaction).
    * @param recipe - Parsed recipe the provider hands over to persist.
    * @param userId - The creator/owner (`recipes.user_id`).
+   * @param tx - Executor; a caller's transaction client, else the db singleton.
    * @returns The new recipe id.
    */
-  async persist(recipe: RecipeInput, userId: string): Promise<string> {
-    return this.db.transaction(async (tx) => {
-      const recipeId = await this.insertRecipe(tx, recipe, userId);
-      await this.insertIngredients(tx, recipeId, recipe.ingredients);
-      await this.insertSteps(tx, recipeId, recipe.steps);
-      return recipeId;
-    });
+  async persist(recipe: RecipeInput, userId: string, tx?: Tx): Promise<string> {
+    if (tx) return this.persistWith(tx, recipe, userId);
+    return this.db.transaction((t) => this.persistWith(t, recipe, userId));
+  }
+
+  /** Writes the recipe aggregate on an active transaction client. */
+  private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
+    const recipeId = await this.insertRecipe(tx, recipe, userId);
+    await this.insertIngredients(tx, recipeId, recipe.ingredients);
+    await this.insertSteps(tx, recipeId, recipe.steps);
+    return recipeId;
   }
 
   /**

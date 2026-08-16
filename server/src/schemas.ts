@@ -20,6 +20,20 @@ export const createUserSchema = z.object({
   }),
 });
 
+/** `POST /v1/imports` body: exactly one of a url, a share payload, or a photo ref. */
+export const createImportSchema = z.object({
+  source: z
+    .object({
+      url: z.string().optional(),
+      share_payload: z.object({ url: z.string().optional(), text: z.string().optional() }).optional(),
+      image_ref: z.string().optional(),
+    })
+    .refine((source) => [source.url, source.share_payload, source.image_ref].filter(Boolean).length === 1, {
+      message: 'provide exactly one of url, share_payload, or image_ref',
+    }),
+  faultStep: z.literal('extract').optional(),
+});
+
 export const createCookbookSchema = z.object({
   cookbook: z.object({ name: z.string().trim().min(1) }),
 });

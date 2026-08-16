@@ -170,8 +170,8 @@ const transcript_ = transcribe;
 async function persistStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<void> {
   "use step";
   console.log(`[step] persist-and-ready job=${input.jobId} recipes=${recipes.length}`);
-  const recipeId = await persistAndReady(dbFromEnv(), recipes, input);
-  console.log(`[step] persisted recipe=${recipeId} job=${input.jobId}`);
+  const recipeIds = await persistAndReady(dbFromEnv(), recipes, input);
+  console.log(`[step] persisted recipes=${recipeIds.join(",")} job=${input.jobId}`);
 }
 persistStep.maxRetries = 3;
 

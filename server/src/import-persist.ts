@@ -8,30 +8,33 @@ import type { ExtractedRecipeData } from "./parse/extractor.js";
 /**
  * Persist one or more extracted recipes for their owner and drive the job to
  * `ready`, linking every recipe in order. Ports the DBOS `persist` + `ready`
- * steps: each recipe (with its ingredients and steps) is written in
- * RecipeRepository's interactive transaction, then the job is linked and marked
- * ready. A carousel yields several recipes (one per slide); a single source, one.
+ * steps. The WHOLE persist — every recipe (with its ingredients and steps), the
+ * job→recipe links, and the terminal status — runs in ONE interactive
+ * transaction, so a mid-write failure rolls the entire import back with no
+ * partial state. A carousel yields several recipes (one per slide); a single
+ * source, one.
  *
  * Replay-safe: recipe ids are application-generated, `linkRecipes` is
  * `onConflictDoNothing`, and the status write is idempotent — so a workflow
  * re-run re-persists the same recipes rather than duplicates.
  *
- * @returns The first persisted recipe id (the job's headline recipe).
+ * @returns Every persisted recipe id, in slide order (the first is the job's
+ *   headline recipe).
  */
 export async function persistAndReady(
   db: Database,
   recipes: ExtractedRecipeData[],
   input: ImportInput,
-): Promise<string> {
+): Promise<string[]> {
   const recipeRepo = RecipeRepository.create(db);
   const jobs = ImportJobRepository.create(db);
-  const recipeIds: string[] = [];
-  for (const data of recipes) {
-    recipeIds.push(await recipeRepo.persist(toRecipeInput(data, input), input.userId));
-  }
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    const recipeIds: string[] = [];
+    for (const data of recipes) {
+      recipeIds.push(await recipeRepo.persist(toRecipeInput(data, input), input.userId, tx));
+    }
     await jobs.linkRecipes(input.jobId, recipeIds, tx);
     await jobs.setTerminal(input.jobId, { status: "ready", progress: 100, recipeId: recipeIds[0] }, tx);
+    return recipeIds;
   });
-  return recipeIds[0];
 }
