@@ -71,7 +71,7 @@ function haystack(recipe: PublicRecipe): string {
 }
 
 beforeAll(async () => {
-  expect(process.env.APIFY_TOKEN, 'APIFY_TOKEN must be set for the live e2e').toBeTruthy();
+  expect(process.env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY must be set for the live e2e').toBeTruthy();
   expect(process.env.GROQ_API_KEY, 'GROQ_API_KEY must be set for the live e2e').toBeTruthy();
   await initDbos();
   app = buildApp();

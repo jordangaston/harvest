@@ -9,6 +9,7 @@ import {
 import {
   FallbackExtractor,
   ChatExtractor,
+  DeepseekExtractor,
   StubExtractor,
   selectExtractor,
   type RecipeExtractor,
@@ -116,10 +117,20 @@ describe("vision escalation fallback — Groq primary, OpenAI on error", () => {
 });
 
 describe("selectors — fallback wired only when OPENAI_API_KEY is present", () => {
-  const saved = { groq: process.env.GROQ_API_KEY, openai: process.env.OPENAI_API_KEY, node: process.env.NODE_ENV };
+  const saved = {
+    groq: process.env.GROQ_API_KEY,
+    openai: process.env.OPENAI_API_KEY,
+    deepseek: process.env.DEEPSEEK_API_KEY,
+    node: process.env.NODE_ENV,
+  };
+  const restore = (key: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
   afterEach(() => {
-    process.env.GROQ_API_KEY = saved.groq;
-    process.env.OPENAI_API_KEY = saved.openai;
+    restore("GROQ_API_KEY", saved.groq);
+    restore("OPENAI_API_KEY", saved.openai);
+    restore("DEEPSEEK_API_KEY", saved.deepseek);
     process.env.NODE_ENV = saved.node;
   });
 
@@ -138,6 +149,7 @@ describe("selectors — fallback wired only when OPENAI_API_KEY is present", () 
   });
 
   it("extraction: Groq-only when OPENAI_API_KEY absent, fallback when present", () => {
+    delete process.env.DEEPSEEK_API_KEY;
     process.env.GROQ_API_KEY = "g";
     delete process.env.OPENAI_API_KEY;
     expect(selectExtractor()).toBeInstanceOf(ChatExtractor);
@@ -145,6 +157,17 @@ describe("selectors — fallback wired only when OPENAI_API_KEY is present", () 
     expect(selectExtractor()).toBeInstanceOf(FallbackExtractor);
     delete process.env.GROQ_API_KEY;
     expect(selectExtractor()).toBeInstanceOf(StubExtractor);
+  });
+
+  it("extraction: DeepSeek is the primary (main provider) when DEEPSEEK_API_KEY is set", () => {
+    delete process.env.GROQ_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    process.env.DEEPSEEK_API_KEY = "d";
+    // DeepSeek alone → the main-exact DeepseekExtractor (no fallback wrapper).
+    expect(selectExtractor()).toBeInstanceOf(DeepseekExtractor);
+    // DeepSeek + OpenAI → DeepSeek primary behind the fallback seam.
+    process.env.OPENAI_API_KEY = "o";
+    expect(selectExtractor()).toBeInstanceOf(FallbackExtractor);
   });
 
   it("vision escalation: Groq-only when OPENAI absent, fallback when present, null under test", () => {

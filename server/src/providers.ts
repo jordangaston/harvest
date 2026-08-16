@@ -2,6 +2,7 @@ import type { ImportInput } from "./import-domain.js";
 import { WebsiteFetcher, type ExtractedRecipe } from "./parse/website.js";
 import { selectExtractor, type ExtractedRecipeData, type ParseContext } from "./parse/extractor.js";
 import { selectSourceFetcher, type ApifyPlatform } from "./fetch/apify-fetcher.js";
+import { selectTikTokFetcher } from "./fetch/lamatok-fetcher.js";
 import { YouTubeFetcher } from "./fetch/youtube-fetcher.js";
 import { PinterestFetcher } from "./fetch/pinterest-fetcher.js";
 import type { VideoHeaders } from "./fetch/media-extractor.js";
@@ -35,8 +36,9 @@ const extractor = selectExtractor();
  * Route a resolved source to fetched material — ports `ImportPipeline.fetchSource`.
  * Website reads schema.org JSON-LD (Tier-0, no LLM). YouTube reads InnerTube
  * (description/pinned comment/transcript + outbound link). Pinterest reads its
- * public pidgets endpoint. TikTok/Instagram/Facebook scrape via Apify — real
- * caption + video URL + carousel slides. Photo is a single image OCR.
+ * public pidgets endpoint. TikTok fetches via LamaTok (caption + video/slideshow;
+ * caption-only oEmbed when unkeyed). Instagram/Facebook scrape via Apify (with
+ * HikerAPI for Instagram when keyed). Photo is a single image OCR.
  *
  * @throws Error carrying FETCH_FAILED on any fetch failure, UNSUPPORTED for an
  *   unknown source type.
@@ -46,13 +48,14 @@ export async function fetchSource(input: ImportInput): Promise<Material> {
     switch (input.sourceType) {
       case "website":
         return { structured: await website.fetch(input.sourceRef) };
+      case "tiktok":
+        return await fromTikTok(input.sourceRef);
       case "youtube":
         return await fromYouTube(input.sourceRef);
       case "pinterest":
         return await fromPinterest(input.sourceRef);
       case "photo":
         return { imageRef: input.sourceRef };
-      case "tiktok":
       case "instagram":
       case "facebook":
         return await fromApify(input.sourceType, input.sourceRef);
@@ -65,10 +68,19 @@ export async function fetchSource(input: ImportInput): Promise<Material> {
   }
 }
 
-/** IG/FB/TikTok via Apify: an outbound link → website, else caption + media
- * (a reel's video, or a carousel's slide images). */
-async function fromApify(platform: ApifyPlatform, url: string): Promise<Material> {
+/** IG/FB via Apify (Instagram via HikerAPI when keyed): an outbound link →
+ * website (Q-01), else caption + media (a reel's video, or a carousel's slides). */
+async function fromApify(platform: Exclude<ApifyPlatform, "tiktok">, url: string): Promise<Material> {
   const post = await selectSourceFetcher().fetchPost(platform, url);
+  if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
+  return { caption: post.caption, videoUrl: post.videoUrl, imageUrls: post.images, thumbnailUrl: post.thumbnailUrl };
+}
+
+/** TikTok via LamaTok: caption + a slideshow's images, or a video (its URL carries
+ * the headers ffmpeg needs). An outbound link → website (Q-01). Caption-only
+ * oEmbed when LAMATOK_API_KEY is unset (the offline stub under test). */
+async function fromTikTok(url: string): Promise<Material> {
+  const post = await selectTikTokFetcher().fetchPost("tiktok", url);
   if (post.outboundLink) return { structured: await website.fetch(post.outboundLink) };
   return {
     caption: post.caption,
