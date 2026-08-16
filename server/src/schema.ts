@@ -125,6 +125,7 @@ export const recipes = sqliteTable(
     gramsOfProtein: text('grams_of_protein'),
     milligramsOfSodium: text('milligrams_of_sodium'),
     nutritionSource: text('nutrition_source', { enum: NUTRITION_SOURCE }),
+    nrfScore: text('nrf_score'), // raw NRF nutrient-density number (pg numeric → text); null when unscored
     createdAt: createdAt(),
   },
   (t) => [index('recipes_user_idx').on(t.userId, t.createdAt)],

@@ -16,8 +16,17 @@ export type LabelCoreKey = (typeof LABEL_CORE_KEYS)[number];
 /** The label core as strings — the shape parsed from schema.org and stored on a recipe. */
 export type LabelCoreText = Record<LabelCoreKey, string>;
 
-/** Nutrition on a recipe. Parsed-only: the source published schema.org NutritionInformation. */
+/**
+ * Nutrition on a recipe — one model for both authoritative and estimated values.
+ * `estimated` is `false` when the source published schema.org NutritionInformation
+ * (parsed), `true` when computed from ingredients. It persists via the existing
+ * `nutrition_source` column (`'parsed'` ⇔ false, `'computed'` ⇔ true); no new column.
+ * A macro genuinely absent is stored `null`, never `0`.
+ */
 export interface Nutrition {
-  source: 'parsed';
-  values: LabelCoreText;
+  estimated: boolean;
+  values: LabelCoreValues;
 }
+
+/** Label core where a genuinely-absent macro is null (estimated recipes omit macros). */
+export type LabelCoreValues = Record<LabelCoreKey, string | null>;
