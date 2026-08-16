@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 // Pin rolldown's tsconfig to this project's own. Without this, rolldown's TS
 // resolver walks up to the repo-root Expo tsconfig (`extends: expo/tsconfig.base`,
 // which isn't installed in this worktree) and fails every resolve with "Tsconfig
-// not found". server-edge is a self-contained sub-project, so it uses its own.
+// not found". The server is a self-contained sub-project, so it uses its own.
 const tsconfig = fileURLToPath(new URL("./tsconfig.json", import.meta.url));
 
 export default defineConfig({
