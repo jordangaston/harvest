@@ -8,6 +8,11 @@ export interface FoodMatch {
   quality: 'high' | 'medium' | 'low';
 }
 
+/** The matcher capability consumers depend on (lets the categorizer inject a stub). */
+export interface IngredientMatcher {
+  match(name: string): Promise<FoodMatch | null>;
+}
+
 // bm25 thresholds for the trigram OR-search (lower bm25 = better overlap). Calibrated
 // against the WI-1 fixture: clean single-token hits land ≈ -7 to -12, typos ≈ -6 to -10,
 // stray-trigram noise ≈ -1 to -2. tunable (Q-01) — these are fixture-fit defaults, not
@@ -20,7 +25,7 @@ const REJECT_MAX_BM25 = -2.0; // (FLAG, this] → low; above → unmatched (null
  * Matches a recipe ingredient name to an FDC food: `normalize` → trigram FTS5 search →
  * tier the best hit's bm25. One collaborator per responsibility (the repo does I/O).
  */
-export class FoodMatcher {
+export class FoodMatcher implements IngredientMatcher {
   constructor(private readonly repo: FdcFoodRepository) {}
 
   static create(repo: FdcFoodRepository): FoodMatcher {
