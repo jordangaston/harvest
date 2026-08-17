@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "12e2f1fe-463f-42f1-a529-41020742dda1",
-  "prevId": "867fb33f-6e2b-41e0-81e8-fda449e460e4",
+  "id": "ec29b356-5621-442a-bc1e-bac8fa28bc7d",
+  "prevId": "12e2f1fe-463f-42f1-a529-41020742dda1",
   "tables": {
     "cookbook_recipes": {
       "name": "cookbook_recipes",
@@ -816,6 +816,69 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "recipe_categories": {
+      "name": "recipe_categories",
+      "columns": {
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "facet": {
+          "name": "facet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "recipe_categories_value_idx": {
+          "name": "recipe_categories_value_idx",
+          "columns": [
+            "facet",
+            "value"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "recipe_categories_recipe_id_recipes_id_fk": {
+          "name": "recipe_categories_recipe_id_recipes_id_fk",
+          "tableFrom": "recipe_categories",
+          "tableTo": "recipes",
+          "columnsFrom": [
+            "recipe_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recipe_categories_recipe_id_facet_value_pk": {
+          "columns": [
+            "recipe_id",
+            "facet",
+            "value"
+          ],
+          "name": "recipe_categories_recipe_id_facet_value_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

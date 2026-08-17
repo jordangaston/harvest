@@ -10,6 +10,8 @@ import { importErrorCode, type ImportInput } from "../import-domain.js";
 import { extractMedia, transcribe, readFrame, describePhoto, readSlideRecipe } from "./media-steps.js";
 import type { ExtractedRecipeData } from "../parse/extractor.js";
 import { NutritionEstimator } from "../nutrition/nutrition-estimator.js";
+import { AllergenDetector } from "../allergen/allergen-detector.js";
+import type { RecipeAllergens } from "../allergen/allergen.js";
 import { RecipeCategorizer } from "../categorize/recipe-categorizer.js";
 
 /**
@@ -32,7 +34,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const material = await fetchSourceStep(input);
     const recipes = await resolveRecipes(material, input);
     const enriched = await nutritionStep(recipes, input);
-    const categorized = await categorizeStep(enriched, input);
+    const profiled = await allergenStep(enriched, input);
+    const categorized = await categorizeStep(profiled, input);
     await persistStep(categorized, input);
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
@@ -259,6 +262,60 @@ function outcomeLabel(estimate: { nutrition?: { estimated: boolean } }): string 
 /** Whether any ingredient contributed (nutrition or a score means at least one matched). */
 function countMatched(estimate: { nutrition?: unknown; nrfScore?: number }): string {
   return estimate.nutrition || estimate.nrfScore != null ? "some" : "none";
+}
+
+/**
+ * Attach an allergen profile to every resolved recipe before persist, reusing the
+ * nutrition match pass (`AllergenDetector`) over the seeded catalog from `dbFromEnv()`
+ * — no network. Best-effort: a per-recipe try/catch means one detection failure
+ * withholds only that recipe's profile (persists null → reads undetermined, never
+ * "absent"), never failing an import that would otherwise succeed. One info line per
+ * recipe (design Monitoring).
+ */
+async function allergenStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const detector = AllergenDetector.create(dbFromEnv());
+  return Promise.all(recipes.map((recipe) => enrichOneAllergen(detector, recipe, input)));
+}
+allergenStep.maxRetries = 3;
+
+/**
+ * Detect one recipe's allergens, logging the outcome. The log line is the monitoring
+ * hook (no metrics framework): `outcome` feeds `allergen_detect_outcome{detected|withheld|error}`,
+ * `complete` feeds `allergen_coverage_complete{true|false}`, and `recognized=n/total` is the
+ * `allergen_annotation_gap` signal. A detection failure returns the recipe unprofiled (persists null).
+ */
+async function enrichOneAllergen(
+  detector: AllergenDetector,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const allergens = await detector.detect(recipe.ingredients);
+    console.log(
+      `[step] allergen job=${input.jobId} title=${recipe.title} ` +
+        `contains=${allergenList(allergens, "contains")} may=${allergenList(allergens, "may_contain")} ` +
+        `complete=${allergens?.complete ?? "n/a"} recognized=${recognizedCount(recipe, allergens)}`,
+    );
+    return allergens ? { ...recipe, allergens } : recipe;
+  } catch (err) {
+    console.log(`[step] allergen job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/** The comma-joined allergens at a presence tier (`none` when empty/withheld) — for the log line. */
+function allergenList(allergens: RecipeAllergens | null, presence: "contains" | "may_contain"): string {
+  if (!allergens) return "withheld";
+  const hits = Object.entries(allergens.presences).filter(([, p]) => p === presence).map(([a]) => a);
+  return hits.length ? hits.join(",") : "none";
+}
+
+/** `n/total` recognized ingredients — the annotation-gap signal (complete=false ⇒ some unrecognized). */
+function recognizedCount(recipe: ExtractedRecipeData, allergens: RecipeAllergens | null): string {
+  const total = recipe.ingredients.length;
+  if (!allergens) return `0/${total}`;
+  return `${allergens.complete ? total : "<" + total}/${total}`;
 }
 
 /** Persist each resolved recipe and drive the job to `ready`, linking them all. */

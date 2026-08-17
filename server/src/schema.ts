@@ -16,6 +16,8 @@ import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from 'driz
 const SOURCE_TYPES = ['instagram', 'tiktok', 'facebook', 'pinterest', 'youtube', 'website', 'photo'] as const;
 const JOB_STATUS = ['queued', 'running', 'ready', 'failed'] as const;
 const NUTRITION_SOURCE = ['parsed', 'computed'] as const;
+export const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
+export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
 // TS-signal: the categorization facets. `value` is a controlled-vocabulary string
 // validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
 const FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
@@ -129,6 +131,8 @@ export const recipes = sqliteTable(
     milligramsOfSodium: text('milligrams_of_sodium'),
     nutritionSource: text('nutrition_source', { enum: NUTRITION_SOURCE }),
     nrfScore: text('nrf_score'), // raw NRF nutrient-density number (pg numeric → text); null when unscored
+    allergens: text('allergens', { mode: 'json' }).$type<{ contains: string[]; mayContain: string[] }>(),
+    allergensComplete: integer('allergens_complete', { mode: 'boolean' }).notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index('recipes_user_idx').on(t.userId, t.createdAt)],
@@ -320,6 +324,19 @@ export const fdcFoodNutrient = sqliteTable(
   (t) => [primaryKey({ columns: [t.fdcId, t.nutrientNumber] })],
 );
 
+export const fdcFoodAllergen = sqliteTable(
+  'fdc_food_allergen',
+  {
+    fdcId: integer('fdc_id')
+      .notNull()
+      .references(() => fdcFoods.fdcId),
+    allergen: text('allergen', { enum: MAJOR_ALLERGENS }).notNull(),
+    presence: text('presence', { enum: ALLERGEN_PRESENCE }).notNull(),
+    species: text('species'),
+  },
+  (t) => [primaryKey({ columns: [t.fdcId, t.allergen] }), index('fdc_food_allergen_fdc_idx').on(t.fdcId)],
+);
+
 export const schema = {
   users,
   recipes,
@@ -334,6 +351,7 @@ export const schema = {
   groceryItems,
   fdcFoods,
   fdcFoodNutrient,
+  fdcFoodAllergen,
 };
 export type Schema = typeof schema;
 

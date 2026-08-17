@@ -26,6 +26,7 @@ const RECIPE: RecipeInput = {
   ingredients: [{ name: "garlic", amount: "3", unit: null, quantityText: "3 cloves garlic" }],
   steps: ["Mix", "Bake"],
   nutrition: null,
+  allergens: null,
 };
 
 let h: Harness;

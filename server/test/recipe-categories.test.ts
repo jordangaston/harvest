@@ -18,6 +18,7 @@ const BASE: RecipeInput = {
   ingredients: [{ name: "shrimp", amount: null, unit: null, quantityText: "shrimp" }],
   steps: ["Cook"],
   nutrition: null,
+  allergens: null,
 };
 
 let db: Database;

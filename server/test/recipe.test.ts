@@ -21,6 +21,7 @@ const RECIPE: RecipeInput = {
   ],
   steps: ["Mix", "Bake"],
   nutrition: null,
+  allergens: null,
 };
 
 let db: Database;

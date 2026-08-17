@@ -12,6 +12,7 @@ import {
 } from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
+import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
@@ -31,6 +32,7 @@ export interface RecipeInput {
   steps: string[];
   nutrition: Nutrition | null;
   nrfScore?: number;
+  allergens: RecipeAllergens | null;
   /** Taste facets (WI-TS-1). Omit for "no categories" — persists zero rows. */
   categories?: RecipeCategories;
 }
@@ -159,6 +161,7 @@ export class RecipeRepository {
         confidence: recipe.confidence != null ? String(recipe.confidence) : null,
         nrfScore: recipe.nrfScore != null ? String(recipe.nrfScore) : null,
         ...nutritionColumns(recipe.nutrition),
+        ...allergenColumns(recipe.allergens),
       })
       .returning();
     return RecipeSchema.parse(row).id;
@@ -394,4 +397,19 @@ function nutritionColumns(nutrition: Nutrition | null) {
     milligramsOfSodium: v?.milligrams_of_sodium ?? null,
     nutritionSource: (nutrition ? (nutrition.estimated ? 'computed' : 'parsed') : null) as 'parsed' | 'computed' | null,
   };
+}
+
+/**
+ * The allergen columns for an insert. A null profile (withheld) stores null JSON +
+ * `complete = false`; else the presences bucket into `contains` / `may_contain` lists.
+ * A false-absent is impossible: an unrecognized ingredient only drops `complete`.
+ */
+function allergenColumns(a: RecipeAllergens | null) {
+  if (!a) return { allergens: null, allergensComplete: false };
+  const contains: Allergen[] = [];
+  const mayContain: Allergen[] = [];
+  for (const [allergen, presence] of Object.entries(a.presences) as [Allergen, string][]) {
+    (presence === 'contains' ? contains : mayContain).push(allergen);
+  }
+  return { allergens: { contains, mayContain }, allergensComplete: a.complete };
 }
