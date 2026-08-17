@@ -19,6 +19,7 @@ export interface RecipeInput {
   ingredients: StructuredIngredient[];
   steps: string[];
   nutrition: Nutrition | null;
+  nrfScore?: number;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -108,6 +109,7 @@ export class RecipeRepository {
         totalMinutes: recipe.totalMinutes ?? null,
         imageUrl: recipe.imageUrl ?? null,
         confidence: recipe.confidence != null ? String(recipe.confidence) : null,
+        nrfScore: recipe.nrfScore != null ? String(recipe.nrfScore) : null,
         ...nutritionColumns(recipe.nutrition),
       })
       .returning();
@@ -342,6 +344,6 @@ function nutritionColumns(nutrition: Nutrition | null) {
     gramsOfSugar: v?.grams_of_sugar ?? null,
     gramsOfProtein: v?.grams_of_protein ?? null,
     milligramsOfSodium: v?.milligrams_of_sodium ?? null,
-    nutritionSource: nutrition?.source ?? null,
+    nutritionSource: (nutrition ? (nutrition.estimated ? 'computed' : 'parsed') : null) as 'parsed' | 'computed' | null,
   };
 }

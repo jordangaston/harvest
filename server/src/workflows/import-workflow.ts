@@ -9,6 +9,7 @@ import { persistAndReady } from "../import-persist.js";
 import { importErrorCode, type ImportInput } from "../import-domain.js";
 import { extractMedia, transcribe, readFrame, describePhoto, readSlideRecipe } from "./media-steps.js";
 import type { ExtractedRecipeData } from "../parse/extractor.js";
+import { NutritionEstimator } from "../nutrition/nutrition-estimator.js";
 
 /**
  * The durable import workflow — the WDK port of DBOS's `ImportWorkflow` +
@@ -29,7 +30,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     await markRunning(input.jobId);
     const material = await fetchSourceStep(input);
     const recipes = await resolveRecipes(material, input);
-    await persistStep(recipes, input);
+    const enriched = await nutritionStep(recipes, input);
+    await persistStep(enriched, input);
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
   }
@@ -165,6 +167,61 @@ async function fetchImageBase64Step(imageRef: string): Promise<string> {
 
 /** Alias so the workflow's Promise.all reads as `transcribe`/`readFrame` per DESIGN. */
 const transcript_ = transcribe;
+
+/**
+ * Enrich every resolved recipe with computed nutrition + an NRF score before persist.
+ * For each recipe: match its ingredients, convert to grams, aggregate the panel, and
+ * score (`NutritionEstimator.run`). Estimates the eight macros only when the recipe has
+ * no parsed nutrition; a parsed recipe keeps its macros but is still scored. Withholds
+ * (no estimate, no score) when nothing matches or there are no servings. Reads the
+ * seeded catalog from `dbFromEnv()` — no network. One info line per recipe (design Monitoring).
+ */
+async function nutritionStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const estimator = NutritionEstimator.create(dbFromEnv());
+  return Promise.all(recipes.map((recipe) => enrichOne(estimator, recipe, input)));
+}
+nutritionStep.maxRetries = 3;
+
+/**
+ * Enrich one recipe with its estimate, logging the outcome. Nutrition is best-effort
+ * enrichment, so a scoring failure returns the recipe unenriched (it still persists with
+ * its parsed nutrition, or none) rather than failing an import that would otherwise succeed.
+ */
+async function enrichOne(
+  estimator: NutritionEstimator,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const estimate = await estimator.run(recipe.ingredients, resolvedServings(recipe), recipe.nutrition);
+    console.log(
+      `[step] nutrition job=${input.jobId} title=${recipe.title} ingredients=${recipe.ingredients.length} ` +
+        `outcome=${outcomeLabel(estimate)} score=${estimate.nrfScore ?? "none"} matched=${countMatched(estimate)}`,
+    );
+    return { ...recipe, estimate };
+  } catch (err) {
+    console.log(`[step] nutrition job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/** The servings the recipe persists with (mirrors `toRecipeInput`'s C4 default of 4). */
+function resolvedServings(recipe: ExtractedRecipeData): number {
+  const parsed = recipe.servings ? parseInt(recipe.servings, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+}
+
+/** `estimated | parsed | withheld` — which branch the estimate took, for the log line. */
+function outcomeLabel(estimate: { nutrition?: { estimated: boolean } }): string {
+  if (!estimate.nutrition) return "withheld";
+  return estimate.nutrition.estimated ? "estimated" : "parsed";
+}
+
+/** Whether any ingredient contributed (nutrition or a score means at least one matched). */
+function countMatched(estimate: { nutrition?: unknown; nrfScore?: number }): string {
+  return estimate.nutrition || estimate.nrfScore != null ? "some" : "none";
+}
 
 /** Persist each resolved recipe and drive the job to `ready`, linking them all. */
 async function persistStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<void> {

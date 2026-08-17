@@ -25,8 +25,16 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     confidence: data.confidence,
     ingredients,
     steps: stripSectionLabels(data.steps),
-    nutrition: data.nutrition ? { source: "parsed", values: data.nutrition } : null,
+    ...toNutritionInput(data),
   };
+}
+
+/** Resolves the recipe's nutrition + NRF score to persist: the nutritionStep's estimate
+ * when present (parsed macros kept, computed macros filled in), else the parsed label core. */
+function toNutritionInput(data: ExtractedRecipeData): Pick<RecipeInput, "nutrition" | "nrfScore"> {
+  const estimate = data.estimate;
+  if (estimate) return { nutrition: estimate.nutrition ?? null, nrfScore: estimate.nrfScore };
+  return { nutrition: data.nutrition ? { estimated: false, values: data.nutrition } : null };
 }
 
 /** Promote a JSON-LD `ExtractedRecipe` (raw string ingredients) to structured

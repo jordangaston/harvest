@@ -1,0 +1,34 @@
+{
+  "_comment": "Hand-picked real-style recipe corpus for the e2e matching test (AC-7). The importer's e2e corpus is not available in an exporter-readable form, so this is a small representative seed of messy ingredient lines. Re-export / hand-add recipes here to widen coverage. Ingredient lines mirror parsed StructuredIngredient.name (leading amount/unit already stripped by parse/ingredient.ts).",
+  "recipes": [
+    {
+      "title": "Salmon with Wilted Spinach",
+      "ingredients": [
+        "salmon fillet, skin on",
+        "baby spinach",
+        "butter",
+        "onion",
+        "cheese"
+      ]
+    },
+    {
+      "title": "Cheesy Tomato Rice",
+      "ingredients": [
+        "white rice",
+        "tomato",
+        "cheddar cheese",
+        "onion",
+        "butter"
+      ]
+    },
+    {
+      "title": "Simple Chicken and Egg Bowl",
+      "ingredients": [
+        "chicken breast",
+        "eggs",
+        "white rice",
+        "spinach"
+      ]
+    }
+  ]
+}

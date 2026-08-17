@@ -57,6 +57,12 @@ const GROCERY_AISLES = [
   'other',
 ] as const;
 
+/** A gram-weight portion on an FNDDS food (`foodPortions` → description + grams). */
+export interface FdcPortion {
+  description: string;
+  gramWeight: number;
+}
+
 /** UUID text primary key, generated in app code (SQLite has no gen_random_uuid). */
 const uuidPk = () =>
   text('id')
@@ -119,6 +125,7 @@ export const recipes = sqliteTable(
     gramsOfProtein: text('grams_of_protein'),
     milligramsOfSodium: text('milligrams_of_sodium'),
     nutritionSource: text('nutrition_source', { enum: NUTRITION_SOURCE }),
+    nrfScore: text('nrf_score'), // raw NRF nutrient-density number (pg numeric → text); null when unscored
     createdAt: createdAt(),
   },
   (t) => [index('recipes_user_idx').on(t.userId, t.createdAt)],
@@ -261,6 +268,36 @@ export const groceryItems = sqliteTable(
   (t) => [index('grocery_items_user_idx').on(t.userId)],
 );
 
+// Nutrition estimation (WI-1): the seeded USDA FNDDS (Survey) catalog. `fdc_foods`
+// is one row per survey food; `portions` is the JSON gram-weight table. `fdc_id` is
+// an INTEGER PRIMARY KEY (aliases rowid) so the FTS5 external-content mirror over
+// `description_normalized` can join on it. Full nutrient panel lives in the sibling
+// `fdc_food_nutrient` (one row per nutrient number), so later features read at full
+// granularity with no re-seed.
+export const fdcFoods = sqliteTable(
+  'fdc_foods',
+  {
+    fdcId: integer('fdc_id').primaryKey(),
+    description: text('description').notNull(),
+    descriptionNormalized: text('description_normalized').notNull(),
+    category: text('category'),
+    portions: text('portions', { mode: 'json' }).$type<FdcPortion[]>(),
+  },
+  (t) => [index('fdc_foods_norm_idx').on(t.descriptionNormalized)],
+);
+
+export const fdcFoodNutrient = sqliteTable(
+  'fdc_food_nutrient',
+  {
+    fdcId: integer('fdc_id')
+      .notNull()
+      .references(() => fdcFoods.fdcId),
+    nutrientNumber: text('nutrient_number').notNull(),
+    amountPer100g: text('amount_per_100g').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.fdcId, t.nutrientNumber] })],
+);
+
 export const schema = {
   users,
   recipes,
@@ -272,6 +309,8 @@ export const schema = {
   cookbookRecipes,
   mealPlanEntries,
   groceryItems,
+  fdcFoods,
+  fdcFoodNutrient,
 };
 export type Schema = typeof schema;
 
