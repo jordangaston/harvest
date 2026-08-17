@@ -26,6 +26,7 @@ const newRecipe = (over: Partial<RecipeInput> = {}): RecipeInput => ({
   servingsEstimated: false,
   totalMinutes: 30,
   nutrition: null,
+  allergens: null,
   ingredients: [
     { name: 'chicken', amount: '2', unit: null, quantityText: '2 breasts' },
     { name: 'garlic', amount: '4', unit: 'cloves', quantityText: '4 cloves' },

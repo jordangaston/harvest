@@ -16,6 +16,7 @@ const RECIPE: RecipeInput = {
   ingredients: [{ name: "chicken thighs", amount: "2", unit: "pound", quantityText: "2 lb chicken thighs" }],
   steps: ["Bake"],
   nutrition: null,
+  allergens: null,
 };
 
 let h: Harness;

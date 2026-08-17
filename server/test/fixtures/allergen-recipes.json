@@ -1,0 +1,52 @@
+[
+  {
+    "title": "Buttermilk pancakes",
+    "ingredients": ["2 cups all purpose flour", "2 cups cultured buttermilk"],
+    "expect": { "contains": ["wheat", "milk"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Scrambled eggs with spinach",
+    "ingredients": ["3 scrambled eggs", "1 cup spinach"],
+    "expect": { "contains": ["egg"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Baked salmon fillet",
+    "ingredients": ["6 oz salmon fillet", "1 onion, chopped"],
+    "expect": { "contains": ["fish"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Peanut butter toast",
+    "ingredients": ["2 tbsp peanut butter", "2 cups all purpose flour"],
+    "expect": { "contains": ["peanut", "wheat"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Cashew stir fry",
+    "ingredients": ["1 cup cashews", "2 tomatoes", "1 onion, chopped"],
+    "expect": { "contains": ["tree_nut"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Almond milk smoothie",
+    "ingredients": ["1 cup almond milk", "2 tomatoes"],
+    "expect": { "contains": ["tree_nut"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Soy sauce marinade",
+    "ingredients": ["2 tbsp soy sauce", "1 onion, chopped"],
+    "expect": { "contains": ["soybean", "wheat"], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Coconut spinach saute",
+    "ingredients": ["1 cup shredded coconut", "1 cup spinach"],
+    "expect": { "contains": [], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Garden vegetable medley",
+    "ingredients": ["1 cup spinach", "1 onion, chopped", "2 tomatoes"],
+    "expect": { "contains": [], "mayContain": [], "complete": true }
+  },
+  {
+    "title": "Cheese omelette with unknown herb",
+    "ingredients": ["1 cup shredded cheddar cheese", "3 sprigs zzzq unknownherb"],
+    "expect": { "contains": ["milk"], "mayContain": [], "complete": false }
+  }
+]
