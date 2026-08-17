@@ -87,15 +87,29 @@ describe('NutritionEstimator.run (AC-4)', () => {
     expect(result.nrfScore).toBeTypeOf('number'); // still scored (calories exist)
   });
 
-  it('keeps parsed macros untouched but still scores', async () => {
+  it('keeps a full parsed panel untouched but still scores', async () => {
     const parsed: LabelCoreText = {
       calories: '500', grams_of_fat: '20', grams_of_saturated_fat: '5',
       grams_of_carbohydrate: '40', grams_of_fiber: '6', grams_of_sugar: '8',
       grams_of_protein: '30', milligrams_of_sodium: '600',
     };
     const result = await estimator.run([SPINACH, SALMON], 2, parsed);
-    expect(result.nutrition?.estimated).toBe(false);
+    expect(result.nutrition?.estimated).toBe(false); // nothing backfilled
     expect(result.nutrition?.values).toEqual(parsed);
     expect(result.nrfScore).toBeTypeOf('number');
+  });
+
+  it('backfills 0/blank macros from the estimate while keeping the source calories', async () => {
+    // Many sites (e.g. Half Baked Harvest) publish calories only.
+    const caloriesOnly: LabelCoreText = {
+      calories: '525', grams_of_fat: '0', grams_of_saturated_fat: '0',
+      grams_of_carbohydrate: '0', grams_of_fiber: '0', grams_of_sugar: '0',
+      grams_of_protein: '0', milligrams_of_sodium: '0',
+    };
+    const result = await estimator.run([SPINACH, SALMON], 2, caloriesOnly);
+    expect(result.nutrition?.estimated).toBe(true); // hybrid → computed
+    expect(result.nutrition!.values.calories).toBe('525'); // source calories kept
+    // protein backfilled from the estimate: spinach 2.9×2 + salmon 22×1 = 27.8, ÷ 2 = 13.9.
+    expect(Number(result.nutrition!.values.grams_of_protein)).toBeCloseTo(13.9, 5);
   });
 });
