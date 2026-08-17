@@ -78,6 +78,7 @@ describe("GET /v1/recipes/:id", () => {
         { name: "butter", icon: "butter", quantity_text: "2 tbsp butter", amount: "2", unit: "tablespoon" },
       ],
       steps: ["Mix", "Bake"],
+      categories: { cuisine: [], dish_type: [], primary_ingredient: [] },
     });
   });
 
