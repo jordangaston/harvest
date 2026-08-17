@@ -26,6 +26,7 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     ingredients,
     steps: stripSectionLabels(data.steps),
     ...toNutritionInput(data),
+    allergens: data.allergens ?? null,
   };
 }
 

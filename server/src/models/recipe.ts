@@ -26,6 +26,8 @@ export const RecipeSchema = z.object({
   milligramsOfSodium: z.string().nullable(),
   nutritionSource: z.enum(['parsed', 'computed']).nullable(),
   nrfScore: z.string().nullable(),
+  allergens: z.object({ contains: z.array(z.string()), mayContain: z.array(z.string()) }).nullable(),
+  allergensComplete: z.boolean(),
   createdAt: z.date(),
 });
 
@@ -61,6 +63,14 @@ export type PublicNutrition = {
   milligrams_of_sodium?: string;
 };
 
+/** The allergen profile on the public recipe (snake_case). Omitted entirely when the
+ * stored profile is null; `complete: false` ⇒ non-listed allergens are undetermined. */
+export type PublicAllergens = {
+  contains: string[];
+  may_contain: string[];
+  complete: boolean;
+};
+
 /** The public recipe shape returned to clients: snake_case, null fields omitted,
  * internal columns (confidence) dropped. `nutrition` is present only when known. */
 export interface PublicRecipe {
@@ -76,6 +86,7 @@ export interface PublicRecipe {
   steps: string[];
   nutrition?: PublicNutrition;
   nrf_score?: number;
+  allergens?: PublicAllergens;
 }
 
 /** A recipe as read for a list view (camelCase). `ingredientNames`/`cookbookIds`
@@ -150,6 +161,13 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
   const nutrition = toPublicNutrition(recipe);
   if (nutrition) publicRecipe.nutrition = nutrition;
   if (recipe.nrfScore != null) publicRecipe.nrf_score = Number(recipe.nrfScore);
+  if (recipe.allergens) {
+    publicRecipe.allergens = {
+      contains: recipe.allergens.contains,
+      may_contain: recipe.allergens.mayContain,
+      complete: recipe.allergensComplete,
+    };
+  }
   return publicRecipe;
 }
 
