@@ -18,6 +18,9 @@ const JOB_STATUS = ['queued', 'running', 'ready', 'failed'] as const;
 const NUTRITION_SOURCE = ['parsed', 'computed'] as const;
 export const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
+// TS-signal: the categorization facets. `value` is a controlled-vocabulary string
+// validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
+const FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
 const GOALS = [
   'eat_healthier',
   'save_money',
@@ -156,6 +159,25 @@ export const recipeSteps = sqliteTable('recipe_steps', {
   position: integer('position').notNull(),
   text: text('text').notNull(),
 });
+
+// TS-signal (WI-TS-1): the recipe's taste facets — one row per (recipe, facet,
+// value). A normalized child table, not JSON columns, so ranking can filter by
+// value via `recipe_categories_value_idx`. Composite PK dedups + makes replay
+// persists idempotent (with onConflictDoNothing). Mirrors the other join tables.
+export const recipeCategories = sqliteTable(
+  'recipe_categories',
+  {
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    facet: text('facet', { enum: FACETS }).notNull(),
+    value: text('value').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipeId, t.facet, t.value] }),
+    index('recipe_categories_value_idx').on(t.facet, t.value),
+  ],
+);
 
 export const importJobs = sqliteTable(
   'import_jobs',
@@ -320,6 +342,7 @@ export const schema = {
   recipes,
   ingredients,
   recipeSteps,
+  recipeCategories,
   importJobs,
   importJobRecipes,
   cookbooks,
@@ -338,6 +361,8 @@ export type NewImportJob = typeof importJobs.$inferInsert;
 
 /** Source-type union, shared with the domain models. */
 export type SourceType = (typeof SOURCE_TYPES)[number];
+/** Categorization facet union, shared with the domain models. */
+export type Facet = (typeof FACETS)[number];
 /** Meal-plan slot + grocery aisle unions, shared with the domain models. */
 export type MealSlot = (typeof MEAL_SLOTS)[number];
 export type GroceryAisle = (typeof GROCERY_AISLES)[number];

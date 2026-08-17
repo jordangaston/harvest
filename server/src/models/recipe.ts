@@ -42,11 +42,25 @@ export interface IngredientDetail {
   unit: string | null;
 }
 
+/** A recipe's taste facets (WI-TS-1), each a list of controlled-vocabulary values.
+ * The attach/persist shape the categorizer produces; empty arrays mean "none". */
+export interface RecipeCategories {
+  cuisine: string[];
+  dishType: string[];
+  primaryIngredient: string[];
+}
+
+/** An empty facet set — the default when a recipe has no categories. */
+export function emptyCategories(): RecipeCategories {
+  return { cuisine: [], dishType: [], primaryIngredient: [] };
+}
+
 /** A recipe plus its ordered children — the aggregate a repository read returns. */
 export interface RecipeDetail {
   recipe: Recipe;
   ingredients: IngredientDetail[];
   steps: string[];
+  categories: RecipeCategories;
 }
 
 /** Nutrition-Facts label core on the public recipe (snake_case strings). `estimated`
@@ -87,6 +101,15 @@ export interface PublicRecipe {
   nutrition?: PublicNutrition;
   nrf_score?: number;
   allergens?: PublicAllergens;
+  categories: PublicCategories;
+}
+
+/** The public taste facets: snake_case facet keys, always present, arrays possibly
+ * empty. The client (and later the ranking engine) reads recipe preference from here. */
+export interface PublicCategories {
+  cuisine: string[];
+  dish_type: string[];
+  primary_ingredient: string[];
 }
 
 /** A recipe as read for a list view (camelCase). `ingredientNames`/`cookbookIds`
@@ -153,6 +176,11 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
     servings_estimated: recipe.servingsEstimated,
     ingredients: detail.ingredients.map(toPublicIngredient),
     steps: detail.steps,
+    categories: {
+      cuisine: detail.categories.cuisine,
+      dish_type: detail.categories.dishType,
+      primary_ingredient: detail.categories.primaryIngredient,
+    },
   };
   if (recipe.sourceUrl) publicRecipe.source_url = recipe.sourceUrl;
   if (recipe.servings != null) publicRecipe.servings = recipe.servings;

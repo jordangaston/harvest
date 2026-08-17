@@ -1,11 +1,22 @@
 import { eq, and, desc, or, exists, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, ingredients, recipeSteps, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
-import { RecipeSchema, type Recipe, type RecipeDetail, type RecipeCard, type RecipeCardPage } from '../models/recipe.js';
+import { recipes, ingredients, recipeSteps, recipeCategories, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
+import {
+  RecipeSchema,
+  emptyCategories,
+  type Recipe,
+  type RecipeDetail,
+  type RecipeCategories,
+  type RecipeCard,
+  type RecipeCardPage,
+} from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import { mapIngredientIcon } from '../parse/icons.js';
+
+/** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
+const FACET_BY_KEY = { cuisine: 'cuisine', dishType: 'dish_type', primaryIngredient: 'primary_ingredient' } as const;
 
 /** What the parse provider hands the repository to persist. */
 export interface RecipeInput {
@@ -22,6 +33,8 @@ export interface RecipeInput {
   nutrition: Nutrition | null;
   nrfScore?: number;
   allergens: RecipeAllergens | null;
+  /** Taste facets (WI-TS-1). Omit for "no categories" — persists zero rows. */
+  categories?: RecipeCategories;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -66,7 +79,25 @@ export class RecipeRepository {
       .from(recipeSteps)
       .where(eq(recipeSteps.recipeId, recipeId))
       .orderBy(recipeSteps.position);
-    return { recipe: RecipeSchema.parse(row), ingredients: ings, steps: steps.map((s) => s.text) };
+    const categories = await this.categoriesByRecipe(recipeId);
+    return { recipe: RecipeSchema.parse(row), ingredients: ings, steps: steps.map((s) => s.text), categories };
+  }
+
+  /** Reads a recipe's taste facets, bucketed by facet into `RecipeCategories`.
+   * Ordered by (facet, value) so the arrays are deterministic. */
+  private async categoriesByRecipe(recipeId: string): Promise<RecipeCategories> {
+    const rows = await this.db
+      .select({ facet: recipeCategories.facet, value: recipeCategories.value })
+      .from(recipeCategories)
+      .where(eq(recipeCategories.recipeId, recipeId))
+      .orderBy(recipeCategories.facet, recipeCategories.value);
+    const categories = emptyCategories();
+    for (const { facet, value } of rows) {
+      if (facet === 'cuisine') categories.cuisine.push(value);
+      else if (facet === 'dish_type') categories.dishType.push(value);
+      else categories.primaryIngredient.push(value);
+    }
+    return categories;
   }
 
   /**
@@ -88,7 +119,24 @@ export class RecipeRepository {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
     await this.insertSteps(tx, recipeId, recipe.steps);
+    await this.insertCategories(tx, recipeId, recipe.categories);
     return recipeId;
+  }
+
+  /**
+   * Bulk-inserts the recipe's taste facets — one row per (facet, value). No-op when
+   * absent or all-empty. `onConflictDoNothing` keeps a workflow replay idempotent.
+   * @param tx - Active transaction client.
+   * @param recipeId - Parent recipe.
+   * @param categories - The facet value lists; undefined means "none".
+   */
+  private async insertCategories(tx: Tx, recipeId: string, categories?: RecipeCategories): Promise<void> {
+    if (!categories) return;
+    const rows = (Object.keys(FACET_BY_KEY) as (keyof RecipeCategories)[]).flatMap((key) =>
+      categories[key].map((value) => ({ recipeId, facet: FACET_BY_KEY[key], value })),
+    );
+    if (rows.length === 0) return;
+    await tx.insert(recipeCategories).values(rows).onConflictDoNothing();
   }
 
   /**
