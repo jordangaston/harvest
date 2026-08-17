@@ -3,6 +3,7 @@ import type { ExtractedRecipe } from "./website.js";
 import { parseIngredientLine, type StructuredIngredient } from "./ingredient.js";
 import { LABEL_CORE_KEYS, type LabelCoreText } from "../models/label-core.js";
 import type { EstimateResult } from "../nutrition/nutrition-estimator.js";
+import type { RecipeCategories } from "../models/recipe.js";
 import { hasRecipe } from "./mapping.js";
 
 /**
@@ -54,6 +55,8 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   // The nutritionStep's estimate (computed macros when unparsed) + NRF score. Absent
   // until that step runs; a withheld recipe carries `{}`.
   estimate?: EstimateResult;
+  // The categorizeStep's taste facets. Absent until that step runs.
+  categories?: RecipeCategories;
 }
 
 export interface RecipeExtractor {

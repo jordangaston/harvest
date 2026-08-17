@@ -10,6 +10,7 @@ import { importErrorCode, type ImportInput } from "../import-domain.js";
 import { extractMedia, transcribe, readFrame, describePhoto, readSlideRecipe } from "./media-steps.js";
 import type { ExtractedRecipeData } from "../parse/extractor.js";
 import { NutritionEstimator } from "../nutrition/nutrition-estimator.js";
+import { RecipeCategorizer } from "../categorize/recipe-categorizer.js";
 
 /**
  * The durable import workflow — the WDK port of DBOS's `ImportWorkflow` +
@@ -31,7 +32,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const material = await fetchSourceStep(input);
     const recipes = await resolveRecipes(material, input);
     const enriched = await nutritionStep(recipes, input);
-    await persistStep(enriched, input);
+    const categorized = await categorizeStep(enriched, input);
+    await persistStep(categorized, input);
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
   }
@@ -202,6 +204,42 @@ async function enrichOne(
     return { ...recipe, estimate };
   } catch (err) {
     console.log(`[step] nutrition job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/**
+ * Attach taste facets (cuisine/dish_type/primary_ingredient) to every resolved recipe
+ * before persist. Best-effort enrichment, exactly like `nutritionStep`: a categorizer
+ * failure returns the recipe uncategorized rather than failing an import that would
+ * otherwise succeed. Reads the seeded FDC catalog from `dbFromEnv()` — no external
+ * network unless the cuisine LLM tier is reached. One info line per recipe.
+ */
+async function categorizeStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const categorizer = RecipeCategorizer.create(dbFromEnv());
+  return Promise.all(recipes.map((recipe) => categorizeOne(categorizer, recipe, input)));
+}
+categorizeStep.maxRetries = 3;
+
+/**
+ * Categorize one recipe, logging the outcome. A failure returns the recipe
+ * uncategorized (it persists with no facet rows) rather than failing the import.
+ */
+async function categorizeOne(
+  categorizer: RecipeCategorizer,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const categories = await categorizer.categorize(recipe.title, recipe.ingredients);
+    console.log(
+      `[step] categorize job=${input.jobId} title=${recipe.title} cuisine=${categories.cuisine.length} ` +
+        `dish=${categories.dishType.length} primary=${categories.primaryIngredient.length} outcome=ok`,
+    );
+    return { ...recipe, categories };
+  } catch (err) {
+    console.log(`[step] categorize job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;
   }
 }
