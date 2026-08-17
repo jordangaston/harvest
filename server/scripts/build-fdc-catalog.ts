@@ -34,7 +34,7 @@ interface SurveyFood {
 
 const SOURCE =
   process.env.FNDDS_JSON ??
-  join(homedir(), 'Desktop/Business/Harvest/FoodData_Central_survey_food_json_2022-10-28.json');
+  join(homedir(), 'Desktop/Business/Harvest/FoodData_Central_survey_food_json_2024-10-31.json');
 
 /** Turns one raw Survey food into the catalog row shape (the seed's single mapping). */
 export function toFdcFoodRow(food: SurveyFood): FdcFoodRow {
