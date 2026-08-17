@@ -13,7 +13,7 @@ import type { ExtractedRecipeData } from "../src/parse/extractor.js";
 import type { ImportInput } from "../src/import-domain.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
 import { RuleTagger } from "../src/categorize/rule-tagger.js";
-import { StubCuisineClassifier } from "../src/categorize/cuisine-classifier.js";
+import { StubTasteClassifier, type TasteClassifier } from "../src/categorize/taste-classifier.js";
 import { FoodMatcher } from "../src/nutrition/food-matcher.js";
 import { FdcFoodRepository } from "../src/nutrition/fdc-food-repository.js";
 import { seedFdcFixture } from "./fixtures/fdc-foods.fixture.js";
@@ -46,9 +46,10 @@ const input = (over: Partial<ImportInput> = {}): ImportInput => ({
   ...over,
 });
 
-/** An offline categorizer: real FDC matcher + rules, stubbed cuisine LLM. */
-function offlineCategorizer(): RecipeCategorizer {
-  return new RecipeCategorizer(FoodMatcher.create(FdcFoodRepository.create(db)), new RuleTagger(), new StubCuisineClassifier());
+/** An offline categorizer: real FDC matcher + rules, injectable taste classifier
+ * (default stub — cuisine/dish_type are LLM-sourced, so offline they come back empty). */
+function offlineCategorizer(classifier: TasteClassifier = new StubTasteClassifier()): RecipeCategorizer {
+  return new RecipeCategorizer(FoodMatcher.create(FdcFoodRepository.create(db)), new RuleTagger(), classifier);
 }
 
 /** Mirrors the workflow's `categorizeOne` best-effort attach. */
@@ -84,7 +85,7 @@ async function seedJob() {
 
 describe("toRecipeInput categories passthrough", () => {
   it("carries attached categories into RecipeInput", () => {
-    const cats = { cuisine: ["italian"], dishType: ["pasta"], primaryIngredient: ["seafood"] };
+    const cats = { cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"] };
     const ri = toRecipeInput({ ...BASE, categories: cats }, input());
     expect(ri.categories).toEqual(cats);
   });
@@ -95,15 +96,20 @@ describe("toRecipeInput categories passthrough", () => {
 });
 
 describe("categorization persisted through the pipeline (WI-TS-3)", () => {
-  it("categorizes offline and persists facets that surface on read", async () => {
+  it("persists FDC primary + LLM taste facets that surface on read", async () => {
     const { userId, jobId } = await seedJob();
-    const categorized = await attach(offlineCategorizer(), BASE);
+    // salmon → seafood (FDC "Fish"); cuisine/meal_type/dish_type come from the LLM (stubbed here).
+    const taste: TasteClassifier = {
+      classify: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"] }),
+    };
+    const categorized = await attach(offlineCategorizer(taste), BASE);
     const [recipeId] = await persistAndReady(db, [categorized], input({ jobId, userId }));
 
     const detail = await RecipeRepository.create(db).findById(recipeId);
-    // salmon → seafood (rule title + FDC "Fish"); "Bowl" → dish bowl; cuisine stubbed empty.
     expect(detail!.categories.primaryIngredient).toContain("seafood");
     expect(detail!.categories.dishType).toContain("bowl");
+    expect(detail!.categories.mealType).toContain("dinner");
+    expect(detail!.categories.cuisine).toContain("japanese");
 
     const publicRecipe = toPublicRecipe(detail!);
     expect(publicRecipe.categories.primary_ingredient).toContain("seafood");

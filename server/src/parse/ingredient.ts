@@ -1,10 +1,12 @@
 /**
  * C3: split a raw ingredient line into a structured measurement so recipes can be
- * scaled. Deliberately MINIMAL and deterministic — it parses the common case
- * (leading amount + optional known unit + name) and, on anything ambiguous (a
- * range, a "plus" clause, no leading number), leaves `amount`/`unit` null and
- * keeps the whole line as `name`. An unscalable line is honest; a wrongly-combined
- * one is a bug (Architect S4). No unit-algebra, no LLM.
+ * scaled. Deterministic (no LLM). Parses the common case (leading amount + optional
+ * known unit + name). A "plus"/"+" secondary measure is COMBINED into the total,
+ * expressed in the smaller of the two units ("1 tbsp, plus 1 tsp vanilla" → 4 teaspoon
+ * vanilla); an unmeasured aside ("3 tbsp butter, plus more for the pan") keeps the
+ * leading measure. Cross-system amounts (volume + mass) can't combine → the leading
+ * measure stands. Anything with no leading number, or a "to taste", stays unparsed
+ * (`amount`/`unit` null, whole line as `name`) — honest over wrong.
  */
 
 /** One ingredient, measurement separated from the display line. `amount` is a
@@ -43,16 +45,37 @@ const UNIT_ALIASES: Record<string, string> = {
   liter: 'liter', liters: 'liter', litre: 'liter', litres: 'liter',
 };
 
-/** Genuinely ambiguous shapes we refuse to parse (would need unit-algebra to
- * combine two amounts). A numeric range is NOT here — it collapses to its lower
- * bound below (deterministic, conservative), which real recipes use constantly. */
-const AMBIGUOUS = /\bplus\b|\+|\bto taste\b/i;
+/** Within-system unit ratios for combining a "plus" secondary measure. Volume in
+ * teaspoons (US customary, exact integer ratios); mass in grams. Kept local to avoid a
+ * parse→nutrition import cycle; ratios agree with quantity-converter where they overlap. */
+const UNIT_FACTOR: Record<string, { system: 'volume' | 'mass'; per: number }> = {
+  teaspoon: { system: 'volume', per: 1 },
+  tablespoon: { system: 'volume', per: 3 },
+  cup: { system: 'volume', per: 48 },
+  milliliter: { system: 'volume', per: 0.202884 },
+  liter: { system: 'volume', per: 202.884 },
+  gram: { system: 'mass', per: 1 },
+  kilogram: { system: 'mass', per: 1000 },
+  ounce: { system: 'mass', per: 28.3495 },
+  pound: { system: 'mass', per: 453.592 },
+};
+
+/** Shapes with no scalable leading amount we refuse to parse. A numeric range collapses
+ * to its lower bound below; "plus"/"+" is combined (see `combine`), not refused. */
+const AMBIGUOUS = /\bto taste\b/i;
 
 /** A leading range ("2-3", "4 - 6", "1 to 2") → keep only the lower bound. */
 const LEADING_RANGE = /^(\d+(?:\.\d+)?|\d+\/\d+)(?:\s*[-–—]\s*|\s+to\s+)\d+(?:\.\d+)?/i;
 
 /** A leading amount: mixed "1 1/2", fraction "1/2", unicode "½", or decimal "2.5". */
 const LEADING_AMOUNT = /^(\d+\s+\d+\/\d+|\d+\/\d+|[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+)?)/;
+
+/** A parsed leading amount + optional unit, with the text that follows it. */
+interface Measure {
+  amount: number;
+  unit: string | null;
+  rest: string;
+}
 
 /** Parse the leading amount token to a number, or null. */
 function parseAmount(token: string): number | null {
@@ -70,6 +93,36 @@ function toAmountString(n: number): string {
   return String(Math.round(n * 1000) / 1000);
 }
 
+/** Take a leading amount (+ optional known unit) off the front of `s`, or null. */
+function takeMeasure(s: string): Measure | null {
+  const m = LEADING_AMOUNT.exec(s);
+  if (!m) return null;
+  const amount = parseAmount(m[0]);
+  if (amount == null) return null;
+  let rest = s.slice(m[0].length).trim();
+  let unit: string | null = null;
+  const um = /^([a-zA-Z]+)\.?\b/.exec(rest);
+  if (um) {
+    const canonical = UNIT_ALIASES[um[1].toLowerCase()];
+    if (canonical) {
+      unit = canonical;
+      rest = rest.slice(um[0].length).trim();
+    }
+  }
+  return { amount, unit, rest };
+}
+
+/** Sum two same-system measures, expressed in the smaller unit. Different systems, or an
+ * unknown/absent unit on either side → keep the leading measure (no cross-system algebra). */
+function combine(a: { amount: number; unit: string | null }, b: Measure): { amount: number; unit: string | null } {
+  const fa = a.unit ? UNIT_FACTOR[a.unit] : undefined;
+  const fb = b.unit ? UNIT_FACTOR[b.unit] : undefined;
+  if (!fa || !fb || fa.system !== fb.system) return { amount: a.amount, unit: a.unit };
+  const base = a.amount * fa.per + b.amount * fb.per;
+  const smaller = fa.per <= fb.per ? { unit: a.unit, per: fa.per } : { unit: b.unit, per: fb.per };
+  return { amount: base / smaller.per, unit: smaller.unit };
+}
+
 /**
  * Structure one raw ingredient line. Never throws; never drops the line.
  * @param raw - The verbatim ingredient line.
@@ -82,22 +135,27 @@ export function parseIngredientLine(raw: string): StructuredIngredient {
   const unparsed: StructuredIngredient = { name: line, amount: null, unit: null, quantityText };
 
   if (AMBIGUOUS.test(line)) return unparsed;
-  const amountMatch = LEADING_AMOUNT.exec(line);
-  if (!amountMatch) return unparsed;
-  const amountValue = parseAmount(amountMatch[0]);
-  if (amountValue == null) return unparsed;
+  const lead = takeMeasure(line);
+  if (!lead) return unparsed;
 
-  let rest = line.slice(amountMatch[0].length).trim();
-  let unit: string | null = null;
-  const unitMatch = /^([a-zA-Z]+)\.?\b/.exec(rest);
-  if (unitMatch) {
-    const canonical = UNIT_ALIASES[unitMatch[1].toLowerCase()];
-    if (canonical) {
-      unit = canonical;
-      rest = rest.slice(unitMatch[0].length).trim();
+  let amount = lead.amount;
+  let unit = lead.unit;
+  // Drop a leading "of" ("2 cups of flour" → flour); keep the rest as the name.
+  let name = lead.rest.replace(/^of\s+/i, '').trim();
+
+  // A "plus"/"+" secondary measure: "N u X, plus more…" (name before) or "N u, plus M u2
+  // X" (name after). A measured second amount is combined; an unmeasured aside is dropped.
+  const plus = /,?\s*(?:\bplus\b|\+)\s*/i.exec(name);
+  if (plus) {
+    const before = name.slice(0, plus.index).trim();
+    const second = takeMeasure(name.slice(plus.index + plus[0].length).trim());
+    if (second) {
+      ({ amount, unit } = combine({ amount, unit }, second));
+      name = (before || second.rest.replace(/^of\s+/i, '')).trim();
+    } else {
+      name = before || name; // unmeasured aside ("plus more…") → keep the leading measure
     }
   }
-  // Drop a leading "of" ("2 cups of flour" → flour); keep the rest as the name.
-  rest = rest.replace(/^of\s+/i, '').trim();
-  return { name: rest || line, amount: toAmountString(amountValue), unit, quantityText };
+
+  return { name: name || line, amount: toAmountString(amount), unit, quantityText };
 }

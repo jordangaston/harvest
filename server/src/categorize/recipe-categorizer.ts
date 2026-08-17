@@ -2,10 +2,10 @@ import type { Database } from '../db.js';
 import type { RecipeCategories } from '../models/recipe.js';
 import { FdcFoodRepository } from '../nutrition/fdc-food-repository.js';
 import { FoodMatcher, type IngredientMatcher } from '../nutrition/food-matcher.js';
-import { VOCAB, inVocab } from './vocab.js';
+import { inVocab } from './vocab.js';
 import { toPrimaryIngredient } from './fdc-category-map.js';
 import { RuleTagger } from './rule-tagger.js';
-import { selectCuisineClassifier, type CuisineClassifier } from './cuisine-classifier.js';
+import { selectTasteClassifier, type TasteClassifier, type TasteFacets } from './taste-classifier.js';
 
 /** The minimal ingredient shape the categorizer reads (name only). */
 export interface CategorizerIngredient {
@@ -14,35 +14,34 @@ export interface CategorizerIngredient {
 
 /**
  * RecipeCategorizer (WI-TS-2) — derives a recipe's taste facets from its title +
- * ingredients, tiered cheapest-first: FDC seed (reuses the nutrition matcher) →
- * keyword rules → LLM (cuisine only). Merges with precedence and primary-ingredient
- * dominance (a title rule hit beats body/FDC), validates against VOCAB, dedups.
- * No writes — the caller (WI-TS-3) attaches the result and persists it.
+ * ingredients. cuisine + dish_type come from the LLM (`TasteClassifier`); primary_
+ * ingredient stays FDC-grounded (the nutrition matcher) with title-keyword dominance
+ * (a title hit beats body/FDC). Validates every value against VOCAB, dedups. No writes
+ * — the caller (WI-TS-3) attaches the result and persists it.
  */
 export class RecipeCategorizer {
   constructor(
     private readonly matcher: IngredientMatcher,
     private readonly rules: RuleTagger,
-    private readonly classifier: CuisineClassifier,
+    private readonly classifier: TasteClassifier,
   ) {}
 
   static create(db: Database): RecipeCategorizer {
     const matcher = FoodMatcher.create(FdcFoodRepository.create(db));
-    return new RecipeCategorizer(matcher, new RuleTagger(), selectCuisineClassifier());
+    return new RecipeCategorizer(matcher, new RuleTagger(), selectTasteClassifier());
   }
 
   async categorize(title: string, ingredients: CategorizerIngredient[]): Promise<RecipeCategories> {
     const names = ingredients.map((i) => i.name);
-    const hits = this.rules.tag(title, names);
+    const primaryHits = this.rules.tag(title, names).primaryIngredient;
     const fdcPrimary = await this.fdcPrimaryIngredients(names);
-
-    const dishType = dedup(hits.dishType);
-    const primaryIngredient = this.resolvePrimary(hits.primaryIngredient, fdcPrimary);
-    const cuisine = await this.resolveCuisine(hits.cuisine, title, names);
+    const primaryIngredient = this.resolvePrimary(primaryHits, fdcPrimary);
+    const taste = await this.resolveTaste(title, names);
 
     return {
-      cuisine: valid('cuisine', cuisine),
-      dishType: valid('dishType', dishType),
+      cuisine: valid('cuisine', taste.cuisine),
+      mealType: valid('mealType', taste.mealType),
+      dishType: valid('dishType', taste.dishType),
       primaryIngredient: valid('primaryIngredient', primaryIngredient),
     };
   }
@@ -67,14 +66,13 @@ export class RecipeCategorizer {
     return titleHits.length > 0 ? titleHits : fdc;
   }
 
-  /** Cuisine from rules if any; else escalate to the LLM. An LLM failure degrades to
-   * empty cuisine (the other facets survive) rather than failing categorization. */
-  private async resolveCuisine(ruleHits: string[], title: string, names: string[]): Promise<string[]> {
-    if (ruleHits.length > 0) return dedup(ruleHits);
+  /** cuisine + dish_type from the LLM. A failure degrades to empty for both (primary_
+   * ingredient survives) rather than failing categorization. */
+  private async resolveTaste(title: string, names: string[]): Promise<TasteFacets> {
     try {
-      return await this.classifier.classify(title, names, VOCAB.cuisine);
+      return await this.classifier.classify(title, names);
     } catch {
-      return [];
+      return { cuisine: [], mealType: [], dishType: [] };
     }
   }
 }
@@ -84,6 +82,6 @@ function dedup(values: string[]): string[] {
 }
 
 /** Keeps only VOCAB members for the facet (defence — the LLM can emit anything). */
-function valid(facet: 'cuisine' | 'dishType' | 'primaryIngredient', values: string[]): string[] {
+function valid(facet: 'cuisine' | 'mealType' | 'dishType' | 'primaryIngredient', values: string[]): string[] {
   return values.filter((v) => inVocab(facet, v));
 }

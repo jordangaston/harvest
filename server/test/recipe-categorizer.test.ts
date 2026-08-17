@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { VOCAB, inVocab } from "../src/categorize/vocab.js";
 import { toPrimaryIngredient } from "../src/categorize/fdc-category-map.js";
 import { RuleTagger } from "../src/categorize/rule-tagger.js";
-import { StubCuisineClassifier, type CuisineClassifier } from "../src/categorize/cuisine-classifier.js";
+import { StubTasteClassifier, type TasteClassifier, type TasteFacets } from "../src/categorize/taste-classifier.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
 import type { FoodMatch, IngredientMatcher } from "../src/nutrition/food-matcher.js";
 
@@ -23,8 +23,8 @@ const SCAMPI_MATCHER = matcherOf({
   "chicken broth": { fdcId: 2, category: "Soups, Sauces and Gravies", quality: "medium" },
 });
 
-function classifierOf(values: string[] | (() => Promise<string[]>)): CuisineClassifier {
-  return { classify: typeof values === "function" ? values : async () => values };
+function classifierOf(facets: TasteFacets | (() => Promise<TasteFacets>)): TasteClassifier {
+  return { classify: typeof facets === "function" ? facets : async () => facets };
 }
 
 describe("VOCAB", () => {
@@ -62,30 +62,34 @@ describe("FdcCategoryMap.toPrimaryIngredient", () => {
 });
 
 describe("RuleTagger.tag", () => {
-  it("tags dish/cuisine/primary with title vs body location", () => {
+  it("tags primary_ingredient with title vs body location", () => {
     const hits = new RuleTagger().tag("Shrimp Scampi", ["shrimp", "spaghetti", "garlic", "chicken broth"]);
-    expect(hits.dishType).toContain("pasta");
-    expect(hits.cuisine).toEqual([]); // scampi is a dish, not a cuisine → escalates to LLM
     expect(hits.primaryIngredient).toContainEqual({ value: "seafood", location: "title" });
     expect(hits.primaryIngredient).toContainEqual({ value: "poultry", location: "body" });
   });
 });
 
-describe("RecipeCategorizer.categorize — merge & dominance", () => {
-  it("resolves the shrimp-scampi example, discarding the body-only poultry", async () => {
-    const cat = new RecipeCategorizer(SCAMPI_MATCHER, new RuleTagger(), classifierOf(["italian"]));
+describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", () => {
+  it("takes cuisine/meal_type/dish_type from the classifier and primary from FDC + title", async () => {
+    const cat = new RecipeCategorizer(
+      SCAMPI_MATCHER,
+      new RuleTagger(),
+      classifierOf({ cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"] }),
+    );
     const result = await cat.categorize("Shrimp Scampi", [
       { name: "shrimp" },
       { name: "spaghetti" },
       { name: "garlic" },
       { name: "chicken broth" },
     ]);
-    expect(result).toEqual({ cuisine: ["italian"], dishType: ["pasta"], primaryIngredient: ["seafood"] });
+    expect(result).toEqual({
+      cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"],
+    });
   });
 
   it("uses the FDC seed for primary_ingredient when the title has no protein keyword", async () => {
     const matcher = matcherOf({ salmon: { fdcId: 3, category: "Fish", quality: "high" } });
-    const cat = new RecipeCategorizer(matcher, new RuleTagger(), classifierOf([]));
+    const cat = new RecipeCategorizer(matcher, new RuleTagger(), classifierOf({ cuisine: [], mealType: [], dishType: [] }));
     const result = await cat.categorize("Weeknight Sheet Pan Dinner", [
       { name: "salmon" },
       { name: "broccoli" },
@@ -94,45 +98,33 @@ describe("RecipeCategorizer.categorize — merge & dominance", () => {
     expect(result.primaryIngredient).toEqual(["seafood"]);
   });
 
-  it("escalates cuisine to the classifier only when rules find none", async () => {
-    const throwIfCalled = classifierOf(async () => {
-      throw new Error("classifier should not be called when rules resolved cuisine");
-    });
-    // "teriyaki" is a cuisine rule → japanese; classifier must not run.
-    const ruled = await new RecipeCategorizer(matcherOf({}), new RuleTagger(), throwIfCalled).categorize(
-      "Chicken Teriyaki Bowl",
-      [{ name: "chicken" }],
+  it("constrains classifier output to VOCAB for every facet", async () => {
+    const cat = new RecipeCategorizer(
+      matcherOf({}),
+      new RuleTagger(),
+      classifierOf({ cuisine: ["italian", "klingon"], mealType: ["brunch", "teatime"], dishType: ["pasta", "warp"] }),
     );
-    expect(ruled.cuisine).toEqual(["japanese"]);
-
-    // No cuisine keyword → classifier runs.
-    const escalated = await new RecipeCategorizer(matcherOf({}), new RuleTagger(), classifierOf(["thai"])).categorize(
-      "Peanut Noodles",
-      [{ name: "noodles" }],
-    );
-    expect(escalated.cuisine).toEqual(["thai"]);
-  });
-
-  it("constrains classifier output to VOCAB", async () => {
-    const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), classifierOf(["italian", "klingon"]));
     const result = await cat.categorize("Mystery Dish", [{ name: "water" }]);
     expect(result.cuisine).toEqual(["italian"]); // non-VOCAB "klingon" dropped
+    expect(result.mealType).toEqual(["brunch"]); // non-VOCAB "teatime" dropped
+    expect(result.dishType).toEqual(["pasta"]); // non-VOCAB "warp" dropped
   });
 
   it("returns all-empty and never throws when nothing matches (no network via stub)", async () => {
-    const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubCuisineClassifier());
+    const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubTasteClassifier());
     const result = await cat.categorize("Mystery", [{ name: "water" }]);
-    expect(result).toEqual({ cuisine: [], dishType: [], primaryIngredient: [] });
+    expect(result).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [] });
   });
 
-  it("degrades to empty cuisine if the classifier throws (other facets survive)", async () => {
+  it("degrades to empty taste facets if the classifier throws (primary survives)", async () => {
     const boom = classifierOf(async () => {
       throw new Error("LLM down");
     });
     const cat = new RecipeCategorizer(SCAMPI_MATCHER, new RuleTagger(), boom);
     const result = await cat.categorize("Shrimp Pasta", [{ name: "shrimp" }, { name: "spaghetti" }]);
     expect(result.cuisine).toEqual([]);
-    expect(result.dishType).toEqual(["pasta"]);
+    expect(result.mealType).toEqual([]);
+    expect(result.dishType).toEqual([]);
     expect(result.primaryIngredient).toEqual(["seafood"]);
   });
 });

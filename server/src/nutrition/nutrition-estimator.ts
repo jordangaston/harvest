@@ -23,8 +23,9 @@ export interface EstimateResult {
  * Composes matching + gram conversion + scoring into one estimate per recipe.
  * Matches each ingredient, converts to grams, aggregates the full nutrient panel
  * (Σ amountPer100g × grams / 100) into dish totals, then scores via `nrfScore`.
- * Estimates the eight per-serving macros only when the recipe has no parsed nutrition;
- * a parsed recipe keeps its macros but is still scored. Withholds (returns `{}`) when
+ * Estimates the eight per-serving macros from ingredients; a recipe with parsed nutrition
+ * keeps the macros the source published and backfills the ones it left blank from the
+ * estimate (many sites publish calories only). Always scored. Withholds (returns `{}`) when
  * nothing matches, or when servings are missing and there is no parsed nutrition.
  * No network — reads the seeded catalog through `FdcFoodRepository`.
  */
@@ -60,13 +61,38 @@ export class NutritionEstimator {
     if (score != null) result.nrfScore = score;
 
     if (parsed) {
-      result.nutrition = { values: parsed, estimated: false };
+      // Keep the macros the source actually published; backfill the ones it left
+      // 0/blank (many sites publish calories only) from the FDC estimate.
+      const estimate = servings && servings > 0 ? this.macrosPerServing(totals, servings) : null;
+      const { values, filled } = this.mergeParsed(parsed, estimate);
+      result.nutrition = { values, estimated: filled };
       return result;
     }
     if (!(servings && servings > 0)) return { nrfScore: result.nrfScore }; // no basis to divide by
 
     result.nutrition = { values: this.macrosPerServing(totals, servings), estimated: true };
     return result;
+  }
+
+  /** Prefer each macro the source published (a positive value); backfill a 0/blank one
+   * from the per-serving FDC estimate. `filled` is true when anything was backfilled, so
+   * the result reads as `computed` (a hybrid) rather than a clean `parsed` panel. */
+  private mergeParsed(parsed: LabelCoreText, estimate: LabelCoreValues | null): { values: LabelCoreValues; filled: boolean } {
+    const values = {} as LabelCoreValues;
+    let filled = false;
+    for (const key of LABEL_CORE_KEYS) {
+      const source = parsed[key];
+      const sourceNum = source == null ? NaN : Number(source);
+      if (Number.isFinite(sourceNum) && sourceNum > 0) {
+        values[key] = source;
+      } else if (estimate && estimate[key] != null) {
+        values[key] = estimate[key];
+        filled = true;
+      } else {
+        values[key] = source ?? null;
+      }
+    }
+    return { values, filled };
   }
 
   /** Sums every matched, convertible ingredient's panel into dish totals (per 100 g basis). */
