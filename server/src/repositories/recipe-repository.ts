@@ -16,7 +16,12 @@ import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
-const FACET_BY_KEY = { cuisine: 'cuisine', dishType: 'dish_type', primaryIngredient: 'primary_ingredient' } as const;
+const FACET_BY_KEY = {
+  cuisine: 'cuisine',
+  mealType: 'meal_type',
+  dishType: 'dish_type',
+  primaryIngredient: 'primary_ingredient',
+} as const;
 
 /** What the parse provider hands the repository to persist. */
 export interface RecipeInput {
@@ -92,11 +97,8 @@ export class RecipeRepository {
       .where(eq(recipeCategories.recipeId, recipeId))
       .orderBy(recipeCategories.facet, recipeCategories.value);
     const categories = emptyCategories();
-    for (const { facet, value } of rows) {
-      if (facet === 'cuisine') categories.cuisine.push(value);
-      else if (facet === 'dish_type') categories.dishType.push(value);
-      else categories.primaryIngredient.push(value);
-    }
+    const BUCKET = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient };
+    for (const { facet, value } of rows) BUCKET[facet].push(value);
     return categories;
   }
 

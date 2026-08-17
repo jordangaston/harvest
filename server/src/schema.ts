@@ -20,7 +20,7 @@ export const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', '
 export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
 // TS-signal: the categorization facets. `value` is a controlled-vocabulary string
 // validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
-const FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient'] as const;
 const GOALS = [
   'eat_healthier',
   'save_money',

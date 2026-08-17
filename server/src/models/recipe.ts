@@ -46,13 +46,14 @@ export interface IngredientDetail {
  * The attach/persist shape the categorizer produces; empty arrays mean "none". */
 export interface RecipeCategories {
   cuisine: string[];
+  mealType: string[];
   dishType: string[];
   primaryIngredient: string[];
 }
 
 /** An empty facet set — the default when a recipe has no categories. */
 export function emptyCategories(): RecipeCategories {
-  return { cuisine: [], dishType: [], primaryIngredient: [] };
+  return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] };
 }
 
 /** A recipe plus its ordered children — the aggregate a repository read returns. */
@@ -108,6 +109,7 @@ export interface PublicRecipe {
  * empty. The client (and later the ranking engine) reads recipe preference from here. */
 export interface PublicCategories {
   cuisine: string[];
+  meal_type: string[];
   dish_type: string[];
   primary_ingredient: string[];
 }
@@ -178,6 +180,7 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
     steps: detail.steps,
     categories: {
       cuisine: detail.categories.cuisine,
+      meal_type: detail.categories.mealType,
       dish_type: detail.categories.dishType,
       primary_ingredient: detail.categories.primaryIngredient,
     },
