@@ -21,6 +21,7 @@ function recipe(title: string): RecipeInput {
     ],
     steps: ["Cook"],
     nutrition: null,
+    allergens: null,
   };
 }
 

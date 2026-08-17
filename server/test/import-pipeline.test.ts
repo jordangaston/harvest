@@ -15,6 +15,8 @@ import type { ImportInput } from "../src/import-domain.js";
 import { NutritionEstimator } from "../src/nutrition/nutrition-estimator.js";
 import { toPublicRecipe } from "../src/models/recipe.js";
 import { seedFdcFixture } from "./fixtures/fdc-foods.fixture.js";
+import { seedExtraAllergenFoods, seedAllergens, FIXTURE_ALLERGEN_ROWS } from "./fixtures/allergen-foods.fixture.js";
+import { AllergenDetector } from "../src/allergen/allergen-detector.js";
 import type { LabelCoreText } from "../src/models/label-core.js";
 
 /**
@@ -231,6 +233,97 @@ describe("nutrition estimate persisted through the pipeline (WI-3)", () => {
     const withheldPublic = toPublicRecipe(withheld!);
     expect(withheldPublic.nutrition).toBeUndefined();
     expect(withheldPublic.nrf_score).toBeUndefined();
+  });
+});
+
+describe("allergen profile persisted through the pipeline (WI-4)", () => {
+  // Mirrors allergenStep: detect each recipe (best-effort try/catch), attach, then persist.
+  const enrich = async (
+    recipe: ExtractedRecipeData,
+    detector: AllergenDetector,
+  ): Promise<ExtractedRecipeData> => {
+    try {
+      const allergens = await detector.detect(recipe.ingredients);
+      return allergens ? { ...recipe, allergens } : recipe;
+    } catch {
+      return recipe; // withheld — the import still succeeds
+    }
+  };
+
+  const seedFreshJob = async () => {
+    const user = await UserRepository.create(db).insert({
+      phone: `+1555${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`,
+      jwtPrivateKey: "k",
+      jwtPublicKey: "p",
+    });
+    const job = await ImportJobRepository.create(db).create({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      sourceType: "website",
+      sourceRef: "https://x.test/r",
+    });
+    return { userId: user.id, jobId: job.id };
+  };
+
+  let seeded = false;
+  const persistOne = async (recipe: ExtractedRecipeData, detector: AllergenDetector) => {
+    const { userId, jobId } = await seedFreshJob();
+    if (!seeded) {
+      await seedFdcFixture(db);
+      await seedExtraAllergenFoods(db);
+      await seedAllergens(db, FIXTURE_ALLERGEN_ROWS);
+      seeded = true;
+    }
+    const [recipeId] = await persistAndReady(db, [await enrich(recipe, detector)], input({ jobId, userId }));
+    return { recipeId, jobId, userId };
+  };
+
+  beforeEach(() => {
+    seeded = false; // db is recreated per test (outer beforeEach)
+  });
+
+  // buttermilk/peanut-butter match `high` → clean `contains` (bare "milk"/"peanut" only reach medium).
+  const MILK_PEANUT: ExtractedRecipeData = {
+    title: "PB & buttermilk",
+    servings: "2",
+    confidence: 1,
+    ingredients: [
+      { name: "cultured buttermilk", amount: "2", unit: "cup", quantityText: "2 cups cultured buttermilk" },
+      { name: "peanut butter", amount: "2", unit: "tablespoon", quantityText: "2 tbsp peanut butter" },
+    ],
+    steps: ["Mix."],
+  };
+
+  it("persists a detected profile: allergens JSON + allergens_complete=1", async () => {
+    const { recipeId } = await persistOne(MILK_PEANUT, AllergenDetector.create(db));
+    const detail = await RecipeRepository.create(db).findById(recipeId);
+    expect(detail?.recipe.allergens?.contains.sort()).toEqual(["milk", "peanut"]);
+    expect(detail?.recipe.allergens?.mayContain).toEqual([]);
+    expect(detail?.recipe.allergensComplete).toBe(true);
+  });
+
+  it("surfaces allergens snake_case on the public recipe", async () => {
+    const { recipeId } = await persistOne(MILK_PEANUT, AllergenDetector.create(db));
+    const publicRecipe = toPublicRecipe((await RecipeRepository.create(db).findById(recipeId))!);
+    expect(publicRecipe.allergens?.contains.sort()).toEqual(["milk", "peanut"]);
+    expect(publicRecipe.allergens?.may_contain).toEqual([]);
+    expect(publicRecipe.allergens?.complete).toBe(true);
+  });
+
+  it("a detection error withholds the profile but the import still reaches ready", async () => {
+    const throwing = AllergenDetector.create(db);
+    throwing.detect = async () => {
+      throw new Error("boom");
+    };
+    const { recipeId, jobId, userId } = await persistOne(MILK_PEANUT, throwing);
+
+    const detail = await RecipeRepository.create(db).findById(recipeId);
+    expect(detail?.recipe.allergens).toBeNull();
+    expect(detail?.recipe.allergensComplete).toBe(false);
+    // graceful degradation: nutrition and the job status are unaffected.
+    expect(toPublicRecipe(detail!).allergens).toBeUndefined();
+    const job = await ImportJobRepository.create(db).findByIdForUser(jobId, userId);
+    expect(job?.status).toBe("ready");
   });
 });
 
