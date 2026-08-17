@@ -24,8 +24,29 @@ describe("parseIngredientLine (C3, minimal deterministic)", () => {
     expect(parseIngredientLine("1 to 2 tablespoons olive oil")).toEqual({ name: "olive oil", amount: "1", unit: "tablespoon", quantityText: "1 to 2 tablespoons olive oil" });
   });
 
+  it('combines a "plus"/"+" secondary measure into the smaller unit and recovers the name', () => {
+    // Unmeasured aside ("plus more…") — no second amount, so the leading measure stands.
+    expect(parseIngredientLine("3 tablespoons melted salted butter, plus more for the pan")).toEqual({
+      name: "melted salted butter", amount: "3", unit: "tablespoon",
+      quantityText: "3 tablespoons melted salted butter, plus more for the pan",
+    });
+    // 1 tbsp + 1 tsp → 4 teaspoon (summed in the smaller unit), name after the plus.
+    expect(parseIngredientLine("1 tablespoon, plus 1 teaspoon vanilla extract")).toEqual({
+      name: "vanilla extract", amount: "4", unit: "teaspoon",
+      quantityText: "1 tablespoon, plus 1 teaspoon vanilla extract",
+    });
+    // Same, no comma / abbreviated units.
+    expect(parseIngredientLine("1 tbsp plus 1 tsp butter")).toEqual({
+      name: "butter", amount: "4", unit: "teaspoon", quantityText: "1 tbsp plus 1 tsp butter",
+    });
+    // Cross-system (volume + mass) can't combine → the leading measure stands.
+    expect(parseIngredientLine("1 cup flour, plus 50 grams")).toEqual({
+      name: "flour", amount: "1", unit: "cup", quantityText: "1 cup flour, plus 50 grams",
+    });
+  });
+
   it("leaves genuinely ambiguous lines unparsed but always preserves the display line (safety guard)", () => {
-    for (const raw of ["1 tbsp plus 1 tsp butter", "salt to taste", "a handful of basil"]) {
+    for (const raw of ["salt to taste", "a handful of basil"]) {
       const r = parseIngredientLine(raw);
       expect(r.amount).toBeNull();
       expect(r.unit).toBeNull();
