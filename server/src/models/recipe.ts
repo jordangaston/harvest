@@ -22,7 +22,7 @@ export interface RecipeDifficulty {
 // `mode: 'timestamp'`, so the `.date()` still holds.
 export const RecipeSchema = z.object({
   id: z.string().uuid(),
-  userId: z.string().uuid(),
+  userId: z.string().uuid().nullable(), // NULL = global/app-owned recipe (shared corpus)
   title: z.string(),
   sourceType: z.enum(['instagram', 'tiktok', 'facebook', 'pinterest', 'youtube', 'website', 'photo']),
   sourceUrl: z.string().nullable(),

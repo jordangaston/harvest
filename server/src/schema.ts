@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 
 /**
  * The Harvest schema, ported from Postgres (`drizzle-orm/pg-core`) to the SQLite
@@ -35,6 +35,16 @@ const GOALS = [
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
+// Ranking preferences (WI-RANK-1): severity gates allergen filter-vs-soft; strictness
+// gates diet filter-vs-penalty; the affinity facets are the 3-value subset of FACETS
+// that user food prefs mirror; sentiment is the like/dislike direction.
+export const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
+export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+export const SENTIMENTS = ['like', 'dislike'] as const;
+// Swipe deck (WI-RANK-4): swipe direction and the optional dislike reason.
+export const SWIPE_DIRECTIONS = ['like', 'dislike'] as const;
+export const SWIPE_REASONS = ['too_expensive', 'too_hard', 'too_slow', 'disliked_ingredient', 'not_nutritious', 'other'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
@@ -113,9 +123,10 @@ export const recipes = sqliteTable(
   'recipes',
   {
     id: uuidPk(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id),
+    // Nullable: a NULL owner is a global/app-owned recipe (the shared corpus the swipe
+    // deck draws from). User-scoped reads filter `user_id = caller`, so globals never leak
+    // into an owner's list; the deck opts in via `user_id = caller OR user_id IS NULL`.
+    userId: text('user_id').references(() => users.id),
     title: text('title').notNull(),
     sourceType: text('source_type', { enum: SOURCE_TYPES }).notNull(),
     sourceUrl: text('source_url'),
@@ -270,10 +281,14 @@ export const cookbooks = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Swipe deck (WI-RANK-4): marks an app-managed cookbook (e.g. 'liked'). NULL = an
+    // ordinary user cookbook. Unique per (user, slug) so lazy-create is idempotent.
+    systemSlug: text('system_slug'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('cookbooks_user_name_uidx').on(t.userId, t.name),
+    uniqueIndex('cookbooks_system_slug_uidx').on(t.userId, t.systemSlug),
     index('cookbooks_user_idx').on(t.userId, t.createdAt),
   ],
 );
@@ -400,6 +415,92 @@ export const fdcFoodPrice = sqliteTable('fdc_food_price', {
   sourceCycle: text('source_cycle').notNull(),
 });
 
+// Ranking preferences (WI-RANK-1): the per-user targets/weights (1:1 with users) plus
+// three child tables the ranker reads — allergens (severity gates the filter), diets
+// (strictness gates the filter), and food prefs (mirror `recipe_categories` so affinity
+// is a direct join). All cascade on user delete. Weights are 0–3, enforced in the Zod
+// model at the read boundary, not by a DB check.
+export const userPreferences = sqliteTable('user_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  skillLevel: text('skill_level', { enum: DIFFICULTY_BANDS }).notNull().default('beginner'),
+  budgetCentsPerServing: integer('budget_cents_per_serving'),
+  timeBudgetMinutes: integer('time_budget_minutes'),
+  weightCost: integer('weight_cost').notNull().default(1),
+  weightDifficulty: integer('weight_difficulty').notNull().default(1),
+  weightNutrition: integer('weight_nutrition').notNull().default(1),
+  weightAffinity: integer('weight_affinity').notNull().default(1),
+  weightTime: integer('weight_time').notNull().default(1),
+  weightPopularity: integer('weight_popularity').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const userAllergens = sqliteTable(
+  'user_allergens',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    allergen: text('allergen', { enum: MAJOR_ALLERGENS }).notNull(),
+    severity: text('severity', { enum: ALLERGEN_SEVERITIES }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.allergen] })],
+);
+
+export const userDiets = sqliteTable(
+  'user_diets',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    dietId: text('diet_id').notNull(),
+    strictness: text('strictness', { enum: DIET_STRICTNESS }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.dietId] })],
+);
+
+export const userFoodPrefs = sqliteTable(
+  'user_food_prefs',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    facet: text('facet', { enum: AFFINITY_FACETS }).notNull(),
+    value: text('value').notNull(),
+    sentiment: text('sentiment', { enum: SENTIMENTS }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
+);
+
+// Swipe deck (WI-RANK-4): one row per (user, recipe) swipe — the feedback capture that
+// drives the deck (don't re-show) and is labeled data for later ranking. `score`/`weights`
+// snapshot the card the user saw (the pre-tune weights that produced it). Composite pk
+// (user, recipe) so a re-swipe overwrites; both fks cascade on delete.
+export const recipeSwipes = sqliteTable(
+  'recipe_swipes',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    direction: text('direction', { enum: SWIPE_DIRECTIONS }).notNull(),
+    reason: text('reason', { enum: SWIPE_REASONS }),
+    score: real('score').notNull(),
+    weights: text('weights', { mode: 'json' })
+      .$type<{ cost: number; difficulty: number; nutrition: number; affinity: number; time: number; popularity: number }>()
+      .notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.recipeId] }), index('recipe_swipes_user_idx').on(t.userId, t.createdAt)],
+);
+
 export const schema = {
   users,
   recipes,
@@ -417,6 +518,11 @@ export const schema = {
   fdcFoodNutrient,
   fdcFoodAllergen,
   fdcFoodPrice,
+  userPreferences,
+  userAllergens,
+  userDiets,
+  userFoodPrefs,
+  recipeSwipes,
 };
 export type Schema = typeof schema;
 
@@ -433,3 +539,5 @@ export type MealSlot = (typeof MEAL_SLOTS)[number];
 export type GroceryAisle = (typeof GROCERY_AISLES)[number];
 /** Difficulty band union (WI-DIFF-1), shared with the domain models. */
 export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
+/** Affinity facet union (WI-RANK-1), the food-pref facets. */
+export type AffinityFacet = (typeof AFFINITY_FACETS)[number];

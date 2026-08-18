@@ -1,0 +1,73 @@
+import type { UserPreferences } from '../models/user-preferences.js';
+import type { RankableRecipe, RankedRecipe } from './types.js';
+import { type FilterRule, AllergenFilter, DietFilter } from './filters.js';
+import {
+  type SignalScorer,
+  CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer,
+} from './scorers.js';
+import {
+  PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT,
+} from './constants.js';
+
+/** Pure filter-then-rank engine: hard filters drop recipes, a weighted average of soft signals ranks survivors. */
+export class RankingEngine {
+  private constructor(
+    private readonly filters: FilterRule[],
+    private readonly scorers: SignalScorer[],
+  ) {}
+
+  static create(): RankingEngine {
+    return new RankingEngine(
+      [new AllergenFilter(), new DietFilter()],
+      [new CostScorer(), new DifficultyScorer(), new NutritionScorer(), new AffinityScorer(), new TimeScorer(), new PopularityScorer()],
+    );
+  }
+
+  rank(recipes: RankableRecipe[], prefs: UserPreferences): RankedRecipe[] {
+    return recipes
+      .filter((r) => !this.filters.some((f) => f.excludes(r, prefs)))
+      .map((r) => this.scoreRecipe(r, prefs))
+      .sort((a, b) => this.compare(a, b, recipes));
+  }
+
+  private scoreRecipe(recipe: RankableRecipe, prefs: UserPreferences): RankedRecipe {
+    const breakdown: Record<string, number> = {};
+    let weighted = 0, totalWeight = 0;
+    for (const scorer of this.scorers) {
+      const w = scorer.weight(prefs);
+      const s = scorer.score(recipe, prefs);
+      if (s === null || w <= 0) continue;
+      breakdown[scorer.key] = s;
+      weighted += w * s;
+      totalWeight += w;
+    }
+    const average = totalWeight > 0 ? weighted / totalWeight : 0;
+    const score = Math.max(0, average - this.penalty(recipe, prefs));
+    return { recipeId: recipe.id, score, breakdown };
+  }
+
+  private penalty(recipe: RankableRecipe, prefs: UserPreferences): number {
+    let total = 0;
+    for (const { allergen, severity } of prefs.allergens)
+      if (severity === 'mild' && recipe.allergens.contains.includes(allergen)) total += PENALTY_MILD_ALLERGEN;
+    for (const { dietId, strictness } of prefs.diets) {
+      const verdict = recipe.dietFit[dietId];
+      if (strictness === 'flexible' && verdict === 'incompatible') total += PENALTY_FLEXIBLE_INCOMPATIBLE;
+      if (verdict === 'unknown') total += PENALTY_UNKNOWN_VERDICT;
+    }
+    return total;
+  }
+
+  private compare(a: RankedRecipe, b: RankedRecipe, recipes: RankableRecipe[]): number {
+    if (a.score !== b.score) return b.score - a.score;
+    const ra = recipes.find((r) => r.id === a.recipeId)!;
+    const rb = recipes.find((r) => r.id === b.recipeId)!;
+    const coverage = Object.keys(b.breakdown).length - Object.keys(a.breakdown).length;
+    if (coverage !== 0) return coverage;
+    // null popularity sorts last; ?? -Infinity would make null−null = NaN, so compare explicitly.
+    if (rb.popularity !== ra.popularity) return (rb.popularity ?? -Infinity) - (ra.popularity ?? -Infinity);
+    const created = rb.createdAt.getTime() - ra.createdAt.getTime();
+    if (created !== 0) return created;
+    return ra.id < rb.id ? -1 : ra.id > rb.id ? 1 : 0;
+  }
+}

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { eq } from "drizzle-orm";
 import { type Database } from "../src/db.js";
 import { RecipeRepository, type RecipeInput } from "../src/repositories/recipe-repository.js";
+import { CookbookRepository } from "../src/repositories/cookbook-repository.js";
+import { cookbooks, cookbookRecipes } from "../src/schema.js";
 import { buildApp } from "../src/index.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 
@@ -145,5 +148,24 @@ describe("PUT /v1/recipes/:id/cookbooks", () => {
     // Unknown recipe id → 404.
     const unknown = await setMembership(me.token, "00000000-0000-0000-0000-000000000000", [mine]);
     expect(unknown.status).toBe(404);
+  });
+});
+
+describe("CookbookRepository system cookbooks (WI-RANK-4)", () => {
+  it("ensureSystemCookbook creates once and reuses; addRecipe is idempotent", async () => {
+    const me = await mintBearer();
+    const repo = CookbookRepository.create(db);
+    const recipeId = await RecipeRepository.create(db).persist(RECIPE, me.userId);
+
+    const first = await repo.ensureSystemCookbook(me.userId, "liked", "Liked");
+    const second = await repo.ensureSystemCookbook(me.userId, "liked", "Liked");
+    expect(second).toBe(first); // reused, not duplicated
+    const liked = await db.select().from(cookbooks).where(eq(cookbooks.systemSlug, "liked"));
+    expect(liked).toHaveLength(1);
+
+    await repo.addRecipe(me.userId, first, recipeId);
+    await repo.addRecipe(me.userId, first, recipeId); // idempotent
+    const members = await db.select().from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, first));
+    expect(members).toHaveLength(1);
   });
 });

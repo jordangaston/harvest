@@ -1,0 +1,849 @@
+<style>
+  :root {
+    --ground: #EAE6DD;
+    --panel: #F7F5F0;
+    --panel-2: #FDFCF9;
+    --ink: #211E19;
+    --soft: #5B564C;
+    --faint: #8A8477;
+    --rule: #D6D0C4;
+    --rule-strong: #C3BCAC;
+    --score: #A85E2B;   /* soft signals — contribute weighted points */
+    --filter: #9A3324;  /* hard filter — excludes from the pool */
+    --pass: #5F6B2E;    /* available / pass */
+    --score-wash: #F1E4D5;
+    --filter-wash: #F0DDD8;
+    --pass-wash: #E4E7D4;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  /* ---- rhythm ---- */
+  section { margin-top: 60px; }
+  section > * + * { margin-top: 18px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .eyebrow::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+    margin: 10px 0 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    margin: 0;
+  }
+  p { margin: 0; max-width: 68ch; color: var(--ink); }
+  p.note { color: var(--soft); font-size: 14.5px; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ---- masthead ---- */
+  header {
+    padding-top: 56px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 34px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--score);
+    margin: 0;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 14px 0 0;
+    text-wrap: balance;
+  }
+  .dek {
+    margin-top: 18px;
+    font-size: 18px;
+    color: var(--soft);
+    max-width: 60ch;
+  }
+  .meta {
+    margin-top: 26px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+  }
+  .tag {
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 100px;
+    color: var(--soft);
+    background: var(--panel-2);
+  }
+
+  /* ---- hero formula ---- */
+  .formula {
+    margin-top: 34px;
+    background: var(--ink);
+    color: #F3EFE6;
+    border-radius: 10px;
+    padding: 30px 28px;
+    overflow-x: auto;
+  }
+  .formula .lbl {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #B7A98F;
+  }
+  .formula .eq {
+    font-family: var(--mono);
+    font-size: clamp(19px, 3.4vw, 30px);
+    margin-top: 14px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .formula .frac { display: inline-flex; flex-direction: column; text-align: center; vertical-align: middle; margin: 0 4px; }
+  .formula .frac .num { padding: 0 10px 6px; }
+  .formula .frac .den { padding: 6px 10px 0; border-top: 2px solid #6f6552; }
+  .formula .amber { color: #E0965A; }
+  .formula .cap { margin-top: 18px; font-family: var(--sans); font-size: 14px; color: #C6BBA4; max-width: 62ch; white-space: normal; }
+
+  /* ---- pipeline ---- */
+  .pipe {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  .stage {
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--rule-strong);
+    border-radius: 8px;
+    padding: 18px 18px 20px;
+    position: relative;
+  }
+  .stage.filter { border-top-color: var(--filter); }
+  .stage.score { border-top-color: var(--score); }
+  .stage.sort { border-top-color: var(--pass); }
+  .stage .n {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    letter-spacing: 0.1em;
+  }
+  .stage h3 { margin-top: 6px; font-size: 16px; }
+  .stage p { font-size: 13.5px; color: var(--soft); margin-top: 8px; }
+  .stage .verb {
+    display: inline-block;
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .filter .verb { color: var(--filter); background: var(--filter-wash); }
+  .score .verb { color: var(--score); background: var(--score-wash); }
+  .sort .verb { color: var(--pass); background: var(--pass-wash); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel-2); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: var(--panel);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .sig-name { font-family: var(--mono); font-weight: 600; }
+  .sig-num { color: var(--faint); font-weight: 400; }
+
+  .role {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    display: inline-block;
+  }
+  .role.soft { color: var(--score); background: var(--score-wash); }
+  .role.hard { color: var(--filter); background: var(--filter-wash); }
+  .role.both { color: var(--pass); background: var(--pass-wash); }
+  .role.na  { color: var(--faint); background: var(--panel); border: 1px dashed var(--rule-strong); }
+  tr.notbuilt td { color: var(--faint); }
+
+  /* ---- norm cards ---- */
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .card {
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .card > * + * { margin-top: 10px; }
+  .card .top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .card .top h3 { font-size: 14px; }
+  .card .w { font-family: var(--mono); font-size: 11px; color: var(--score); letter-spacing: 0.04em; }
+  .card .eq {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .card p { font-size: 13px; color: var(--soft); }
+
+  /* ---- gate matrices ---- */
+  .gates { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .gate-head { font-family: var(--mono); font-size: 13px; margin: 0 0 10px; }
+  .gate-head .sev { color: var(--filter); }
+
+  /* ---- worked example ---- */
+  .example { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  .ex-user {
+    background: var(--panel);
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--soft);
+    line-height: 1.9;
+  }
+  .ex-user b { color: var(--ink); font-weight: 600; }
+  .ex-excluded {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 20px;
+    background: var(--filter-wash);
+    border-bottom: 1px solid var(--rule);
+    font-size: 14px;
+  }
+  .ex-excluded .badge {
+    font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #fff; background: var(--filter); padding: 3px 9px; border-radius: 4px;
+  }
+  .ex-excluded .why { color: var(--filter); font-family: var(--mono); font-size: 12.5px; }
+  .board { display: grid; grid-template-columns: 1fr 1fr; }
+  .board > .col + .col { border-left: 1px solid var(--rule); }
+  .col-head {
+    padding: 16px 20px 12px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  }
+  .col-head .rk { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .col-head h3 { font-size: 15px; }
+  .rows { padding: 0 20px; }
+  .row {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 8px 12px; align-items: center;
+    padding: 8px 0; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums;
+  }
+  .row .rlabel { font-family: var(--sans); color: var(--soft); font-size: 13px; }
+  .row .rs { text-align: right; min-width: 46px; }
+  .row .rw { color: var(--faint); text-align: right; min-width: 30px; }
+  .bar-wrap { grid-column: 1 / -1; height: 4px; background: var(--ground); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+  .bar { height: 100%; background: var(--score); border-radius: 2px; }
+  .col-total {
+    margin-top: 4px; padding: 16px 20px 20px;
+    border-top: 2px solid var(--ink);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  }
+  .col-total .calc { font-family: var(--mono); font-size: 12px; color: var(--soft); }
+  .col-total .final { font-family: var(--mono); font-weight: 700; font-size: 34px; letter-spacing: -0.02em; }
+  .col.winner .col-total .final { color: var(--score); }
+  .win-flag { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--score); }
+
+  /* ---- schema cards ---- */
+  .schema { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tbl {
+    background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden;
+    font-family: var(--mono); font-size: 12.5px;
+  }
+  .tbl .tname {
+    background: var(--ink); color: #F3EFE6; padding: 10px 14px;
+    font-size: 13px; letter-spacing: 0.03em; display: flex; justify-content: space-between; align-items: center;
+  }
+  .tbl .tname .card1 { color: #B7A98F; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .tbl .field { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--rule); }
+  .tbl .field:last-child { border-bottom: none; }
+  .tbl .fname { color: var(--ink); }
+  .tbl .ftype { color: var(--faint); text-align: right; }
+  .tbl .pk { color: var(--score); }
+  .tbl .enum { color: var(--pass); }
+
+  /* ---- split panels ---- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel {
+    background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px;
+  }
+  .panel > * + * { margin-top: 10px; }
+  ol.steps, ul.plain { margin: 0; padding-left: 20px; font-size: 14px; color: var(--soft); }
+  ol.steps li, ul.plain li { margin: 5px 0; }
+  ol.steps li b, ul.plain li b { color: var(--ink); font-weight: 600; }
+  .kv { font-family: var(--mono); font-size: 13px; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+  .kv dt { color: var(--faint); }
+  .kv dd { margin: 0; color: var(--ink); }
+
+  /* ---- future chips ---- */
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip {
+    border: 1px dashed var(--rule-strong); border-radius: 8px; padding: 12px 15px;
+    background: var(--panel-2); max-width: 320px;
+  }
+  .chip .h { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .chip .d { font-size: 13px; color: var(--soft); margin-top: 5px; }
+
+  /* ---- refs / footer ---- */
+  .refs { font-size: 13px; color: var(--soft); columns: 2; column-gap: 34px; }
+  .refs div { break-inside: avoid; margin-bottom: 8px; }
+  .refs .t { font-family: var(--mono); color: var(--score); }
+  footer {
+    margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 12px; color: var(--faint);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  }
+
+  @media (max-width: 720px) {
+    .pipe, .cards, .gates, .split, .schema { grid-template-columns: 1fr; }
+    .board { grid-template-columns: 1fr; }
+    .board > .col + .col { border-left: none; border-top: 1px solid var(--rule); }
+    .refs { columns: 1; }
+  }
+
+  a { color: var(--score); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--score); outline-offset: 2px; border-radius: 3px; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="kicker">Harvest · Backend Design Spec</p>
+    <h1>Ranking Engine</h1>
+    <p class="dek">How eight per-recipe signals collapse into one per-user score — a filter-then-rank
+      pipeline over the signals earlier sprints already persist. Deliberately boring: hard filters
+      first, then a weighted average of normalized scores.</p>
+    <div class="meta">
+      <span class="tag">v1 · greenfield</span>
+      <span class="tag">libSQL / Turso · Drizzle</span>
+      <span class="tag">8 signals · 4 new tables</span>
+      <span class="tag">2026-08-18</span>
+    </div>
+
+    <div class="formula" aria-label="scoring formula">
+      <div class="lbl">The score</div>
+      <div class="eq">
+        score(<span class="amber">user</span>,&nbsp;recipe)&nbsp;=&nbsp;
+        <span class="frac">
+          <span class="num">Σ<sub>i∈A</sub>&nbsp;<span class="amber">w</span><sub>i</sub>&nbsp;·&nbsp;s<sub>i</sub></span>
+          <span class="den">Σ<sub>i∈A</sub>&nbsp;<span class="amber">w</span><sub>i</sub></span>
+        </span>
+      </div>
+      <p class="cap">A weighted <em>average</em>, not a sum. <code style="background:#332f27;color:#E0965A;border-color:#4a4437">A</code>
+        = signals with data present and weight&nbsp;&gt;&nbsp;0, so a recipe missing a signal is neither
+        rewarded nor punished for the gap — the signal just drops out of both numerator and denominator.
+        Result ∈ [0,1]; ×100 to display.</p>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Pipeline</p>
+    <h2>Filter, then rank</h2>
+    <p class="note">Hard constraints shrink the candidate pool before any scoring — the pattern every
+      researched system converges on. Soft signals only ever rank what survives.</p>
+    <div class="pipe">
+      <div class="stage filter">
+        <span class="n">01</span>
+        <h3>Filter</h3>
+        <p>Allergens (always) and strict diets remove unsafe or incompatible recipes from the pool.
+          Severity and strictness decide what counts.</p>
+        <span class="verb">excludes · no score</span>
+      </div>
+      <div class="stage score">
+        <span class="n">02</span>
+        <h3>Score</h3>
+        <p>Each surviving recipe gets a weighted average of six normalized soft-signal scores,
+          each s<sub>i</sub> ∈ [0,1]. Soft penalties subtract after.</p>
+        <span class="verb">weighted average</span>
+      </div>
+      <div class="stage sort">
+        <span class="n">03</span>
+        <h3>Sort</h3>
+        <p>Rank by score, descending. Ties break by coverage → popularity → newest → id, so paging
+          is deterministic.</p>
+        <span class="verb">stable order</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Signal roster</p>
+    <h2>Eight signals, two roles</h2>
+    <p class="note">Six soft signals carry a per-user weight. Allergens and diet are filters, so they
+      carry none — "allergens are a hard filter, not a score," extended to strict diets. Popularity is
+      registered but not yet built.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Signal</th><th>Role</th><th>Recipe source</th><th>Weight</th><th>User target</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="sig-name"><span class="sig-num">1 </span>Cost</td>
+            <td><span class="role soft">soft</span></td>
+            <td class="mono">cost_per_serving_cents</td>
+            <td class="mono">weight_cost</td>
+            <td class="mono">budget_cents_per_serving</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">2 </span>Difficulty</td>
+            <td><span class="role soft">soft</span></td>
+            <td class="mono">difficulty_band</td>
+            <td class="mono">weight_difficulty</td>
+            <td class="mono">skill_level</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">3 </span>Nutrition</td>
+            <td><span class="role soft">soft</span></td>
+            <td class="mono">nrf_score</td>
+            <td class="mono">weight_nutrition</td>
+            <td class="mono" style="color:var(--faint)">— weight only</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">4 </span>Affinity</td>
+            <td><span class="role soft">soft</span></td>
+            <td class="mono">recipe_categories</td>
+            <td class="mono">weight_affinity</td>
+            <td class="mono">user_food_prefs</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">5 </span>Allergens</td>
+            <td><span class="role hard">hard filter</span></td>
+            <td class="mono">allergens · complete</td>
+            <td class="mono" style="color:var(--faint)">—</td>
+            <td class="mono">user_allergens · severity</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">6 </span>Diet</td>
+            <td><span class="role both">filter / soft</span></td>
+            <td class="mono">recipe_diets.verdict</td>
+            <td class="mono" style="color:var(--faint)">—</td>
+            <td class="mono">user_diets · strictness</td>
+          </tr>
+          <tr>
+            <td class="sig-name"><span class="sig-num">7 </span>Time</td>
+            <td><span class="role soft">soft</span></td>
+            <td class="mono">total_minutes</td>
+            <td class="mono">weight_time</td>
+            <td class="mono">time_budget_minutes</td>
+          </tr>
+          <tr class="notbuilt">
+            <td class="sig-name"><span class="sig-num">8 </span>Popularity</td>
+            <td><span class="role na">not built</span></td>
+            <td class="mono">(future column)</td>
+            <td class="mono">weight_popularity</td>
+            <td class="mono">— weight only</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Pluggable by design: popularity ships as one column + one <code>PopularityScorer</code>
+      in the registry + its existing weight. No formula, filter, or schema-shape change.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Normalization · soft signals → s<sub>i</sub> ∈ [0,1]</p>
+    <h2>Every signal on one scale</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="top"><h3>Cost</h3><span class="w">weight_cost</span></div>
+        <div class="eq">s_cost = clamp( (2·budget − cost) / budget , 0, 1 )</div>
+        <p>At or under budget is ideal; ramps to 0 as cost rises to twice budget. Null cost/budget → unavailable.</p>
+      </div>
+      <div class="card">
+        <div class="top"><h3>Time</h3><span class="w">weight_time</span></div>
+        <div class="eq">s_time = clamp( (2·T − total_minutes) / T , 0, 1 )</div>
+        <p>Mirrors cost against the time budget T — one mental model for both budget-style signals.</p>
+      </div>
+      <div class="card">
+        <div class="top"><h3>Nutrition</h3><span class="w">weight_nutrition</span></div>
+        <div class="eq">s_nutr = x⁺ / (x⁺ + 57)   ·   x⁺ = max(0, nrf)</div>
+        <p>Saturating squash, not min-max — NRF is a long-tailed per-100-kcal density. k=57 (NRF 15/3 literature mean) scores 0.5; flattens toward 1 without ever clamping distinct healthy recipes together. No target — "how healthy" is the weight itself.</p>
+      </div>
+      <div class="card">
+        <div class="top"><h3>Affinity</h3><span class="w">weight_affinity</span></div>
+        <div class="eq">s_aff = clamp( 0.5 + 0.5·mean(a_f) , 0, 1 )</div>
+        <p>Per facet a_f = +1 liked / −1 disliked / 0 neutral. Neutral baseline 0.5 — unfamiliar isn't punished.</p>
+      </div>
+      <div class="card" style="grid-column:1 / -1">
+        <div class="top"><h3>Difficulty — asymmetric skill match</h3><span class="w">weight_difficulty</span></div>
+        <p style="margin-bottom:2px">Signed distance d = recipe_band − skill_level. Cooking above your skill hurts more than cooking below it.</p>
+        <div class="scroll" style="border-radius:6px">
+          <table>
+            <thead><tr><th>d</th><th>−2 much easier</th><th>−1 easier</th><th>0 match</th><th>+1 a stretch</th><th>+2 over their head</th></tr></thead>
+            <tbody><tr class="mono">
+              <td><b>s_diff</b></td><td>0.70</td><td>0.85</td><td style="color:var(--pass)">1.00</td><td>0.60</td><td style="color:var(--filter)">0.20</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Hard filters · severity decides filter-vs-soft</p>
+    <h2>The gates</h2>
+    <p class="note">The same declared allergen or diet routes to a hard exclude or a soft penalty
+      depending on how negotiable the user says it is — the safety distinction the research keeps
+      first-class. A mild aversion should never hide safe food; an anaphylactic allergy should never leak through.</p>
+    <div class="gates">
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span class="sev">Allergen</span> — <code>user_allergens.severity</code></p>
+        <table>
+          <thead><tr><th>Severity</th><th>Excludes when the recipe…</th></tr></thead>
+          <tbody>
+            <tr><td class="mono" style="color:var(--filter)">severe</td><td><b>contains</b> or <b>may&nbsp;contain</b>, or completeness is unknown</td></tr>
+            <tr><td class="mono">moderate</td><td><b>contains</b> the allergen</td></tr>
+            <tr><td class="mono" style="color:var(--soft)">mild</td><td>never excludes — <b>−0.15</b> soft penalty instead</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span class="sev">Diet</span> — <code>user_diets.strictness</code></p>
+        <table>
+          <thead><tr><th>Strictness</th><th>Behavior on the diet verdict</th></tr></thead>
+          <tbody>
+            <tr><td class="mono" style="color:var(--filter)">strict</td><td>excludes <b>incompatible</b>; <b>unknown</b> kept but penalized −0.05</td></tr>
+            <tr><td class="mono" style="color:var(--soft)">flexible</td><td>never excludes — incompatible −0.20, unknown −0.05</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Worked example · one user, three recipes</p>
+    <h2>Watch it rank</h2>
+    <div class="example">
+      <div class="ex-user">
+        <b>Alice</b> — skill <b>intermediate</b> · budget <b>400¢</b> · time <b>30 min</b> ·
+        weights {cost <b>3</b>, difficulty <b>1</b>, nutrition <b>3</b>, affinity <b>2</b>, time <b>2</b>, popularity 0} ·
+        allergen <b>peanut : severe</b> · likes <b>italian</b>, <b>chicken</b>
+      </div>
+      <div class="ex-excluded">
+        <span class="badge">Filtered</span>
+        <span><b>R2 · Pad Thai</b> — contains peanut</span>
+        <span class="why">severe allergen · dropped before scoring</span>
+      </div>
+      <div class="board">
+        <div class="col winner">
+          <div class="col-head">
+            <div><div class="rk">rank 1 · <span class="win-flag">winner</span></div><h3>R1 · Chicken Piccata</h3></div>
+          </div>
+          <div class="rows">
+            <div class="row"><span class="rlabel">cost · 350¢</span><span class="rs">1.00</span><span class="rw">×3</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div></div>
+            <div class="row"><span class="rlabel">difficulty · match</span><span class="rs">1.00</span><span class="rw">×1</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div></div>
+            <div class="row"><span class="rlabel">nutrition · nrf 45</span><span class="rs">0.441</span><span class="rw">×3</span><div class="bar-wrap"><div class="bar" style="width:44.1%"></div></div></div>
+            <div class="row"><span class="rlabel">affinity · italian+chicken</span><span class="rs">0.833</span><span class="rw">×2</span><div class="bar-wrap"><div class="bar" style="width:83.3%"></div></div></div>
+            <div class="row"><span class="rlabel">time · 25 min</span><span class="rs">1.00</span><span class="rw">×2</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div></div>
+          </div>
+          <div class="col-total">
+            <span class="calc">8.990 / 11</span>
+            <span class="final">81.7</span>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-head">
+            <div><div class="rk">rank 2</div><h3>R3 · Veggie Minestrone</h3></div>
+          </div>
+          <div class="rows">
+            <div class="row"><span class="rlabel">cost · 250¢</span><span class="rs">1.00</span><span class="rw">×3</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div></div>
+            <div class="row"><span class="rlabel">difficulty · a bit easy</span><span class="rs">0.85</span><span class="rw">×1</span><div class="bar-wrap"><div class="bar" style="width:85%"></div></div></div>
+            <div class="row"><span class="rlabel">nutrition · nrf 70</span><span class="rs">0.551</span><span class="rw">×3</span><div class="bar-wrap"><div class="bar" style="width:55.1%"></div></div></div>
+            <div class="row"><span class="rlabel">affinity · italian only</span><span class="rs">0.667</span><span class="rw">×2</span><div class="bar-wrap"><div class="bar" style="width:66.7%"></div></div></div>
+            <div class="row"><span class="rlabel">time · 45 min</span><span class="rs">0.50</span><span class="rw">×2</span><div class="bar-wrap"><div class="bar" style="width:50%"></div></div></div>
+          </div>
+          <div class="col-total">
+            <span class="calc">7.837 / 11</span>
+            <span class="final">71.2</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Chicken Piccata wins — Italian and chicken both liked, fast, and matched to Alice's
+      skill. Minestrone is the more nutritious dish but loses on affinity, time, and a slight
+      "too easy" discount. The ranking matches intuition, which is the whole point of the boring model.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Data model · four new tables</p>
+    <h2>Where preferences live</h2>
+    <p class="note">One 1:1 preferences row plus three child tables. Severity, strictness, and
+      sentiment are first-class enums. <code>user_food_prefs</code> mirrors <code>recipe_categories</code>
+      exactly, so affinity is a direct join.</p>
+    <div class="schema">
+      <div class="tbl">
+        <div class="tname">user_preferences <span class="card1">1 : 1 user</span></div>
+        <div class="field"><span class="fname pk">user_id</span><span class="ftype">text · pk · fk</span></div>
+        <div class="field"><span class="fname">skill_level</span><span class="ftype enum">enum</span></div>
+        <div class="field"><span class="fname">budget_cents_per_serving</span><span class="ftype">int · null</span></div>
+        <div class="field"><span class="fname">time_budget_minutes</span><span class="ftype">int · null</span></div>
+        <div class="field"><span class="fname">weight_cost … weight_popularity</span><span class="ftype">int 0–3 ×6</span></div>
+        <div class="field"><span class="fname">updated_at</span><span class="ftype">timestamp</span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">user_allergens <span class="card1">0 : N</span></div>
+        <div class="field"><span class="fname pk">user_id</span><span class="ftype">text · fk</span></div>
+        <div class="field"><span class="fname pk">allergen</span><span class="ftype enum">enum · 9 majors</span></div>
+        <div class="field"><span class="fname">severity</span><span class="ftype enum">severe·moderate·mild</span></div>
+        <div class="field" style="color:var(--faint)"><span class="fname">pk (user_id, allergen)</span><span class="ftype"></span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">user_diets <span class="card1">0 : N</span></div>
+        <div class="field"><span class="fname pk">user_id</span><span class="ftype">text · fk</span></div>
+        <div class="field"><span class="fname pk">diet_id</span><span class="ftype">text · free key</span></div>
+        <div class="field"><span class="fname">strictness</span><span class="ftype enum">strict·flexible</span></div>
+        <div class="field" style="color:var(--faint)"><span class="fname">pk (user_id, diet_id)</span><span class="ftype"></span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">user_food_prefs <span class="card1">0 : N · mirrors recipe_categories</span></div>
+        <div class="field"><span class="fname pk">user_id</span><span class="ftype">text · fk</span></div>
+        <div class="field"><span class="fname pk">facet</span><span class="ftype enum">cuisine·dish·ingredient</span></div>
+        <div class="field"><span class="fname pk">value</span><span class="ftype">text · vocab</span></div>
+        <div class="field"><span class="fname">sentiment</span><span class="ftype enum">like·dislike</span></div>
+      </div>
+    </div>
+    <p class="note"><b>Where a stated preference becomes a number:</b> onboarding importance
+      (none / somewhat / important / very) maps to the integer weight <code>0·1·2·3</code> once, at
+      persist time — so the ranker only ever reads integers.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Edges</p>
+    <h2>Cold start &amp; tie-breaks</h2>
+    <div class="split">
+      <div class="panel">
+        <h3>Cold start</h3>
+        <p class="note">A new user with no preferences is ranked from the onboarding <code>goals</code>
+          already on the users table:</p>
+        <dl class="kv">
+          <dt>save_money</dt><dd>weight_cost → 3</dd>
+          <dt>eat_healthier</dt><dd>weight_nutrition → 3</dd>
+          <dt>save_time</dt><dd>weight_time → 3</dd>
+          <dt>everything else</dt><dd>weight → 1</dd>
+        </dl>
+        <p class="note">No goals at all → all weights 1, no filters, affinity flat at 0.5. Null targets
+          make their signal unavailable rather than forcing a guess. Safe from day one, improves as
+          preferences fill in.</p>
+      </div>
+      <div class="panel">
+        <h3>Tie-breaking</h3>
+        <ol class="steps">
+          <li><b>Signal coverage</b> — more data, more confidence</li>
+          <li><b>Popularity</b> — once the column exists; a no-op until then</li>
+          <li><b>Newest</b> — created_at descending</li>
+          <li><b>Recipe id</b> — ascending; the stable final tiebreaker</li>
+        </ol>
+        <h3 style="margin-top:16px">Soft penalties</h3>
+        <p class="note">Applied after the average, floored at 0, additive: mild allergen −0.15,
+          flexible-diet incompatible −0.20, any unknown-verdict −0.05. "Avoid, don't forbid."</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Swipe deck &amp; feedback loop · v1.1</p>
+    <h2>Swiping, the Tinder way</h2>
+    <p class="note">The ranked list is consumed as a swipe deck. Modeled on how Tinder actually works:
+      a pre-assembled <strong>batch</strong> the client swipes through, re-ranked on the <em>next</em>
+      fetch — <strong>not</strong> a re-rank on every swipe, and <strong>not</strong> a persisted queue
+      table. Weight changes from swipes land immediately but only reshape the next deck, so the batch
+      under your thumb never reshuffles.</p>
+
+    <div class="pipe">
+      <div class="stage score">
+        <span class="n">01</span>
+        <h3>Fetch deck</h3>
+        <p><code style="font-size:11px">GET /v1/recipes/deck?limit=5</code> — top unswiped ranked cards.
+          Recently-swiped are excluded (cooldown); the deck is a query, not a table.</p>
+        <span class="verb">query, re-ranked</span>
+      </div>
+      <div class="stage sort">
+        <span class="n">02</span>
+        <h3>Swipe</h3>
+        <p>Right → Liked cookbook. Left → optional reason. Each swipe records a row with a
+          <strong>score + weights snapshot</strong>.</p>
+        <span class="verb">like / dislike</span>
+      </div>
+      <div class="stage filter">
+        <span class="n">03</span>
+        <h3>Refetch at 1–2 left</h3>
+        <p>Client prefetches the next batch before running dry — re-ranked with any updated weights,
+          excluding what was just swiped. No mid-deck reshuffle.</p>
+        <span class="verb">fetch boundary</span>
+      </div>
+    </div>
+
+    <div class="split" style="margin-top:14px">
+      <div class="panel">
+        <h3>Candidate source · owned ∪ global</h3>
+        <p class="note" style="margin-top:8px">The deck draws from the user's recipes <em>plus</em> the
+          app's global corpus — not owned-only.</p>
+        <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
+          <span class="role both" style="font-size:11px">owned · ranked per request (cheap)</span>
+          <span class="role soft" style="font-size:11px">global · user_id NULL (model ✓)</span>
+        </div>
+        <p class="note" style="margin-top:12px"><strong>Ownership model shipped</strong> —
+          <code>recipes.user_id</code> is nullable; a <code>NULL</code> owner is a global recipe
+          (migration 0011). User-scoped reads filter <code>user_id = caller</code>, so globals never
+          leak; the deck opts in with <code>… OR user_id IS NULL</code>. Still to build (Q-04):
+          <strong>populate</strong> the corpus, <strong>union</strong> it into the deck, and a
+          <strong>retrieval</strong> stage for scale — where <strong>popularity</strong> finally earns
+          its keep as the cold-start discovery signal.</p>
+      </div>
+      <div class="tbl" style="align-self:start">
+        <div class="tname">recipe_swipes <span class="card1">0 : N · labeled feedback</span></div>
+        <div class="field"><span class="fname pk">user_id, recipe_id</span><span class="ftype">pk · cascade</span></div>
+        <div class="field"><span class="fname">direction</span><span class="ftype enum">like · dislike</span></div>
+        <div class="field"><span class="fname">reason</span><span class="ftype enum">null · dislike only</span></div>
+        <div class="field"><span class="fname">score</span><span class="ftype">real · snapshot</span></div>
+        <div class="field"><span class="fname">weights</span><span class="ftype">json · snapshot</span></div>
+        <div class="field"><span class="fname">created_at</span><span class="ftype">cooldown + decay</span></div>
+      </div>
+    </div>
+
+    <div class="gates" style="margin-top:14px">
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span style="color:var(--pass)">Right swipe</span> — like</p>
+        <table>
+          <thead><tr><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>Records the swipe, then adds the recipe to the user's <strong>Liked</strong> cookbook (lazily created; a new <code>cookbooks.system_slug='liked'</code> marks it so it isn't renamed or duplicated).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span class="sev">Left swipe</span> — dislike + reason → tune</p>
+        <table>
+          <thead><tr><th>Reason</th><th>Tunes (first write-path to prefs)</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">too expensive</td><td>weight_cost +1</td></tr>
+            <tr><td class="mono">too hard</td><td>weight_difficulty +1</td></tr>
+            <tr><td class="mono">too slow</td><td>weight_time +1</td></tr>
+            <tr><td class="mono">not nutritious</td><td>weight_nutrition +1</td></tr>
+            <tr><td class="mono">disliked ingredient</td><td>user_food_prefs dislike <em>(a target)</em></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="note">Most reasons nudge a <em>weight</em> (a signal's importance); "disliked ingredient"
+      nudges a <em>target</em> (a specific dislike). Nudges are coarse (+1, capped 3) and apply at the
+      next fetch — boring-first; the learned loop (below) supersedes them, training on the
+      <code>recipe_swipes</code> snapshots.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Recorded, not built</p>
+    <h2>What v1 deliberately leaves out</h2>
+    <p class="note">The richer ideas the research surfaced, deferred to keep the first version boring
+      and correct. Each writes the same weight columns or adds one scorer — the ranker stays unchanged.</p>
+    <div class="chips">
+      <div class="chip"><div class="h">Popularity signal</div><div class="d">A normalized 0–1 column from social-media imports + its scorer. Already registered — no algorithm change.</div></div>
+      <div class="chip"><div class="h">Learned weights</div><div class="d">Fit coefficients to chosen-vs-skipped recipes (choice model / BPR-WARP). Overwrites the same integer columns.</div></div>
+      <div class="chip"><div class="h">Implicit feedback + decay</div><div class="d">Learn affinity from behavior, recent events weighted more via exponential decay. Needs an events table.</div></div>
+      <div class="chip"><div class="h">Confidence weighting</div><div class="d">Store strength-of-preference so a weak like pulls less than a strong one.</div></div>
+      <div class="chip"><div class="h">Hard-exclude ingredients</div><div class="d">Promote a strong dislike to an exclusion filter. Today a dislike is only a soft negative.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Grounding · step-1 research</p>
+    <h2>Justified, not asserted</h2>
+    <p class="note">Every choice above traces to a verified finding (3-vote adversarial checking).
+      Honest caveat: the strongest evidence is from patents and papers, not the named consumer apps —
+      a patent documents a pattern is <em>claimed</em>, not that any app ships it. And no source
+      published a concrete severity/strictness enum; ours synthesizes the preference-vs-confidence
+      split and the medical/ethical/preference tiering.</p>
+    <div class="refs">
+      <div><span class="t">S1</span> Yum-me (arXiv:1605.07722) — filter-then-rank; restrictions as hard constraints separate from learned taste.</div>
+      <div><span class="t">S2</span> US9230212B2 — hard exclusions block entirely; expert weight tables; time-decayed strength.</div>
+      <div><span class="t">S3</span> Whatnot Engineering (2022) — learned latent factors (BPR/WARP), explicitly the <em>initial</em> model.</div>
+      <div><span class="t">S4</span> FaST/FaRM (arXiv:2508.04698) — per-user feature-weight vector; interpretable weighted sum.</div>
+      <div><span class="t">S5</span> US8874574B2 — stated distribution → per-criterion weights; derived defaults + override.</div>
+      <div><span class="t">S6</span> Hu-Koren-Volinsky (US20110153663A1) — preference vs. confidence <code>c=1+α·r</code>.</div>
+      <div><span class="t">S8</span> flavoreer — three tiers: medical / ethical-religious / personal preference.</div>
+      <div><span class="t">S9</span> Healthy Meals (PMC8891920) — allergen presence as two-level flag.</div>
+    </div>
+  </section>
+
+  <footer>
+    <span>docs/ranking-engine/DESIGN.md</span>
+    <span>Harvest · Ranking Engine · v1</span>
+  </footer>
+
+</div>
