@@ -141,6 +141,10 @@ export const recipes = sqliteTable(
     difficultyBand: text('difficulty_band', { enum: DIFFICULTY_BANDS }),
     allergens: text('allergens', { mode: 'json' }).$type<{ contains: string[]; mayContain: string[] }>(),
     allergensComplete: integer('allergens_complete', { mode: 'boolean' }).notNull().default(false),
+    // Cost signal (WI-CS-1): absolute USD cents per serving + the fraction of gram-weight
+    // priced (numeric-as-text). Both null until `costStep` scores at ingest (WI-CS-2).
+    costPerServingCents: integer('cost_per_serving_cents'),
+    costCoverage: text('cost_coverage'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -381,6 +385,21 @@ export const fdcFoodAllergen = sqliteTable(
   (t) => [primaryKey({ columns: [t.fdcId, t.allergen] }), index('fdc_food_allergen_fdc_idx').on(t.fdcId)],
 );
 
+// Cost signal (WI-CS-1): one row per priced FNDDS food, keyed to `fdc_id`, derived
+// offline from USDA ERS Purchase to Plate National Average Prices (PP-NAP). Mirrors
+// `fdc_food_allergen`. Stores the RAW 2017–18 PP-NAP fields at lowest granularity
+// (numeric-as-text, no CPI, no cents rounding) so re-inflation or a newer cycle
+// rebuilds without re-sourcing. CPI aging + cents rounding happen at read time.
+export const fdcFoodPrice = sqliteTable('fdc_food_price', {
+  fdcId: integer('fdc_id')
+    .primaryKey()
+    .references(() => fdcFoods.fdcId),
+  foodCode: text('food_code').notNull(),
+  pricePer100g: text('price_per_100g').notNull(),
+  method: text('method'),
+  sourceCycle: text('source_cycle').notNull(),
+});
+
 export const schema = {
   users,
   recipes,
@@ -397,6 +416,7 @@ export const schema = {
   fdcFoods,
   fdcFoodNutrient,
   fdcFoodAllergen,
+  fdcFoodPrice,
 };
 export type Schema = typeof schema;
 
