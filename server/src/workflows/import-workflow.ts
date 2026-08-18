@@ -15,6 +15,7 @@ import type { RecipeAllergens } from "../allergen/allergen.js";
 import { RecipeCategorizer } from "../categorize/recipe-categorizer.js";
 import { DietClassifier } from "../diet/diet-classifier.js";
 import type { DietCompat } from "../diet/diet.js";
+import { CostEstimator } from "../price/cost-estimator.js";
 
 /**
  * The durable import workflow — the WDK port of DBOS's `ImportWorkflow` +
@@ -36,7 +37,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const material = await fetchSourceStep(input);
     const recipes = await resolveRecipes(material, input);
     const enriched = await nutritionStep(recipes, input);
-    const profiled = await allergenStep(enriched, input);
+    const costed = await costStep(enriched, input);
+    const profiled = await allergenStep(costed, input);
     const categorized = await categorizeStep(profiled, input);
     const dieted = await dietStep(categorized, input);
     await persistStep(dieted, input);
@@ -210,6 +212,43 @@ async function enrichOne(
     return { ...recipe, estimate };
   } catch (err) {
     console.log(`[step] nutrition job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/**
+ * Attach a cost-per-serving estimate to every resolved recipe before persist. Reuses the
+ * nutrition match+convert pass (`CostEstimator`) over the seeded price catalog from
+ * `dbFromEnv()` — no network. Best-effort, exactly like `nutritionStep`: a per-recipe
+ * try/catch means one estimate failure leaves that recipe's cost null (persists null
+ * columns), never failing an import that would otherwise succeed. One info line per recipe.
+ */
+async function costStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const estimator = CostEstimator.create(dbFromEnv());
+  return Promise.all(recipes.map((recipe) => costOne(estimator, recipe, input)));
+}
+costStep.maxRetries = 3;
+
+/**
+ * Estimate one recipe's cost, logging the outcome (the design's monitoring hook:
+ * `cost` and `coverage` per recipe). A failure returns the recipe uncosted (persists
+ * null columns) rather than failing the import.
+ */
+async function costOne(
+  estimator: CostEstimator,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const cost = await estimator.estimate(recipe.ingredients, resolvedServings(recipe));
+    console.log(
+      `[step] cost job=${input.jobId} title=${recipe.title} ` +
+        `cost=${cost?.centsPerServing ?? "none"} coverage=${cost?.coverage.toFixed(2) ?? "none"} outcome=ok`,
+    );
+    return cost ? { ...recipe, cost } : recipe;
+  } catch (err) {
+    console.log(`[step] cost job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;
   }
 }

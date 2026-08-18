@@ -16,6 +16,7 @@ import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import type { DietCompat } from '../diet/diet.js';
+import type { RecipeCost } from '../price/cost-estimator.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
@@ -48,6 +49,8 @@ export interface RecipeInput {
   /** Difficulty signal (WI-DIFF-3). Omit when scoring was skipped/failed — persists
    * null columns and null per-step difficulties. `stepDifficulties` aligns to `steps`. */
   difficulty?: RecipeDifficulty;
+  /** Cost signal (WI-CS-2). Null/omit when unpriceable — persists null columns. */
+  cost?: RecipeCost | null;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -232,6 +235,8 @@ export class RecipeRepository {
         nrfScore: recipe.nrfScore != null ? String(recipe.nrfScore) : null,
         difficultyScore: recipe.difficulty ? String(recipe.difficulty.score) : null,
         difficultyBand: recipe.difficulty?.band ?? null,
+        costPerServingCents: recipe.cost?.centsPerServing ?? null,
+        costCoverage: recipe.cost != null ? String(recipe.cost.coverage) : null,
         ...nutritionColumns(recipe.nutrition),
         ...allergenColumns(recipe.allergens),
       })

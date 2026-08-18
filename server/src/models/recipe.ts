@@ -43,6 +43,8 @@ export const RecipeSchema = z.object({
   nrfScore: z.string().nullable(),
   difficultyScore: z.string().nullable(),
   difficultyBand: z.enum(['beginner', 'intermediate', 'advanced']).nullable(),
+  costPerServingCents: z.number().int().nullable(),
+  costCoverage: z.string().nullable(),
   allergens: z.object({ contains: z.array(z.string()), mayContain: z.array(z.string()) }).nullable(),
   allergensComplete: z.boolean(),
   createdAt: z.date(),
