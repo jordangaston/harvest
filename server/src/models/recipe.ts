@@ -136,6 +136,10 @@ export interface PublicRecipe {
   nutrition?: PublicNutrition;
   nrf_score?: number;
   difficulty?: { score: number; band: DifficultyBand };
+  /** Estimated cost per serving in cents, and the fraction of ingredients priced
+   * (both null when cost was never computed). Read straight from the recipe row. */
+  cost_per_serving_cents: number | null;
+  cost_coverage: number | null;
   allergens?: PublicAllergens;
   categories: PublicCategories;
   /** Per-diet compatibility (WI-DS-1); empty when the signal was withheld. */
@@ -166,6 +170,8 @@ export interface RecipeCard {
   imageUrl: string | null;
   totalMinutes: number | null;
   difficultyBand: DifficultyBand | null;
+  costPerServingCents: number | null;
+  costCoverage: number | null;
   ingredientNames?: string[];
   cookbookIds?: string[];
 }
@@ -183,6 +189,8 @@ export interface PublicRecipeCard {
   image_url?: string;
   total_minutes?: number;
   difficulty_band?: DifficultyBand;
+  cost_per_serving_cents: number | null;
+  cost_coverage: number | null;
   ingredient_names?: string[];
   cookbook_ids?: string[];
 }
@@ -190,7 +198,7 @@ export interface PublicRecipeCard {
 /** Maps a recipe card to its public shape, omitting null/absent optionals. The card
  * carries the difficulty BAND only (a badge), never the raw score. */
 export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
-  const out: PublicRecipeCard = { id: card.id, title: card.title };
+  const out: PublicRecipeCard = { id: card.id, title: card.title, cost_per_serving_cents: card.costPerServingCents, cost_coverage: card.costCoverage };
   if (card.imageUrl) out.image_url = card.imageUrl;
   if (card.totalMinutes != null) out.total_minutes = card.totalMinutes;
   if (card.difficultyBand) out.difficulty_band = card.difficultyBand;
@@ -233,6 +241,8 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
       primary_ingredient: detail.categories.primaryIngredient,
     },
     diets: detail.diets.map((d) => (d.blocker ? { diet_id: d.dietId, verdict: d.verdict, blocker: d.blocker } : { diet_id: d.dietId, verdict: d.verdict })),
+    cost_per_serving_cents: recipe.costPerServingCents,
+    cost_coverage: recipe.costCoverage == null ? null : Number(recipe.costCoverage),
   };
   if (recipe.sourceUrl) publicRecipe.source_url = recipe.sourceUrl;
   if (recipe.servings != null) publicRecipe.servings = recipe.servings;

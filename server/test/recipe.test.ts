@@ -81,6 +81,8 @@ describe("GET /v1/recipes/:id", () => {
       steps: ["Mix", "Bake"],
       categories: { cuisine: [], meal_type: [], dish_type: [], primary_ingredient: [] },
       diets: [],
+      cost_per_serving_cents: null,
+      cost_coverage: null,
     });
   });
 

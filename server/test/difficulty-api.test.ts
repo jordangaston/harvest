@@ -72,6 +72,8 @@ describe("toPublicRecipeCard difficulty_band projection (WI-DIFF-4)", () => {
     imageUrl: null,
     totalMinutes: null,
     difficultyBand: null,
+    costPerServingCents: null,
+    costCoverage: null,
     ...over,
   });
 

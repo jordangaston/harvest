@@ -343,6 +343,8 @@ export class RecipeRepository {
         imageUrl: recipes.imageUrl,
         totalMinutes: recipes.totalMinutes,
         difficultyBand: recipes.difficultyBand,
+        costPerServingCents: recipes.costPerServingCents,
+        costCoverage: recipes.costCoverage,
         createdAt: recipes.createdAt,
       })
       .from(recipes)
@@ -357,7 +359,7 @@ export class RecipeRepository {
     const cbIds = opts.expand.cookbookIds ? await this.cookbookIdsByRecipe(userId, ids) : null;
 
     const cards: RecipeCard[] = page.map((r) => {
-      const card: RecipeCard = { id: r.id, title: r.title, imageUrl: r.imageUrl, totalMinutes: r.totalMinutes, difficultyBand: r.difficultyBand };
+      const card: RecipeCard = { id: r.id, title: r.title, imageUrl: r.imageUrl, totalMinutes: r.totalMinutes, difficultyBand: r.difficultyBand, costPerServingCents: r.costPerServingCents, costCoverage: r.costCoverage == null ? null : Number(r.costCoverage) };
       if (names) card.ingredientNames = names.get(r.id) ?? [];
       if (cbIds) card.cookbookIds = cbIds.get(r.id) ?? [];
       return card;
