@@ -33,6 +33,8 @@ const baseRecipe = (): RecipeDetail["recipe"] => ({
   nrfScore: null,
   difficultyScore: null,
   difficultyBand: null,
+  costPerServingCents: null,
+  costCoverage: null,
   allergens: null,
   allergensComplete: false,
   createdAt: new Date(),
