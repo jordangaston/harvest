@@ -42,6 +42,17 @@ export const DIET_RULES: DietRule[] = [
   { id: 'dairy_free', blockedClasses: ['dairy'], blockedIngredients: [...HIDDEN_DAIRY] },
   { id: 'red_meat_free', blockedClasses: ['red_meat'], blockedIngredients: ['gelatin', 'lard', 'tallow', 'suet', 'beef broth', 'bone broth', 'beef stock'] },
   { id: 'carnivore', blockedClasses: PLANT_CLASSES, blockedIngredients: [] },
+  // Paleo excludes grains, legumes, and dairy (allows meat/fish/eggs/veg/fruit/nuts).
+  // ponytail: the potato-excluded-but-sweet-potato-allowed and refined-sugar nuances are
+  // finer than WWEIA categories carry (DESIGN D-02) — this is the clean, defensible core.
+  { id: 'paleo', blockedClasses: ['grain', 'legume', 'dairy'], blockedIngredients: [...HIDDEN_DAIRY, 'peanut'] },
+  // Mediterranean is a dietary PATTERN, not an exclusion/threshold, so it can't reduce
+  // cleanly to our primitives (DESIGN D-02). Shipped as the best defensible proxy: it most
+  // distinctively minimizes red/processed meat and added sugar. This intentionally does NOT
+  // capture the pattern's positive emphasis (olive oil, fish, whole grains, legumes).
+  // ponytail: exclusion proxy for a pattern — over-calls honey-sweetened dishes as unfit;
+  // upgrade to a positive pattern score if Mediterranean ever needs real precision.
+  { id: 'mediterranean', blockedClasses: ['red_meat', 'sweets'], blockedIngredients: [...HIDDEN_MEAT] },
   { id: 'keto', blockedClasses: [], blockedIngredients: [], macro: { netCarbsMaxPerServing: 7 } },
   { id: 'low_carb', blockedClasses: [], blockedIngredients: [], macro: { maxCarbShareOfCalories: 0.2 } },
 ];

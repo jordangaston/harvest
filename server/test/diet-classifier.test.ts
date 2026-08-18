@@ -91,6 +91,26 @@ describe('Test Case 4: coverage fail-safe (AC-4, D-04)', () => {
   });
 });
 
+describe('Test Case: paleo + mediterranean (config-only diets)', () => {
+  it('paleo blocks grain/dairy but passes a meat-and-veg plate', async () => {
+    const grainy = (await classifier.classify(ings('1 cup rice', '2 cups spinach'), 2))!;
+    expect(grainy.fit.paleo).toBe('incompatible');
+    expect(grainy.blockers.paleo.class).toBe('grain');
+
+    const paleoPlate = (await classifier.classify(ings('1 fillet salmon', '2 cups spinach'), 2))!;
+    expect(paleoPlate.fit.paleo).toBe('compatible');
+  });
+
+  it('mediterranean (proxy) blocks red meat, passes a fish-and-veg plate', async () => {
+    const meaty = (await classifier.classify(ings('4 slices bacon', '2 cups spinach'), 2))!;
+    expect(meaty.fit.mediterranean).toBe('incompatible');
+    expect(meaty.blockers.mediterranean.class).toBe('red_meat');
+
+    const medPlate = (await classifier.classify(ings('1 fillet salmon', '2 cups spinach'), 2))!;
+    expect(medPlate.fit.mediterranean).toBe('compatible');
+  });
+});
+
 describe('Test Case: withheld', () => {
   it('returns null for an empty ingredient list', async () => {
     expect(await classifier.classify([], 4)).toBeNull();

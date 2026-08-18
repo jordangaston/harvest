@@ -437,13 +437,23 @@ plant classes) is a new `DietRule` entry, no new code.
 
 **Where the line sits — and where it stops.** Code owns the primitives: the
 FDC-category→`FoodClass` map, the net-carb computation, the classify-and-fail-safe loop.
-Config owns the composition. But config only reaches diets that **reduce** to
-{class blocklist + macro threshold}. **Paleo, Whole30, and low-FODMAP do not** — they
-turn on ingredient-level distinctions finer than WWEIA categories carry (paleo bans
-potatoes but allows honey and sweet potato; Whole30 allows ghee but not butter; FODMAP is
-a per-food dose threshold). Faking them on FDC categories would produce confident-wrong
-verdicts — the exact silent failure we're avoiding. They are **out of scope** for this
-config and flagged as such (Q-03), not quietly approximated.
+Config owns the composition. A diet earns a config entry only to the extent it **reduces**
+to {class blocklist + macro threshold}; how cleanly it reduces sets how much we trust it:
+
+- **Clean fit** (vegan, vegetarian, pescatarian, dairy-free, red-meat-free, carnivore,
+  keto, low-carb) — the class/macro rule *is* the definition.
+- **Defensible core** (**paleo**) — the diet's spine is class exclusion (grains, legumes,
+  dairy), which we detect. The remainder (potato excluded but sweet potato allowed; refined
+  sugar; processed foods) is finer than WWEIA categories carry, so paleo ships as the clean
+  core and the ceiling is noted in the rule, not faked.
+- **Pattern proxy** (**mediterranean**) — a *pattern*, not an exclusion, so it can't reduce
+  honestly. It ships as the best defensible proxy (minimizes red/processed meat and added
+  sugar) and explicitly does **not** claim the pattern's positive emphasis (olive oil,
+  fish, whole grains). A ranking hint, not a definition.
+- **Beyond reach** (Whole30, low-FODMAP) — Whole30 turns on ghee-vs-butter distinctions;
+  FODMAP is a per-food dose threshold. Faking these would produce confident-wrong verdicts,
+  the exact silent failure we avoid, so they stay **deferred** (Q-03) until a finer
+  ingredient ontology or a pattern-score primitive exists.
 
 This mirrors the repo's settled pattern: `VOCAB` and the `NRF` tables are "a code
 constant, not a table… so revising it is a code change." `DietRule[]` is the same — a
@@ -509,7 +519,7 @@ never *absent*"). Concretely:
 |---|---|---|---|
 | Q-01 | Merge diet classification into `AllergenDetector`'s loop, or keep a separate `dietStep`? | resolved | **Separate, isolated step (D-00).** Both inputs are LLM-free, so `dietStep` regenerates them and depends on no prior step; the saved match isn't worth the coupling. |
 | Q-02 | JSON column on `recipes` vs a normalized child table for the diet info. | resolved | **Separate `recipe_diets` child table**, mirroring `recipe_categories`; the "recipes that fit diet X" query becomes an indexed lookup. |
-| Q-03 | Confirm the launch diet list and that paleo / Whole30 / low-FODMAP are **deferred** (not FDC-expressible). Proposed launch set: vegan, vegetarian, pescatarian, dairy-free, red-meat-free, keto, low-carb, carnivore. | open | |
+| Q-03 | Confirm the launch diet list, and which diets are deferred as not FDC-expressible. | resolved | Launch set: vegan, vegetarian, pescatarian, dairy-free, red-meat-free, carnivore, keto, low-carb, **paleo** (defensible core), **mediterranean** (pattern proxy). **Whole30 / low-FODMAP deferred.** See D-02. |
 | Q-04 | Dietician sign-off on the numbers: keto net-carb ceiling (Edamam uses 7 g/serving), low-carb definition (Edamam: <20% cal from carbs), and the coverage threshold that flips an exclusion verdict to `unknown`. | open | |
 | Q-05 | `blockedIngredients` starting list — who owns curating and growing it from the `diet_coverage_complete` miss backlog? | open | |
 
@@ -521,3 +531,4 @@ never *absent*"). Concretely:
 |---|---|---|
 | 2026-08-17 | Diet-signal Lead | Initial draft |
 | 2026-08-17 | Diet-signal Lead | Isolate `dietStep` (D-00): regenerate LLM-free inputs, depend on no prior step (resolves Q-01). Move diet info to a separate `recipe_diets` table (resolves Q-02). |
+| 2026-08-18 | Diet-signal Lead | Add paleo (defensible core: grain/legume/dairy) and mediterranean (pattern proxy: red-meat + added-sugar) to the launch set; Whole30/low-FODMAP remain deferred (D-02, Q-03). |
