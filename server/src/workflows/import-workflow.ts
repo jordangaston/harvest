@@ -235,12 +235,12 @@ async function categorizeOne(
   input: ImportInput,
 ): Promise<ExtractedRecipeData> {
   try {
-    const categories = await categorizer.categorize(recipe.title, recipe.ingredients);
+    const { categories, stepTechniques } = await categorizer.analyze(recipe.title, recipe.ingredients, recipe.steps);
     console.log(
       `[step] categorize job=${input.jobId} title=${recipe.title} cuisine=${categories.cuisine.length} ` +
         `dish=${categories.dishType.length} primary=${categories.primaryIngredient.length} outcome=ok`,
     );
-    return { ...recipe, categories };
+    return { ...recipe, categories, stepTechniques: stepTechniques.length ? stepTechniques : undefined };
   } catch (err) {
     console.log(`[step] categorize job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;

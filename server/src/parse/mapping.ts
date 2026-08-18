@@ -3,6 +3,11 @@ import type { RecipeInput } from "../repositories/recipe-repository.js";
 import { parseIngredientLine, type StructuredIngredient } from "./ingredient.js";
 import type { ExtractedRecipe } from "./website.js";
 import type { ExtractedRecipeData } from "./extractor.js";
+import type { RecipeDifficulty } from "../models/recipe.js";
+import { DifficultyScorer } from "../difficulty/difficulty-scorer.js";
+
+// One shared, stateless scorer — the compiled technique regex is built once.
+const difficultyScorer = DifficultyScorer.create();
 
 /**
  * The single chokepoint every source persists through — ports `toRecipeInput`
@@ -12,6 +17,7 @@ import type { ExtractedRecipeData } from "./extractor.js";
  */
 export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
   const ingredients = stripIngredientSections(data.ingredients);
+  const { steps, stepTechniques } = stripSteps(data.steps, data.stepTechniques);
   const parsed = data.servings ? parseInt(data.servings, 10) : NaN;
   const hasServings = Number.isFinite(parsed) && parsed > 0;
   return {
@@ -24,11 +30,41 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     imageUrl: data.imageUrl,
     confidence: data.confidence,
     ingredients,
-    steps: stripSectionLabels(data.steps),
+    steps,
     ...toNutritionInput(data),
     allergens: data.allergens ?? null,
     categories: data.categories,
+    difficulty: scoreDifficulty(steps, ingredients.length, data.totalMinutes, stepTechniques),
   };
+}
+
+/** Scores difficulty (WI-DIFF-3, WI-DIFF-5) over the FINAL steps/ingredients — best-effort:
+ * a scoring error leaves difficulty undefined rather than breaking the mapping, mirroring
+ * the nutrition/allergen posture. `stepTechniques` (when present, aligned to the stripped
+ * steps) drives the LLM detection path; else the keyword fallback scans the step text.
+ * `stepDifficulties`/`stepTechniques` stay index-aligned to `steps`. */
+function scoreDifficulty(
+  steps: string[],
+  ingredientCount: number,
+  totalMinutes?: number,
+  stepTechniques?: string[][],
+): RecipeDifficulty | undefined {
+  try {
+    return difficultyScorer.score(steps, ingredientCount, totalMinutes ?? null, stepTechniques);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Strips bare section-label steps, carrying `stepTechniques` in lockstep so it stays
+ * aligned to the FINAL steps: zip (step, techniques), filter by the same `isSectionLabel`
+ * predicate, unzip. `stepTechniques` is absent when the LLM was off (keyword fallback runs).
+ * Never empties a non-empty step list (mirrors `stripSectionLabels`). */
+function stripSteps(steps: string[], stepTechniques?: string[][]): { steps: string[]; stepTechniques?: string[][] } {
+  if (!stepTechniques) return { steps: stripSectionLabels(steps) };
+  const kept = steps.map((step, i) => ({ step, techniques: stepTechniques[i] ?? [] })).filter((p) => !isSectionLabel(p.step));
+  const rows = kept.length ? kept : steps.map((step, i) => ({ step, techniques: stepTechniques[i] ?? [] }));
+  return { steps: rows.map((r) => r.step), stepTechniques: rows.map((r) => r.techniques) };
 }
 
 /** Resolves the recipe's nutrition + NRF score to persist: the nutritionStep's estimate

@@ -31,6 +31,7 @@ const GOALS = [
   'try_new_cuisines',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
+export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
@@ -131,11 +132,18 @@ export const recipes = sqliteTable(
     milligramsOfSodium: text('milligrams_of_sodium'),
     nutritionSource: text('nutrition_source', { enum: NUTRITION_SOURCE }),
     nrfScore: text('nrf_score'), // raw NRF nutrient-density number (pg numeric → text); null when unscored
+    // Difficulty signal (WI-DIFF-1): the continuous 0–100 rollup (numeric → text, like
+    // nrfScore) and its derived band. Null until scored at ingest (WI-DIFF-3).
+    difficultyScore: text('difficulty_score'),
+    difficultyBand: text('difficulty_band', { enum: DIFFICULTY_BANDS }),
     allergens: text('allergens', { mode: 'json' }).$type<{ contains: string[]; mayContain: string[] }>(),
     allergensComplete: integer('allergens_complete', { mode: 'boolean' }).notNull().default(false),
     createdAt: createdAt(),
   },
-  (t) => [index('recipes_user_idx').on(t.userId, t.createdAt)],
+  (t) => [
+    index('recipes_user_idx').on(t.userId, t.createdAt),
+    index('recipes_difficulty_band_idx').on(t.difficultyBand),
+  ],
 );
 
 export const ingredients = sqliteTable('ingredients', {
@@ -158,6 +166,13 @@ export const recipeSteps = sqliteTable('recipe_steps', {
     .references(() => recipes.id, { onDelete: 'cascade' }),
   position: integer('position').notNull(),
   text: text('text').notNull(),
+  // Difficulty signal (WI-DIFF-1): the atomic per-step technique weight (1–5). Null
+  // until scored at ingest (WI-DIFF-3).
+  difficulty: integer('difficulty'),
+  // Difficulty detection (WI-DIFF-5): the detected canonical technique names for this
+  // step (JSON-mode text array). The atom the derived `difficulty` weight is computed
+  // from, persisted so re-weighting the table never re-calls the LLM. Null when none.
+  techniques: text('techniques', { mode: 'json' }).$type<string[]>(),
 });
 
 // TS-signal (WI-TS-1): the recipe's taste facets — one row per (recipe, facet,
@@ -366,3 +381,5 @@ export type Facet = (typeof FACETS)[number];
 /** Meal-plan slot + grocery aisle unions, shared with the domain models. */
 export type MealSlot = (typeof MEAL_SLOTS)[number];
 export type GroceryAisle = (typeof GROCERY_AISLES)[number];
+/** Difficulty band union (WI-DIFF-1), shared with the domain models. */
+export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];

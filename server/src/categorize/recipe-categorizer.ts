@@ -5,44 +5,64 @@ import { FoodMatcher, type IngredientMatcher } from '../nutrition/food-matcher.j
 import { inVocab } from './vocab.js';
 import { toPrimaryIngredient } from './fdc-category-map.js';
 import { RuleTagger } from './rule-tagger.js';
-import { selectTasteClassifier, type TasteClassifier, type TasteFacets } from './taste-classifier.js';
+import { selectRecipeAnalyzer, type RecipeAnalyzer, type RecipeAnalysis } from './taste-classifier.js';
 
 /** The minimal ingredient shape the categorizer reads (name only). */
 export interface CategorizerIngredient {
   name: string;
 }
 
+/** The categorizer's output: the taste facets plus the per-step detected techniques
+ * (WI-DIFF-5), aligned to the `steps` passed in (`[]` per step when the LLM is off). */
+export interface RecipeAnalysisResult {
+  categories: RecipeCategories;
+  stepTechniques: string[][];
+}
+
 /**
- * RecipeCategorizer (WI-TS-2) — derives a recipe's taste facets from its title +
- * ingredients. cuisine + dish_type come from the LLM (`TasteClassifier`); primary_
- * ingredient stays FDC-grounded (the nutrition matcher) with title-keyword dominance
- * (a title hit beats body/FDC). Validates every value against VOCAB, dedups. No writes
- * — the caller (WI-TS-3) attaches the result and persists it.
+ * RecipeCategorizer (WI-TS-2 + WI-DIFF-5) — derives a recipe's taste facets AND its
+ * per-step techniques from its title, ingredients, and steps. cuisine + dish_type +
+ * step techniques come from the ONE LLM call (`RecipeAnalyzer`); primary_ingredient
+ * stays FDC-grounded (the nutrition matcher) with title-keyword dominance (a title hit
+ * beats body/FDC). Validates every taste value against VOCAB, dedups. No writes — the
+ * caller (WI-TS-3) attaches the result and persists it.
  */
 export class RecipeCategorizer {
   constructor(
     private readonly matcher: IngredientMatcher,
     private readonly rules: RuleTagger,
-    private readonly classifier: TasteClassifier,
+    private readonly analyzer: RecipeAnalyzer,
   ) {}
 
   static create(db: Database): RecipeCategorizer {
     const matcher = FoodMatcher.create(FdcFoodRepository.create(db));
-    return new RecipeCategorizer(matcher, new RuleTagger(), selectTasteClassifier());
+    return new RecipeCategorizer(matcher, new RuleTagger(), selectRecipeAnalyzer());
   }
 
-  async categorize(title: string, ingredients: CategorizerIngredient[]): Promise<RecipeCategories> {
+  /**
+   * Analyzes a recipe: taste facets + per-step techniques from the one LLM call.
+   * @param title - The recipe title.
+   * @param ingredients - The recipe's ingredients (names read).
+   * @param steps - The recipe's ordered step texts; `stepTechniques[i]` aligns to `steps[i]`.
+   * @returns The VOCAB-constrained facets and the `TECHNIQUE_NAMES`-constrained techniques
+   *   per step. A LLM failure degrades taste to empty and techniques to `[]` per step
+   *   (primary_ingredient survives), never throwing.
+   */
+  async analyze(title: string, ingredients: CategorizerIngredient[], steps: string[]): Promise<RecipeAnalysisResult> {
     const names = ingredients.map((i) => i.name);
     const primaryHits = this.rules.tag(title, names).primaryIngredient;
     const fdcPrimary = await this.fdcPrimaryIngredients(names);
     const primaryIngredient = this.resolvePrimary(primaryHits, fdcPrimary);
-    const taste = await this.resolveTaste(title, names);
+    const analysis = await this.resolveAnalysis(title, names, steps);
 
     return {
-      cuisine: valid('cuisine', taste.cuisine),
-      mealType: valid('mealType', taste.mealType),
-      dishType: valid('dishType', taste.dishType),
-      primaryIngredient: valid('primaryIngredient', primaryIngredient),
+      categories: {
+        cuisine: valid('cuisine', analysis.cuisine),
+        mealType: valid('mealType', analysis.mealType),
+        dishType: valid('dishType', analysis.dishType),
+        primaryIngredient: valid('primaryIngredient', primaryIngredient),
+      },
+      stepTechniques: analysis.stepTechniques,
     };
   }
 
@@ -66,13 +86,13 @@ export class RecipeCategorizer {
     return titleHits.length > 0 ? titleHits : fdc;
   }
 
-  /** cuisine + dish_type from the LLM. A failure degrades to empty for both (primary_
-   * ingredient survives) rather than failing categorization. */
-  private async resolveTaste(title: string, names: string[]): Promise<TasteFacets> {
+  /** taste facets + step techniques from the one LLM call. A failure degrades to empty
+   * facets + no techniques (primary_ingredient survives) rather than failing categorization. */
+  private async resolveAnalysis(title: string, names: string[], steps: string[]): Promise<RecipeAnalysis> {
     try {
-      return await this.classifier.classify(title, names);
+      return await this.analyzer.analyze(title, names, steps);
     } catch {
-      return { cuisine: [], mealType: [], dishType: [] };
+      return { cuisine: [], mealType: [], dishType: [], stepTechniques: [] };
     }
   }
 }

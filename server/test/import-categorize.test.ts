@@ -13,7 +13,7 @@ import type { ExtractedRecipeData } from "../src/parse/extractor.js";
 import type { ImportInput } from "../src/import-domain.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
 import { RuleTagger } from "../src/categorize/rule-tagger.js";
-import { StubTasteClassifier, type TasteClassifier } from "../src/categorize/taste-classifier.js";
+import { StubRecipeAnalyzer, type RecipeAnalyzer } from "../src/categorize/taste-classifier.js";
 import { FoodMatcher } from "../src/nutrition/food-matcher.js";
 import { FdcFoodRepository } from "../src/nutrition/fdc-food-repository.js";
 import { seedFdcFixture } from "./fixtures/fdc-foods.fixture.js";
@@ -46,16 +46,17 @@ const input = (over: Partial<ImportInput> = {}): ImportInput => ({
   ...over,
 });
 
-/** An offline categorizer: real FDC matcher + rules, injectable taste classifier
+/** An offline categorizer: real FDC matcher + rules, injectable recipe analyzer
  * (default stub — cuisine/dish_type are LLM-sourced, so offline they come back empty). */
-function offlineCategorizer(classifier: TasteClassifier = new StubTasteClassifier()): RecipeCategorizer {
-  return new RecipeCategorizer(FoodMatcher.create(FdcFoodRepository.create(db)), new RuleTagger(), classifier);
+function offlineCategorizer(analyzer: RecipeAnalyzer = new StubRecipeAnalyzer()): RecipeCategorizer {
+  return new RecipeCategorizer(FoodMatcher.create(FdcFoodRepository.create(db)), new RuleTagger(), analyzer);
 }
 
 /** Mirrors the workflow's `categorizeOne` best-effort attach. */
 async function attach(categorizer: RecipeCategorizer, recipe: ExtractedRecipeData): Promise<ExtractedRecipeData> {
   try {
-    return { ...recipe, categories: await categorizer.categorize(recipe.title, recipe.ingredients) };
+    const { categories, stepTechniques } = await categorizer.analyze(recipe.title, recipe.ingredients, recipe.steps);
+    return { ...recipe, categories, stepTechniques: stepTechniques.length ? stepTechniques : undefined };
   } catch {
     return recipe;
   }
@@ -99,8 +100,8 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
   it("persists FDC primary + LLM taste facets that surface on read", async () => {
     const { userId, jobId } = await seedJob();
     // salmon → seafood (FDC "Fish"); cuisine/meal_type/dish_type come from the LLM (stubbed here).
-    const taste: TasteClassifier = {
-      classify: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"] }),
+    const taste: RecipeAnalyzer = {
+      analyze: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"], stepTechniques: [] }),
     };
     const categorized = await attach(offlineCategorizer(taste), BASE);
     const [recipeId] = await persistAndReady(db, [categorized], input({ jobId, userId }));
@@ -119,7 +120,7 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
   it("is best-effort: a throwing categorizer still persists the recipe with zero facet rows", async () => {
     const { userId, jobId } = await seedJob();
     const throwing = {
-      categorize: async () => {
+      analyze: async () => {
         throw new Error("categorizer down");
       },
     } as unknown as RecipeCategorizer;

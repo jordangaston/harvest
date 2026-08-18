@@ -61,6 +61,9 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   allergens?: RecipeAllergens;
   // The categorizeStep's taste facets. Absent until that step runs.
   categories?: RecipeCategories;
+  // The categorizeStep's per-step detected techniques (WI-DIFF-5), aligned to `steps`.
+  // Absent until that step runs / when the LLM is off; stripped in lockstep in toRecipeInput.
+  stepTechniques?: string[][];
 }
 
 export interface RecipeExtractor {
