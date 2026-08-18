@@ -35,6 +35,13 @@ const GOALS = [
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
+// Ranking preferences (WI-RANK-1): severity gates allergen filter-vs-soft; strictness
+// gates diet filter-vs-penalty; the affinity facets are the 3-value subset of FACETS
+// that user food prefs mirror; sentiment is the like/dislike direction.
+export const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
+export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+export const SENTIMENTS = ['like', 'dislike'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
@@ -400,6 +407,66 @@ export const fdcFoodPrice = sqliteTable('fdc_food_price', {
   sourceCycle: text('source_cycle').notNull(),
 });
 
+// Ranking preferences (WI-RANK-1): the per-user targets/weights (1:1 with users) plus
+// three child tables the ranker reads — allergens (severity gates the filter), diets
+// (strictness gates the filter), and food prefs (mirror `recipe_categories` so affinity
+// is a direct join). All cascade on user delete. Weights are 0–3, enforced in the Zod
+// model at the read boundary, not by a DB check.
+export const userPreferences = sqliteTable('user_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  skillLevel: text('skill_level', { enum: DIFFICULTY_BANDS }).notNull().default('beginner'),
+  budgetCentsPerServing: integer('budget_cents_per_serving'),
+  timeBudgetMinutes: integer('time_budget_minutes'),
+  weightCost: integer('weight_cost').notNull().default(1),
+  weightDifficulty: integer('weight_difficulty').notNull().default(1),
+  weightNutrition: integer('weight_nutrition').notNull().default(1),
+  weightAffinity: integer('weight_affinity').notNull().default(1),
+  weightTime: integer('weight_time').notNull().default(1),
+  weightPopularity: integer('weight_popularity').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const userAllergens = sqliteTable(
+  'user_allergens',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    allergen: text('allergen', { enum: MAJOR_ALLERGENS }).notNull(),
+    severity: text('severity', { enum: ALLERGEN_SEVERITIES }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.allergen] })],
+);
+
+export const userDiets = sqliteTable(
+  'user_diets',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    dietId: text('diet_id').notNull(),
+    strictness: text('strictness', { enum: DIET_STRICTNESS }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.dietId] })],
+);
+
+export const userFoodPrefs = sqliteTable(
+  'user_food_prefs',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    facet: text('facet', { enum: AFFINITY_FACETS }).notNull(),
+    value: text('value').notNull(),
+    sentiment: text('sentiment', { enum: SENTIMENTS }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
+);
+
 export const schema = {
   users,
   recipes,
@@ -417,6 +484,10 @@ export const schema = {
   fdcFoodNutrient,
   fdcFoodAllergen,
   fdcFoodPrice,
+  userPreferences,
+  userAllergens,
+  userDiets,
+  userFoodPrefs,
 };
 export type Schema = typeof schema;
 
