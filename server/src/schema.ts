@@ -169,6 +169,10 @@ export const recipeSteps = sqliteTable('recipe_steps', {
   // Difficulty signal (WI-DIFF-1): the atomic per-step technique weight (1–5). Null
   // until scored at ingest (WI-DIFF-3).
   difficulty: integer('difficulty'),
+  // Difficulty detection (WI-DIFF-5): the detected canonical technique names for this
+  // step (JSON-mode text array). The atom the derived `difficulty` weight is computed
+  // from, persisted so re-weighting the table never re-calls the LLM. Null when none.
+  techniques: text('techniques', { mode: 'json' }).$type<string[]>(),
 });
 
 // TS-signal (WI-TS-1): the recipe's taste facets — one row per (recipe, facet,

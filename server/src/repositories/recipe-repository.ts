@@ -84,20 +84,22 @@ export class RecipeRepository {
       .where(eq(ingredients.recipeId, recipeId))
       .orderBy(ingredients.position);
     const steps = await this.db
-      .select({ text: recipeSteps.text, difficulty: recipeSteps.difficulty })
+      .select({ text: recipeSteps.text, difficulty: recipeSteps.difficulty, techniques: recipeSteps.techniques })
       .from(recipeSteps)
       .where(eq(recipeSteps.recipeId, recipeId))
       .orderBy(recipeSteps.position);
     const categories = await this.categoriesByRecipe(recipeId);
     const recipe = RecipeSchema.parse(row);
     const stepDifficulties = steps.map((s) => s.difficulty);
+    const stepTechniques = steps.map((s) => s.techniques);
     return {
       recipe,
       ingredients: ings,
       steps: steps.map((s) => s.text),
       categories,
-      difficulty: toDifficulty(recipe, stepDifficulties),
+      difficulty: toDifficulty(recipe, stepDifficulties, stepTechniques),
       stepDifficulties,
+      stepTechniques,
     };
   }
 
@@ -133,7 +135,7 @@ export class RecipeRepository {
   private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
-    await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties);
+    await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques);
     await this.insertCategories(tx, recipeId, recipe.categories);
     return recipeId;
   }
@@ -203,12 +205,17 @@ export class RecipeRepository {
    * @param recipeId - Parent recipe.
    * @param steps - Step text; array order becomes `position`.
    * @param difficulties - Per-step weights aligned to `steps`, or undefined when unscored.
+   * @param techniques - Per-step detected technique names (WI-DIFF-5) aligned to `steps`;
+   *   an empty/absent row stores null, so an un-detected step reads back as null.
    */
-  private async insertSteps(tx: Tx, recipeId: string, steps: string[], difficulties?: number[]): Promise<void> {
+  private async insertSteps(tx: Tx, recipeId: string, steps: string[], difficulties?: number[], techniques?: string[][]): Promise<void> {
     if (steps.length === 0) return;
-    await tx
-      .insert(recipeSteps)
-      .values(steps.map((text, i) => ({ recipeId, position: i, text, difficulty: difficulties?.[i] ?? null })));
+    await tx.insert(recipeSteps).values(
+      steps.map((text, i) => {
+        const t = techniques?.[i];
+        return { recipeId, position: i, text, difficulty: difficulties?.[i] ?? null, techniques: t && t.length ? t : null };
+      }),
+    );
   }
 
   /**
@@ -392,15 +399,21 @@ function decodeCursor(token: string): { createdAt: number; id: string } {
   return { createdAt: Number(createdAt), id: id! };
 }
 
-/** Reconstructs the WI-DIFF-3 difficulty value object from the stored recipe columns,
+/** Reconstructs the WI-DIFF-3/5 difficulty value object from the stored recipe columns,
  * or null for a pre-feature recipe (columns null). `stepDifficulties` drops the nulls —
- * a scored recipe has a weight on every stored step. */
-function toDifficulty(recipe: Recipe, stepDifficulties: (number | null)[]): RecipeDifficulty | null {
+ * a scored recipe has a weight on every stored step — and `stepTechniques` stays aligned
+ * to it (a null techniques row → `[]`). */
+function toDifficulty(
+  recipe: Recipe,
+  stepDifficulties: (number | null)[],
+  stepTechniques: (string[] | null)[],
+): RecipeDifficulty | null {
   if (recipe.difficultyScore == null || recipe.difficultyBand == null) return null;
   return {
     score: Number(recipe.difficultyScore),
     band: recipe.difficultyBand,
     stepDifficulties: stepDifficulties.filter((d): d is number => d != null),
+    stepTechniques: stepTechniques.map((t) => t ?? []),
   };
 }
 
