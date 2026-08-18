@@ -47,8 +47,22 @@
     {
       "idx": 6,
       "version": "6",
-      "when": 1787018953931,
-      "tag": "0006_marvelous_kate_bishop",
+      "when": 1787014406858,
+      "tag": "0006_eminent_carnage",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787017276434,
+      "tag": "0007_large_george_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787070110003,
+      "tag": "0008_classy_madelyne_pryor",
       "breakpoints": true
     }
   ]

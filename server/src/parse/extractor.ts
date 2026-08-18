@@ -65,6 +65,9 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   // The dietStep's per-diet compatibility. Absent until that step runs; a withheld recipe
   // (no ingredients / detection error) leaves it undefined → persists as no rows.
   diets?: DietCompat;
+  // The categorizeStep's per-step detected techniques (WI-DIFF-5), aligned to `steps`.
+  // Absent until that step runs / when the LLM is off; stripped in lockstep in toRecipeInput.
+  stepTechniques?: string[][];
 }
 
 export interface RecipeExtractor {

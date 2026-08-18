@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "08ca4357-814a-4fd7-9cab-f5621ebf6bae",
-  "prevId": "ec29b356-5621-442a-bc1e-bac8fa28bc7d",
+  "id": "d1c5be11-a344-4d04-887a-826b3d5dd9e0",
+  "prevId": "08ca4357-814a-4fd7-9cab-f5621ebf6bae",
   "tables": {
     "cookbook_recipes": {
       "name": "cookbook_recipes",
@@ -916,6 +916,13 @@
         "difficulty": {
           "name": "difficulty",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "techniques": {
+          "name": "techniques",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

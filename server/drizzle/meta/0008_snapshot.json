@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "08ca4357-814a-4fd7-9cab-f5621ebf6bae",
-  "prevId": "ec29b356-5621-442a-bc1e-bac8fa28bc7d",
+  "id": "a29347b2-2019-4cdb-81e7-9cfdd42da1f7",
+  "prevId": "d1c5be11-a344-4d04-887a-826b3d5dd9e0",
   "tables": {
     "cookbook_recipes": {
       "name": "cookbook_recipes",
@@ -882,6 +882,89 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "recipe_diets": {
+      "name": "recipe_diets",
+      "columns": {
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "diet_id": {
+          "name": "diet_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "verdict": {
+          "name": "verdict",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "blocker_kind": {
+          "name": "blocker_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "blocker_value": {
+          "name": "blocker_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "blocker_class": {
+          "name": "blocker_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "recipe_diets_lookup_idx": {
+          "name": "recipe_diets_lookup_idx",
+          "columns": [
+            "diet_id",
+            "verdict"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "recipe_diets_recipe_id_recipes_id_fk": {
+          "name": "recipe_diets_recipe_id_recipes_id_fk",
+          "tableFrom": "recipe_diets",
+          "tableTo": "recipes",
+          "columnsFrom": [
+            "recipe_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recipe_diets_recipe_id_diet_id_pk": {
+          "columns": [
+            "recipe_id",
+            "diet_id"
+          ],
+          "name": "recipe_diets_recipe_id_diet_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "recipe_steps": {
       "name": "recipe_steps",
       "columns": {
@@ -916,6 +999,13 @@
         "difficulty": {
           "name": "difficulty",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "techniques": {
+          "name": "techniques",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

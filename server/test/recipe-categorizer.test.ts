@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { VOCAB, inVocab } from "../src/categorize/vocab.js";
 import { toPrimaryIngredient } from "../src/categorize/fdc-category-map.js";
 import { RuleTagger } from "../src/categorize/rule-tagger.js";
-import { StubTasteClassifier, type TasteClassifier, type TasteFacets } from "../src/categorize/taste-classifier.js";
+import { StubRecipeAnalyzer, type RecipeAnalyzer, type TasteFacets } from "../src/categorize/taste-classifier.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
 import type { FoodMatch, IngredientMatcher } from "../src/nutrition/food-matcher.js";
 
@@ -23,8 +23,10 @@ const SCAMPI_MATCHER = matcherOf({
   "chicken broth": { fdcId: 2, category: "Soups, Sauces and Gravies", quality: "medium" },
 });
 
-function classifierOf(facets: TasteFacets | (() => Promise<TasteFacets>)): TasteClassifier {
-  return { classify: typeof facets === "function" ? facets : async () => facets };
+/** A stub analyzer that yields the given taste facets (no step techniques). */
+function analyzerOf(facets: TasteFacets | (() => Promise<TasteFacets>)): RecipeAnalyzer {
+  const resolve = typeof facets === "function" ? facets : async () => facets;
+  return { analyze: async () => ({ ...(await resolve()), stepTechniques: [] }) };
 }
 
 describe("VOCAB", () => {
@@ -74,57 +76,56 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
     const cat = new RecipeCategorizer(
       SCAMPI_MATCHER,
       new RuleTagger(),
-      classifierOf({ cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"] }),
+      analyzerOf({ cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"] }),
     );
-    const result = await cat.categorize("Shrimp Scampi", [
-      { name: "shrimp" },
-      { name: "spaghetti" },
-      { name: "garlic" },
-      { name: "chicken broth" },
-    ]);
-    expect(result).toEqual({
+    const { categories } = await cat.analyze(
+      "Shrimp Scampi",
+      [{ name: "shrimp" }, { name: "spaghetti" }, { name: "garlic" }, { name: "chicken broth" }],
+      [],
+    );
+    expect(categories).toEqual({
       cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"],
     });
   });
 
   it("uses the FDC seed for primary_ingredient when the title has no protein keyword", async () => {
     const matcher = matcherOf({ salmon: { fdcId: 3, category: "Fish", quality: "high" } });
-    const cat = new RecipeCategorizer(matcher, new RuleTagger(), classifierOf({ cuisine: [], mealType: [], dishType: [] }));
-    const result = await cat.categorize("Weeknight Sheet Pan Dinner", [
-      { name: "salmon" },
-      { name: "broccoli" },
-      { name: "olive oil" },
-    ]);
-    expect(result.primaryIngredient).toEqual(["seafood"]);
+    const cat = new RecipeCategorizer(matcher, new RuleTagger(), analyzerOf({ cuisine: [], mealType: [], dishType: [] }));
+    const { categories } = await cat.analyze(
+      "Weeknight Sheet Pan Dinner",
+      [{ name: "salmon" }, { name: "broccoli" }, { name: "olive oil" }],
+      [],
+    );
+    expect(categories.primaryIngredient).toEqual(["seafood"]);
   });
 
   it("constrains classifier output to VOCAB for every facet", async () => {
     const cat = new RecipeCategorizer(
       matcherOf({}),
       new RuleTagger(),
-      classifierOf({ cuisine: ["italian", "klingon"], mealType: ["brunch", "teatime"], dishType: ["pasta", "warp"] }),
+      analyzerOf({ cuisine: ["italian", "klingon"], mealType: ["brunch", "teatime"], dishType: ["pasta", "warp"] }),
     );
-    const result = await cat.categorize("Mystery Dish", [{ name: "water" }]);
-    expect(result.cuisine).toEqual(["italian"]); // non-VOCAB "klingon" dropped
-    expect(result.mealType).toEqual(["brunch"]); // non-VOCAB "teatime" dropped
-    expect(result.dishType).toEqual(["pasta"]); // non-VOCAB "warp" dropped
+    const { categories } = await cat.analyze("Mystery Dish", [{ name: "water" }], []);
+    expect(categories.cuisine).toEqual(["italian"]); // non-VOCAB "klingon" dropped
+    expect(categories.mealType).toEqual(["brunch"]); // non-VOCAB "teatime" dropped
+    expect(categories.dishType).toEqual(["pasta"]); // non-VOCAB "warp" dropped
   });
 
   it("returns all-empty and never throws when nothing matches (no network via stub)", async () => {
-    const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubTasteClassifier());
-    const result = await cat.categorize("Mystery", [{ name: "water" }]);
-    expect(result).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [] });
+    const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubRecipeAnalyzer());
+    const { categories } = await cat.analyze("Mystery", [{ name: "water" }], []);
+    expect(categories).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [] });
   });
 
   it("degrades to empty taste facets if the classifier throws (primary survives)", async () => {
-    const boom = classifierOf(async () => {
+    const boom = analyzerOf(async () => {
       throw new Error("LLM down");
     });
     const cat = new RecipeCategorizer(SCAMPI_MATCHER, new RuleTagger(), boom);
-    const result = await cat.categorize("Shrimp Pasta", [{ name: "shrimp" }, { name: "spaghetti" }]);
-    expect(result.cuisine).toEqual([]);
-    expect(result.mealType).toEqual([]);
-    expect(result.dishType).toEqual([]);
-    expect(result.primaryIngredient).toEqual(["seafood"]);
+    const { categories } = await cat.analyze("Shrimp Pasta", [{ name: "shrimp" }, { name: "spaghetti" }], []);
+    expect(categories.cuisine).toEqual([]);
+    expect(categories.mealType).toEqual([]);
+    expect(categories.dishType).toEqual([]);
+    expect(categories.primaryIngredient).toEqual(["seafood"]);
   });
 });
