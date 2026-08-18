@@ -13,6 +13,8 @@ import { NutritionEstimator } from "../nutrition/nutrition-estimator.js";
 import { AllergenDetector } from "../allergen/allergen-detector.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
 import { RecipeCategorizer } from "../categorize/recipe-categorizer.js";
+import { DietClassifier } from "../diet/diet-classifier.js";
+import type { DietCompat } from "../diet/diet.js";
 
 /**
  * The durable import workflow — the WDK port of DBOS's `ImportWorkflow` +
@@ -36,7 +38,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const enriched = await nutritionStep(recipes, input);
     const profiled = await allergenStep(enriched, input);
     const categorized = await categorizeStep(profiled, input);
-    await persistStep(categorized, input);
+    const dieted = await dietStep(categorized, input);
+    await persistStep(dieted, input);
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
   }
@@ -316,6 +319,49 @@ function recognizedCount(recipe: ExtractedRecipeData, allergens: RecipeAllergens
   const total = recipe.ingredients.length;
   if (!allergens) return `0/${total}`;
   return `${allergens.complete ? total : "<" + total}/${total}`;
+}
+
+/**
+ * Attach a diet-compatibility signal to every resolved recipe before persist. ISOLATED
+ * (DESIGN D-00): `DietClassifier` reads only the raw recipe and regenerates its own FDC
+ * match + net-carb pass over the seeded catalog (`dbFromEnv()`) — no network, no dependency
+ * on the nutrition/allergen/categorize steps. Best-effort: a per-recipe try/catch withholds
+ * only that recipe's signal (persists no rows), never failing an import. One info line per recipe.
+ */
+async function dietStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const classifier = DietClassifier.create(dbFromEnv());
+  return Promise.all(recipes.map((recipe) => classifyOneDiet(classifier, recipe, input)));
+}
+dietStep.maxRetries = 3;
+
+/**
+ * Classify one recipe's diets, logging the outcome. The log line is the monitoring hook:
+ * `complete` feeds `diet_coverage_complete{true|false}` and each `diet:verdict` feeds
+ * `diet_fit{diet,verdict}`. A failure returns the recipe unsignalled (persists no rows).
+ */
+async function classifyOneDiet(
+  classifier: DietClassifier,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const diets = await classifier.classify(recipe.ingredients, resolvedServings(recipe), recipe.nutrition);
+    console.log(
+      `[step] diet job=${input.jobId} title=${recipe.title} ` +
+        `fit=${dietFitSummary(diets)} complete=${diets?.coverageComplete ?? "n/a"}`,
+    );
+    return diets ? { ...recipe, diets } : recipe;
+  } catch (err) {
+    console.log(`[step] diet job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/** The comma-joined `diet:verdict` pairs (`withheld` when null) — for the log line. */
+function dietFitSummary(diets: DietCompat | null): string {
+  if (!diets) return "withheld";
+  return Object.entries(diets.fit).map(([id, v]) => `${id}:${v}`).join(",");
 }
 
 /** Persist each resolved recipe and drive the job to `ready`, linking them all. */

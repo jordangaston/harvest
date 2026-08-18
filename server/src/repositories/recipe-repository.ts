@@ -1,12 +1,13 @@
 import { eq, and, desc, or, exists, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, ingredients, recipeSteps, recipeCategories, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
+import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
 import {
   RecipeSchema,
   emptyCategories,
   type Recipe,
   type RecipeDetail,
   type RecipeCategories,
+  type RecipeDietVerdict,
   type RecipeCard,
   type RecipeCardPage,
   type RecipeDifficulty,
@@ -14,6 +15,7 @@ import {
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
+import type { DietCompat } from '../diet/diet.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
@@ -41,6 +43,8 @@ export interface RecipeInput {
   allergens: RecipeAllergens | null;
   /** Taste facets (WI-TS-1). Omit for "no categories" — persists zero rows. */
   categories?: RecipeCategories;
+  /** Diet compatibility (WI-DS-1). Omit/null for "withheld" — persists zero rows. */
+  diets?: DietCompat | null;
   /** Difficulty signal (WI-DIFF-3). Omit when scoring was skipped/failed — persists
    * null columns and null per-step difficulties. `stepDifficulties` aligns to `steps`. */
   difficulty?: RecipeDifficulty;
@@ -89,6 +93,7 @@ export class RecipeRepository {
       .where(eq(recipeSteps.recipeId, recipeId))
       .orderBy(recipeSteps.position);
     const categories = await this.categoriesByRecipe(recipeId);
+    const diets = await this.dietsByRecipe(recipeId);
     const recipe = RecipeSchema.parse(row);
     const stepDifficulties = steps.map((s) => s.difficulty);
     const stepTechniques = steps.map((s) => s.techniques);
@@ -97,10 +102,33 @@ export class RecipeRepository {
       ingredients: ings,
       steps: steps.map((s) => s.text),
       categories,
+      diets,
       difficulty: toDifficulty(recipe, stepDifficulties, stepTechniques),
       stepDifficulties,
       stepTechniques,
     };
+  }
+
+  /** Reads a recipe's diet verdicts (WI-DS-1), ordered by diet id for determinism. */
+  private async dietsByRecipe(recipeId: string): Promise<RecipeDietVerdict[]> {
+    const rows = await this.db
+      .select({
+        dietId: recipeDiets.dietId,
+        verdict: recipeDiets.verdict,
+        blockerKind: recipeDiets.blockerKind,
+        blockerValue: recipeDiets.blockerValue,
+        blockerClass: recipeDiets.blockerClass,
+      })
+      .from(recipeDiets)
+      .where(eq(recipeDiets.recipeId, recipeId))
+      .orderBy(recipeDiets.dietId);
+    return rows.map((r) => {
+      const verdict: RecipeDietVerdict = { dietId: r.dietId, verdict: r.verdict };
+      if (r.blockerKind && r.blockerValue) {
+        verdict.blocker = { kind: r.blockerKind, value: r.blockerValue, ...(r.blockerClass ? { class: r.blockerClass } : {}) };
+      }
+      return verdict;
+    });
   }
 
   /** Reads a recipe's taste facets, bucketed by facet into `RecipeCategories`.
@@ -137,7 +165,32 @@ export class RecipeRepository {
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
     await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques);
     await this.insertCategories(tx, recipeId, recipe.categories);
+    await this.insertDiets(tx, recipeId, recipe.diets);
     return recipeId;
+  }
+
+  /**
+   * Bulk-inserts the recipe's diet verdicts — one row per diet (WI-DS-1). No-op when
+   * withheld. `onConflictDoNothing` keeps a workflow replay idempotent.
+   * @param tx - Active transaction client.
+   * @param recipeId - Parent recipe.
+   * @param diets - The classifier result; null/undefined means "withheld".
+   */
+  private async insertDiets(tx: Tx, recipeId: string, diets?: DietCompat | null): Promise<void> {
+    if (!diets) return;
+    const rows = Object.entries(diets.fit).map(([dietId, verdict]) => {
+      const blocker = diets.blockers[dietId];
+      return {
+        recipeId,
+        dietId,
+        verdict,
+        blockerKind: blocker?.kind ?? null,
+        blockerValue: blocker?.value ?? null,
+        blockerClass: blocker?.class ?? null,
+      };
+    });
+    if (rows.length === 0) return;
+    await tx.insert(recipeDiets).values(rows).onConflictDoNothing();
   }
 
   /**
