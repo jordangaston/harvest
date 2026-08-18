@@ -45,12 +45,13 @@ const detail = (over: Partial<RecipeDetail> = {}): RecipeDetail => ({
   categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] },
   difficulty: null,
   stepDifficulties: [],
+  stepTechniques: [],
   ...over,
 });
 
 describe("toPublicRecipe difficulty projection (WI-DIFF-4)", () => {
   it("maps a scored recipe to { score, band } (no per-step)", () => {
-    const out = toPublicRecipe(detail({ difficulty: { score: 55.6, band: "intermediate", stepDifficulties: [5, 2] } }));
+    const out = toPublicRecipe(detail({ difficulty: { score: 55.6, band: "intermediate", stepDifficulties: [5, 2], stepTechniques: [[], []] } }));
     expect(out.difficulty).toEqual({ score: 55.6, band: "intermediate" });
     expect(typeof out.difficulty!.score).toBe("number");
     expect(out.steps).toEqual([]); // steps stay string[]

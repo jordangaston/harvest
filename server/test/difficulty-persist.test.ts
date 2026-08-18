@@ -159,3 +159,49 @@ describe("difficulty at persist", () => {
     expect(recipe.difficulty?.stepDifficulties).toEqual([2, 5, 1]);
   });
 });
+
+describe("WI-DIFF-5 — LLM stepTechniques through map + persist", () => {
+  it("TC4: stepTechniques strip in lockstep with the section-label drop", () => {
+    const withLabel: ExtractedRecipeData = {
+      ...TEMPER_RECIPE,
+      steps: ["For the sauce:", "Sauté the onion.", "Simmer."],
+      stepTechniques: [[], ["saute"], ["simmer"]],
+    };
+    const recipe = toRecipeInput(withLabel, input());
+    // The bare label drops with its (empty) technique row; the rest stay aligned.
+    expect(recipe.steps).toEqual(["Sauté the onion.", "Simmer."]);
+    expect(recipe.difficulty?.stepTechniques).toEqual([["saute"], ["simmer"]]);
+    expect(recipe.difficulty?.stepDifficulties).toEqual([2, 1]);
+  });
+
+  it("TC5: persist the LLM techniques, read them back, and re-map == difficulty_score", async () => {
+    const { userId, jobId } = await seedJob();
+    // Butter-chicken shape: LLM detects techniques the keyword scan misses.
+    const butterChicken: ExtractedRecipeData = {
+      title: "20-minute Butter Chicken",
+      servings: "4",
+      totalMinutes: 20,
+      confidence: 1,
+      ingredients: Array.from({ length: 15 }, (_, i) => ({ name: `ing${i}`, amount: "1", unit: null, quantityText: "1" })),
+      steps: ["Cook onions down until lightly golden.", "Add spices.", "Simmer until the sauce reduces."],
+      stepTechniques: [["saute"], [], ["simmer", "reduce"]],
+    };
+    const [recipeId] = await persistAndReady(db, [butterChicken], input({ jobId, userId }));
+
+    // recipe_steps.techniques + difficulty round-trip: difficulty = max(table) over techniques.
+    const rows = await db
+      .select({ position: recipeSteps.position, difficulty: recipeSteps.difficulty, techniques: recipeSteps.techniques })
+      .from(recipeSteps)
+      .where(eq(recipeSteps.recipeId, recipeId))
+      .orderBy(recipeSteps.position);
+    expect(rows.map((r) => r.techniques)).toEqual([["saute"], null, ["simmer", "reduce"]]);
+    expect(rows.map((r) => r.difficulty)).toEqual([2, 1, 3]);
+
+    const detail = await RecipeRepository.create(db).findById(recipeId);
+    // Re-score from the STORED techniques (no LLM) reproduces the persisted score.
+    const stored = detail!.stepTechniques.map((t) => t ?? []);
+    const rescored = scorerModule.DifficultyScorer.create().score(detail!.steps, 15, 20, stored);
+    expect(rescored.score).toBe(Number(detail!.recipe.difficultyScore));
+    expect(rescored.stepDifficulties).toEqual([2, 1, 3]);
+  });
+});

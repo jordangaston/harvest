@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { TechniqueMatcher } from '../src/difficulty/technique-matcher.js';
 import { DifficultyScorer } from '../src/difficulty/difficulty-scorer.js';
-import { DIFFICULTY_CONFIG, TECHNIQUE_DIFFICULTY } from '../src/difficulty/technique-difficulty.js';
+import { DIFFICULTY_CONFIG, TECHNIQUE_DIFFICULTY, TECHNIQUE_NAMES, techniqueWeight } from '../src/difficulty/technique-difficulty.js';
 
 /**
  * WI-DIFF-2 — the pure scoring engine. Constants are kept REAL (no mocked caps/lexicon):
@@ -135,6 +135,72 @@ describe('DifficultyScorer bands at cutoffs (O-DIFF-03, AC-10)', () => {
 
   it('raw just below C85 → intermediate', () => {
     expect(hardBand(C85 - 0.5)).toBe('intermediate');
+  });
+});
+
+describe('TECHNIQUE_NAMES + techniqueWeight (WI-DIFF-5 vocab)', () => {
+  it('TECHNIQUE_NAMES is the canonical-name list and techniqueWeight maps it', () => {
+    expect(TECHNIQUE_NAMES).toEqual(TECHNIQUE_DIFFICULTY.map((e) => e.canonical));
+    expect(techniqueWeight('saute')).toBe(2);
+    expect(techniqueWeight('reduce')).toBe(3);
+    expect(techniqueWeight('temper')).toBe(5);
+    expect(techniqueWeight('not-a-technique')).toBeUndefined();
+  });
+});
+
+describe('DifficultyScorer with supplied stepTechniques (WI-DIFF-5)', () => {
+  const scorer = DifficultyScorer.create();
+
+  it('TC1: maps supplied techniques to per-step weights [2,1,5], T=1.0', () => {
+    const result = scorer.score(['a', 'b', 'c'], 0, null, [['saute'], ['boil'], ['temper']]);
+    expect(result.stepDifficulties).toEqual([2, 1, 5]);
+    expect(result.stepTechniques).toEqual([['saute'], ['boil'], ['temper']]);
+    // T = max/5 = 1.0 (peak-driven). The techniques drove the weights, not the text.
+    expect(Math.max(...result.stepDifficulties) / 5).toBe(1.0);
+  });
+
+  it('AC-1: a step with ["saute","reduce"] takes the harder weight (3)', () => {
+    const result = scorer.score(['x'], 0, null, [['saute', 'reduce']]);
+    expect(result.stepDifficulties).toEqual([3]);
+    expect(result.stepTechniques).toEqual([['saute', 'reduce']]);
+  });
+
+  it('TC2: butter-chicken — [["saute"],[],["simmer","reduce"]] → T = 3/5 = 0.6 (not 0.2)', () => {
+    const steps = [
+      'Cook onions down until lightly golden.',
+      'Add the spices and tomato.',
+      'Simmer, stirring occasionally, until the sauce reduces.',
+    ];
+    const result = scorer.score(steps, 15, 20, [['saute'], [], ['simmer', 'reduce']]);
+    // Weights: saute=2, none=1, max(simmer=1, reduce=3)=3 → T = 3/5 = 0.6.
+    expect(result.stepDifficulties).toEqual([2, 1, 3]);
+    expect(Math.max(...result.stepDifficulties) / 5).toBeCloseTo(0.6, 10);
+    // The keyword-only path names no technique here → would be baseline [1,1,1], T=0.2.
+    const keywordOnly = scorer.score(steps, 15, 20);
+    expect(Math.max(...keywordOnly.stepDifficulties) / 5).toBeCloseTo(0.2, 10);
+    // Record the resulting band lands above beginner (the fix's point).
+    expect(result.score).toBeGreaterThan(keywordOnly.score);
+    expect(['beginner', 'intermediate', 'advanced']).toContain(result.band);
+  });
+
+  it('TC6: an out-of-vocab technique is dropped (never weighted)', () => {
+    const result = scorer.score(['x'], 0, null, [['saute', 'sorcery']]);
+    // sorcery ∉ table → dropped; saute=2 remains.
+    expect(result.stepDifficulties).toEqual([2]);
+    expect(result.stepTechniques).toEqual([['saute']]);
+  });
+
+  it('TC3: absent stepTechniques falls back to the keyword scan (WI-DIFF-2 unchanged)', () => {
+    const steps = ['Temper the chocolate.', 'Chop the nuts.', 'Serve.'];
+    const withoutTechniques = scorer.score(steps, 5, 30);
+    // Byte-identical weights to the keyword matcher; techniques default to [] per step.
+    expect(withoutTechniques.stepDifficulties).toEqual([5, 2, 1]);
+    expect(withoutTechniques.stepTechniques).toEqual([[], [], []]);
+  });
+
+  it('a fully-unknown/empty technique row scores baseline 1', () => {
+    const result = scorer.score(['x', 'y'], 0, null, [[], ['nope']]);
+    expect(result.stepDifficulties).toEqual([1, 1]);
   });
 });
 
