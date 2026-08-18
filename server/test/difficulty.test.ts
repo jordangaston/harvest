@@ -43,6 +43,11 @@ describe('TechniqueMatcher.stepWeights (O-DIFF-01)', () => {
     expect(matcher.stepWeights(['Search the pantry and add a scallion.'])).toEqual([1]);
   });
 
+  it('accented techniques match despite JS ASCII \\b (diacritics folded) — sauté == saute', () => {
+    expect(matcher.stepWeights(['Sauté the onions until soft.'])).toEqual([2]);
+    expect(matcher.stepWeights(['Saute the onions until soft.'])).toEqual([2]);
+  });
+
   it('AC-5: multi-word + hyphen/space normalization — sous-vide == sous vide', () => {
     const [hyphen] = matcher.stepWeights(['Cook sous-vide']);
     const [space] = matcher.stepWeights(['Cook sous vide']);

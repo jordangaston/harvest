@@ -40,10 +40,18 @@ export class TechniqueMatcher {
   }
 }
 
-/** Lowercase, replace hyphens with spaces, collapse whitespace — so `sous-vide`,
- * `sous vide`, and `Sous  Vide` all match the same `sous vide` form. */
+/** Lowercase, strip diacritics, replace hyphens with spaces, collapse whitespace — so
+ * `sous-vide`/`sous vide`/`Sous  Vide` and `sauté`/`saute` all fold to one form. Folding
+ * diacritics is required: JS's ASCII `\b` boundary won't match around a non-ASCII char
+ * (`\bsauté\b` never fires), so accented techniques would be silently missed otherwise. */
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Compiles the lexicon into a `\b`-anchored alternation (longest form first) plus a
