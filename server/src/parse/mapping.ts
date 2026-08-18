@@ -28,6 +28,7 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     ...toNutritionInput(data),
     allergens: data.allergens ?? null,
     categories: data.categories,
+    diets: data.diets ?? null,
   };
 }
 

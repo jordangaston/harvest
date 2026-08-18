@@ -56,12 +56,20 @@ export function emptyCategories(): RecipeCategories {
   return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] };
 }
 
+/** One diet's stored compatibility verdict + optional blocker (WI-DS-1). */
+export interface RecipeDietVerdict {
+  dietId: string;
+  verdict: 'compatible' | 'incompatible' | 'unknown';
+  blocker?: { kind: 'ingredient' | 'macro'; value: string; class?: string };
+}
+
 /** A recipe plus its ordered children — the aggregate a repository read returns. */
 export interface RecipeDetail {
   recipe: Recipe;
   ingredients: IngredientDetail[];
   steps: string[];
   categories: RecipeCategories;
+  diets: RecipeDietVerdict[];
 }
 
 /** Nutrition-Facts label core on the public recipe (snake_case strings). `estimated`
@@ -103,6 +111,15 @@ export interface PublicRecipe {
   nrf_score?: number;
   allergens?: PublicAllergens;
   categories: PublicCategories;
+  /** Per-diet compatibility (WI-DS-1); empty when the signal was withheld. */
+  diets: PublicDietVerdict[];
+}
+
+/** One diet verdict in the public shape (snake_case). Blocker present for `incompatible`. */
+export interface PublicDietVerdict {
+  diet_id: string;
+  verdict: 'compatible' | 'incompatible' | 'unknown';
+  blocker?: { kind: 'ingredient' | 'macro'; value: string; class?: string };
 }
 
 /** The public taste facets: snake_case facet keys, always present, arrays possibly
@@ -184,6 +201,7 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
       dish_type: detail.categories.dishType,
       primary_ingredient: detail.categories.primaryIngredient,
     },
+    diets: detail.diets.map((d) => (d.blocker ? { diet_id: d.dietId, verdict: d.verdict, blocker: d.blocker } : { diet_id: d.dietId, verdict: d.verdict })),
   };
   if (recipe.sourceUrl) publicRecipe.source_url = recipe.sourceUrl;
   if (recipe.servings != null) publicRecipe.servings = recipe.servings;

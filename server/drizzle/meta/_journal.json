@@ -43,6 +43,13 @@
       "when": 1786998532040,
       "tag": "0005_yellow_old_lace",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787018953931,
+      "tag": "0006_marvelous_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

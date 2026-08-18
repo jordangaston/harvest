@@ -5,6 +5,7 @@ import { LABEL_CORE_KEYS, type LabelCoreText } from "../models/label-core.js";
 import type { EstimateResult } from "../nutrition/nutrition-estimator.js";
 import type { RecipeCategories } from "../models/recipe.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
+import type { DietCompat } from "../diet/diet.js";
 import { hasRecipe } from "./mapping.js";
 
 /**
@@ -61,6 +62,9 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   allergens?: RecipeAllergens;
   // The categorizeStep's taste facets. Absent until that step runs.
   categories?: RecipeCategories;
+  // The dietStep's per-diet compatibility. Absent until that step runs; a withheld recipe
+  // (no ingredients / detection error) leaves it undefined → persists as no rows.
+  diets?: DietCompat;
 }
 
 export interface RecipeExtractor {

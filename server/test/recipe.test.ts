@@ -80,6 +80,30 @@ describe("GET /v1/recipes/:id", () => {
       ],
       steps: ["Mix", "Bake"],
       categories: { cuisine: [], meal_type: [], dish_type: [], primary_ingredient: [] },
+      diets: [],
+    });
+  });
+
+  it("persists diet verdicts + blocker and surfaces them on the read (WI-DS-1)", async () => {
+    const owner = await mintBearer();
+    const repo = RecipeRepository.create(db);
+    const withDiets: RecipeInput = {
+      ...RECIPE,
+      diets: {
+        fit: { vegan: "incompatible", keto: "compatible", pescatarian: "unknown" },
+        blockers: { vegan: { kind: "ingredient", value: "bacon", class: "red_meat" } },
+        coverageComplete: true,
+      },
+    };
+    const recipeId = await repo.persist(withDiets, owner.userId);
+
+    const diets = (await (await getRecipe(owner.token, recipeId)).json()).recipe.diets;
+    expect(diets).toContainEqual({ diet_id: "keto", verdict: "compatible" });
+    expect(diets).toContainEqual({ diet_id: "pescatarian", verdict: "unknown" });
+    expect(diets).toContainEqual({
+      diet_id: "vegan",
+      verdict: "incompatible",
+      blocker: { kind: "ingredient", value: "bacon", class: "red_meat" },
     });
   });
 

@@ -21,6 +21,9 @@ export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
 // TS-signal: the categorization facets. `value` is a controlled-vocabulary string
 // validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
 const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient'] as const;
+// Diet-signal (WI-DS-1): the per-diet verdict. `diet_id` is a DietRule id (app-side
+// config, not a DB enum) so a new diet needs no migration — like `recipe_categories.value`.
+export const DIET_VERDICTS = ['compatible', 'incompatible', 'unknown'] as const;
 const GOALS = [
   'eat_healthier',
   'save_money',
@@ -176,6 +179,32 @@ export const recipeCategories = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.recipeId, t.facet, t.value] }),
     index('recipe_categories_value_idx').on(t.facet, t.value),
+  ],
+);
+
+// Diet-signal (WI-DS-1): one row per (recipe, configured diet) — the compatibility
+// verdict plus the blocker that disqualified it. A normalized child table (like
+// `recipe_categories`), so the "recipes that fit diet X" query is an indexed lookup.
+// Composite PK dedups + makes replay persists idempotent (with onConflictDoNothing).
+// A recipe with no row for a diet reads as undetermined, never "fits". `diet_id` is a
+// free-string DietRule id validated in app config, not a DB enum.
+export const recipeDiets = sqliteTable(
+  'recipe_diets',
+  {
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    dietId: text('diet_id').notNull(),
+    verdict: text('verdict', { enum: DIET_VERDICTS }).notNull(),
+    // Blocker (only for `incompatible`): the offending ingredient/macro and the class
+    // (a FoodClass, `hidden`, or `macro`) that disqualified the recipe.
+    blockerKind: text('blocker_kind', { enum: ['ingredient', 'macro'] as const }),
+    blockerValue: text('blocker_value'),
+    blockerClass: text('blocker_class'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipeId, t.dietId] }),
+    index('recipe_diets_lookup_idx').on(t.dietId, t.verdict),
   ],
 );
 
@@ -343,6 +372,7 @@ export const schema = {
   ingredients,
   recipeSteps,
   recipeCategories,
+  recipeDiets,
   importJobs,
   importJobRecipes,
   cookbooks,
