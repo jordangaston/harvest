@@ -3,6 +3,11 @@ import type { RecipeInput } from "../repositories/recipe-repository.js";
 import { parseIngredientLine, type StructuredIngredient } from "./ingredient.js";
 import type { ExtractedRecipe } from "./website.js";
 import type { ExtractedRecipeData } from "./extractor.js";
+import type { RecipeDifficulty } from "../models/recipe.js";
+import { DifficultyScorer } from "../difficulty/difficulty-scorer.js";
+
+// One shared, stateless scorer — the compiled technique regex is built once.
+const difficultyScorer = DifficultyScorer.create();
 
 /**
  * The single chokepoint every source persists through — ports `toRecipeInput`
@@ -12,6 +17,7 @@ import type { ExtractedRecipeData } from "./extractor.js";
  */
 export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
   const ingredients = stripIngredientSections(data.ingredients);
+  const steps = stripSectionLabels(data.steps);
   const parsed = data.servings ? parseInt(data.servings, 10) : NaN;
   const hasServings = Number.isFinite(parsed) && parsed > 0;
   return {
@@ -24,11 +30,23 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     imageUrl: data.imageUrl,
     confidence: data.confidence,
     ingredients,
-    steps: stripSectionLabels(data.steps),
+    steps,
     ...toNutritionInput(data),
     allergens: data.allergens ?? null,
     categories: data.categories,
+    difficulty: scoreDifficulty(steps, ingredients.length, data.totalMinutes),
   };
+}
+
+/** Scores difficulty (WI-DIFF-3) over the FINAL steps/ingredients — best-effort: a
+ * scoring error leaves difficulty undefined rather than breaking the mapping, mirroring
+ * the nutrition/allergen posture. `stepDifficulties` stays index-aligned to `steps`. */
+function scoreDifficulty(steps: string[], ingredientCount: number, totalMinutes?: number): RecipeDifficulty | undefined {
+  try {
+    return difficultyScorer.score(steps, ingredientCount, totalMinutes ?? null);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Resolves the recipe's nutrition + NRF score to persist: the nutritionStep's estimate

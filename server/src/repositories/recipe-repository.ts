@@ -9,6 +9,7 @@ import {
   type RecipeCategories,
   type RecipeCard,
   type RecipeCardPage,
+  type RecipeDifficulty,
 } from '../models/recipe.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
@@ -40,6 +41,9 @@ export interface RecipeInput {
   allergens: RecipeAllergens | null;
   /** Taste facets (WI-TS-1). Omit for "no categories" — persists zero rows. */
   categories?: RecipeCategories;
+  /** Difficulty signal (WI-DIFF-3). Omit when scoring was skipped/failed — persists
+   * null columns and null per-step difficulties. `stepDifficulties` aligns to `steps`. */
+  difficulty?: RecipeDifficulty;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -80,12 +84,21 @@ export class RecipeRepository {
       .where(eq(ingredients.recipeId, recipeId))
       .orderBy(ingredients.position);
     const steps = await this.db
-      .select({ text: recipeSteps.text })
+      .select({ text: recipeSteps.text, difficulty: recipeSteps.difficulty })
       .from(recipeSteps)
       .where(eq(recipeSteps.recipeId, recipeId))
       .orderBy(recipeSteps.position);
     const categories = await this.categoriesByRecipe(recipeId);
-    return { recipe: RecipeSchema.parse(row), ingredients: ings, steps: steps.map((s) => s.text), categories };
+    const recipe = RecipeSchema.parse(row);
+    const stepDifficulties = steps.map((s) => s.difficulty);
+    return {
+      recipe,
+      ingredients: ings,
+      steps: steps.map((s) => s.text),
+      categories,
+      difficulty: toDifficulty(recipe, stepDifficulties),
+      stepDifficulties,
+    };
   }
 
   /** Reads a recipe's taste facets, bucketed by facet into `RecipeCategories`.
@@ -120,7 +133,7 @@ export class RecipeRepository {
   private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
-    await this.insertSteps(tx, recipeId, recipe.steps);
+    await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties);
     await this.insertCategories(tx, recipeId, recipe.categories);
     return recipeId;
   }
@@ -162,6 +175,8 @@ export class RecipeRepository {
         imageUrl: recipe.imageUrl ?? null,
         confidence: recipe.confidence != null ? String(recipe.confidence) : null,
         nrfScore: recipe.nrfScore != null ? String(recipe.nrfScore) : null,
+        difficultyScore: recipe.difficulty ? String(recipe.difficulty.score) : null,
+        difficultyBand: recipe.difficulty?.band ?? null,
         ...nutritionColumns(recipe.nutrition),
         ...allergenColumns(recipe.allergens),
       })
@@ -182,14 +197,18 @@ export class RecipeRepository {
   }
 
   /**
-   * Bulk-inserts step rows; no-op if empty.
+   * Bulk-inserts step rows; no-op if empty. Each row carries its WI-DIFF-3 per-step
+   * difficulty, index-aligned to `steps`; null when the recipe has no difficulty.
    * @param tx - Active transaction client.
    * @param recipeId - Parent recipe.
    * @param steps - Step text; array order becomes `position`.
+   * @param difficulties - Per-step weights aligned to `steps`, or undefined when unscored.
    */
-  private async insertSteps(tx: Tx, recipeId: string, steps: string[]): Promise<void> {
+  private async insertSteps(tx: Tx, recipeId: string, steps: string[], difficulties?: number[]): Promise<void> {
     if (steps.length === 0) return;
-    await tx.insert(recipeSteps).values(steps.map((text, i) => ({ recipeId, position: i, text })));
+    await tx
+      .insert(recipeSteps)
+      .values(steps.map((text, i) => ({ recipeId, position: i, text, difficulty: difficulties?.[i] ?? null })));
   }
 
   /**
@@ -258,6 +277,7 @@ export class RecipeRepository {
         title: recipes.title,
         imageUrl: recipes.imageUrl,
         totalMinutes: recipes.totalMinutes,
+        difficultyBand: recipes.difficultyBand,
         createdAt: recipes.createdAt,
       })
       .from(recipes)
@@ -272,7 +292,7 @@ export class RecipeRepository {
     const cbIds = opts.expand.cookbookIds ? await this.cookbookIdsByRecipe(userId, ids) : null;
 
     const cards: RecipeCard[] = page.map((r) => {
-      const card: RecipeCard = { id: r.id, title: r.title, imageUrl: r.imageUrl, totalMinutes: r.totalMinutes };
+      const card: RecipeCard = { id: r.id, title: r.title, imageUrl: r.imageUrl, totalMinutes: r.totalMinutes, difficultyBand: r.difficultyBand };
       if (names) card.ingredientNames = names.get(r.id) ?? [];
       if (cbIds) card.cookbookIds = cbIds.get(r.id) ?? [];
       return card;
@@ -370,6 +390,18 @@ function encodeCursor(createdAt: Date, id: string): string {
 function decodeCursor(token: string): { createdAt: number; id: string } {
   const [createdAt, id] = Buffer.from(token, 'base64url').toString('utf8').split('|');
   return { createdAt: Number(createdAt), id: id! };
+}
+
+/** Reconstructs the WI-DIFF-3 difficulty value object from the stored recipe columns,
+ * or null for a pre-feature recipe (columns null). `stepDifficulties` drops the nulls —
+ * a scored recipe has a weight on every stored step. */
+function toDifficulty(recipe: Recipe, stepDifficulties: (number | null)[]): RecipeDifficulty | null {
+  if (recipe.difficultyScore == null || recipe.difficultyBand == null) return null;
+  return {
+    score: Number(recipe.difficultyScore),
+    band: recipe.difficultyBand,
+    stepDifficulties: stepDifficulties.filter((d): d is number => d != null),
+  };
 }
 
 /** One structured ingredient → its insert row (position + O-09 icon on the name). */
