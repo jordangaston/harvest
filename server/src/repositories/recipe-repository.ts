@@ -4,6 +4,7 @@ import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, cookb
 import {
   RecipeSchema,
   emptyCategories,
+  toPublicRecipeCard,
   type Recipe,
   type RecipeDetail,
   type RecipeCategories,
@@ -11,7 +12,9 @@ import {
   type RecipeCard,
   type RecipeCardPage,
   type RecipeDifficulty,
+  type PublicRecipeCard,
 } from '../models/recipe.js';
+import type { RankableRecipe } from '../ranking/types.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
@@ -366,6 +369,90 @@ export class RecipeRepository {
     });
     const last = page[page.length - 1];
     return { cards, pageToken: hasMore && last ? encodeCursor(last.createdAt, last.id) : null };
+  }
+
+  /**
+   * The caller's owned recipes as `RankableRecipe` signals (WI-RANK-3) paired with
+   * the public card the ranked response returns. Categories and diet verdicts are
+   * loaded in one batched query each (keyed by the owned recipe ids), so there's no
+   * N+1. Cookbook-shared recipes are out of scope for v1 — ranking is the caller's
+   * own catalog.
+   * @param userId - The owner whose catalog is ranked.
+   * @returns One entry per owned recipe: its engine input and its public card.
+   */
+  async listRankable(userId: string): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
+    const rows = await this.db.select().from(recipes).where(eq(recipes.userId, userId));
+    const ids = rows.map((r) => r.id);
+    const [categories, diets] = await Promise.all([
+      this.affinityCategoriesByRecipe(ids),
+      this.dietFitByRecipe(ids),
+    ]);
+    return rows.map((row) => {
+      const recipe = RecipeSchema.parse(row);
+      return {
+        recipe: {
+          id: recipe.id,
+          createdAt: recipe.createdAt,
+          costPerServingCents: recipe.costPerServingCents,
+          difficultyBand: recipe.difficultyBand,
+          nrfScore: recipe.nrfScore == null ? null : Number(recipe.nrfScore),
+          totalMinutes: recipe.totalMinutes,
+          categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
+          allergens: {
+            contains: recipe.allergens?.contains ?? [],
+            mayContain: recipe.allergens?.mayContain ?? [],
+            complete: recipe.allergensComplete,
+          },
+          dietFit: diets.get(recipe.id) ?? {},
+          popularity: null,
+        },
+        card: toPublicRecipeCard({
+          id: recipe.id,
+          title: recipe.title,
+          imageUrl: recipe.imageUrl,
+          totalMinutes: recipe.totalMinutes,
+          difficultyBand: recipe.difficultyBand,
+          costPerServingCents: recipe.costPerServingCents,
+          costCoverage: recipe.costCoverage == null ? null : Number(recipe.costCoverage),
+        }),
+      };
+    });
+  }
+
+  /** Batches the 3 affinity facets (cuisine/dish_type/primary_ingredient) per recipe id. */
+  private async affinityCategoriesByRecipe(
+    recipeIds: string[],
+  ): Promise<Map<string, RankableRecipe['categories']>> {
+    const map = new Map<string, RankableRecipe['categories']>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: recipeCategories.recipeId, facet: recipeCategories.facet, value: recipeCategories.value })
+      .from(recipeCategories)
+      .where(inArray(recipeCategories.recipeId, recipeIds));
+    const BUCKET = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient' } as const;
+    for (const { recipeId, facet, value } of rows) {
+      if (!(facet in BUCKET)) continue; // ignore meal_type — not an affinity facet
+      const cats = map.get(recipeId) ?? { cuisine: [], dishType: [], primaryIngredient: [] };
+      cats[BUCKET[facet as keyof typeof BUCKET]].push(value);
+      map.set(recipeId, cats);
+    }
+    return map;
+  }
+
+  /** Batches each recipe id → its `dietId → verdict` map. */
+  private async dietFitByRecipe(recipeIds: string[]): Promise<Map<string, RankableRecipe['dietFit']>> {
+    const map = new Map<string, RankableRecipe['dietFit']>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: recipeDiets.recipeId, dietId: recipeDiets.dietId, verdict: recipeDiets.verdict })
+      .from(recipeDiets)
+      .where(inArray(recipeDiets.recipeId, recipeIds));
+    for (const { recipeId, dietId, verdict } of rows) {
+      const fit = map.get(recipeId) ?? {};
+      fit[dietId] = verdict;
+      map.set(recipeId, fit);
+    }
+    return map;
   }
 
   /** Maps each recipe id → its ordered ingredient names (empty ids → empty map). */

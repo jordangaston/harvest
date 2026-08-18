@@ -82,6 +82,12 @@ export const listRecipesQuerySchema = z.object({
   expand: z.string().optional(),
 });
 
+/** `GET /v1/recipes/ranked` query: cursor pagination over the ranked catalog. */
+export const rankedRecipesQuerySchema = z.object({
+  page_token: z.string().optional(),
+  page_size: z.coerce.number().int().min(1).max(200).default(50),
+});
+
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
 
 /** `POST /v1/meal-plan` body: assign one recipe to a (date, meal) slot. */

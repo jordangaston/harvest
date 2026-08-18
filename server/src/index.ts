@@ -25,6 +25,7 @@ import {
   setMembershipSchema,
   updateRecipeSchema,
   listRecipesQuerySchema,
+  rankedRecipesQuerySchema,
   createMealPlanEntrySchema,
   mealPlanRangeQuerySchema,
   addGroceryItemsSchema,
@@ -123,6 +124,16 @@ app.get("/v1/recipes", guard, async (c) => {
   const { page_token, page_size, expand } = listRecipesQuerySchema.parse(c.req.query());
   const expandSet = new Set((expand ?? "").split(",").map((s) => s.trim()).filter(Boolean));
   return c.json(await recipes.listCards(c.get("authUserId")!, { pageSize: page_size, cursor: page_token, expand: expandSet }));
+});
+
+/** GET /v1/recipes/ranked — the caller's owned catalog ranked best-first for their
+ * preferences (WI-RANK-3). Hard filters drop unsafe/incompatible recipes; each item
+ * carries a 0–100 score and its per-signal breakdown. Paginated over the ranked list
+ * via `page_token` (a base64url start index). Registered before `/:id` so "ranked"
+ * isn't captured as a recipe id. */
+app.get("/v1/recipes/ranked", guard, async (c) => {
+  const { page_token, page_size } = rankedRecipesQuerySchema.parse(c.req.query());
+  return c.json(await recipes.ranked(c.get("authUserId")!, { pageSize: page_size, cursor: page_token }));
 });
 
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer

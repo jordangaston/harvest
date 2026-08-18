@@ -1,5 +1,7 @@
 import type { Database } from "../db.js";
 import { RecipeRepository } from "../repositories/recipe-repository.js";
+import { PreferenceRepository } from "../repositories/preference-repository.js";
+import { RankingEngine } from "../ranking/ranking-engine.js";
 import { parseIngredientLine } from "../parse/ingredient.js";
 import {
   toPublicRecipe,
@@ -9,16 +11,58 @@ import {
 } from "../models/recipe.js";
 import { NotFoundError } from "../errors.js";
 
+/** One ranked recipe on the wire: its public card, 0–100 score, and per-signal breakdown. */
+export interface RankedCard {
+  recipe: PublicRecipeCard;
+  score: number;
+  breakdown: Record<string, number>;
+}
+
 /**
  * Recipe reads and owner edits. Recipes are shared entities, so `get` isn't
  * owner-scoped — any authenticated caller can open any recipe; a missing id 404s.
  */
 export class RecipeService {
-  constructor(private readonly recipes: RecipeRepository) {}
+  constructor(
+    private readonly recipes: RecipeRepository,
+    private readonly preferences: PreferenceRepository,
+  ) {}
 
   /** Wire from a caller-supplied db (tests pass a local `file:` db). */
   static create(db: Database) {
-    return new RecipeService(RecipeRepository.create(db));
+    return new RecipeService(RecipeRepository.create(db), PreferenceRepository.create(db));
+  }
+
+  /**
+   * The caller's owned catalog ranked best-first for their preferences (WI-RANK-3).
+   * Ranking is global, so the full catalog is scored, then the requested page is
+   * sliced; `cursor` is a base64url start index (absent = start at 0).
+   * @param userId - The catalog owner (authenticated caller).
+   * @param opts - `pageSize` (max 200) and an optional `cursor` from a prior page.
+   * @returns One page of ranked cards + the next `page_token` (null at the end).
+   */
+  async ranked(
+    userId: string,
+    opts: { pageSize: number; cursor?: string },
+  ): Promise<{ recipes: RankedCard[]; page_token: string | null }> {
+    const [prefs, rankable] = await Promise.all([
+      this.preferences.getPreferences(userId),
+      this.recipes.listRankable(userId),
+    ]);
+    const cardById = new Map(rankable.map((r) => [r.recipe.id, r.card]));
+    const ranked = RankingEngine.create().rank(rankable.map((r) => r.recipe), prefs);
+
+    const start = opts.cursor ? decodeIndex(opts.cursor) : 0;
+    const page = ranked.slice(start, start + opts.pageSize);
+    const next = start + opts.pageSize;
+    return {
+      recipes: page.map((r) => ({
+        recipe: cardById.get(r.recipeId)!,
+        score: Math.round(r.score * 1000) / 10,
+        breakdown: r.breakdown,
+      })),
+      page_token: next < ranked.length ? encodeIndex(next) : null,
+    };
   }
 
   /**
@@ -74,4 +118,14 @@ export class RecipeService {
   async remove(userId: string, recipeId: string): Promise<void> {
     if (!(await this.recipes.deleteOwned(userId, recipeId))) throw new NotFoundError();
   }
+}
+
+/** The ranked page_token is just the next start index into the recomputed ranking. */
+function encodeIndex(index: number): string {
+  return Buffer.from(String(index), "utf8").toString("base64url");
+}
+
+function decodeIndex(token: string): number {
+  const n = Number(Buffer.from(token, "base64url").toString("utf8"));
+  return Number.isInteger(n) && n >= 0 ? n : 0;
 }
