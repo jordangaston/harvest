@@ -296,13 +296,25 @@ belt-and-suspenders parity with its sibling steps.)
 `beginner`. No special-casing; a contentless recipe *is* trivially "difficult." (A thin extraction
 that under-detected steps is a garbage-in ceiling, surfaced by the calibration log, not hidden.)
 
-## Score Each Step — O-DIFF-01: Lexicon Match Over Step Text
+## Score Each Step — O-DIFF-01: Detect Techniques, Then Map
 
-**The algorithm in one line: a step's difficulty is the weight of the hardest cooking technique named
-in its text — a dictionary lookup, not inference.** There is no ML and no scoring model at the step
-level; the "intelligence" lives entirely in the curated `TECHNIQUE_DIFFICULTY` table, and matching it
-is a compiled string scan. This is deliberately the same high-precision gazetteer mechanism
-`RuleTagger` already uses for cuisine keywords.
+> **Revised 2026-08-17.** Technique **detection** is now a two-tier concern (see the "Semantic
+> technique detection" decision): the **primary** detector is the LLM (it reads each step and returns
+> the techniques it uses, constrained to the `TECHNIQUE_DIFFICULTY` canonical names — catching
+> *sautéing* in "cook onions down until golden" even though the word never appears); the **fallback**
+> (offline / no key / tests) is the keyword lexicon scan described below. Either way the output is the
+> same — a set of canonical technique names per step — and the **mapping** technique → weight → step
+> difficulty is the identical deterministic step. The lexicon scan below is now the fallback path.
+
+**Mapping in one line: a step's difficulty is the max weight of the techniques detected in it, from the
+curated `TECHNIQUE_DIFFICULTY` table** (baseline 1 when none). Detection fills the technique set;
+mapping turns it into the 1–5 atom. The table is the single calibration knob for *how hard* a technique
+is, regardless of which detector found it.
+
+### Fallback detector — the keyword lexicon scan
+
+The offline detector is the same high-precision gazetteer mechanism `RuleTagger` uses for cuisine
+keywords — a compiled string scan over the step text.
 
 ### The reference table
 
@@ -465,11 +477,14 @@ step and read back with it (the recipe rollup does `max()` over these rows).
 
 | Column Name | Type | Constraints | Notes |
 |---|---|---|---|
-| difficulty | integer | nullable | the step's hardest-technique weight, 1–5 (baseline 1 = "combine"); `null` when the recipe wasn't scored |
+| techniques | text (JSON) | nullable | the canonical technique names detected in the step (e.g. `["saute","reduce"]`); `[]` when none, `null` when unscored. **The semantic atom** — the source of truth. |
+| difficulty | integer | nullable | the derived weight = `max(TECHNIQUE_DIFFICULTY[t])` over `techniques` (baseline 1); a convenience/read cache written alongside. `null` when unscored. |
 
-Stored as the raw 1–5 weight (lowest granularity), not a normalized fraction — so the recipe
-aggregate can be recomputed/re-weighted from these rows without re-scanning text. Not indexed: it's
-read with its step, never filtered by value across rows.
+`techniques` is the lowest-granularity atom (added 2026-08-17 for the semantic-detection revision):
+storing the technique *names* — not just the number — means re-weighting the table re-maps every
+recipe **without re-calling the LLM**. `difficulty` is the derived weight, written in the same
+transaction from the same techniques (so they never drift at write time); it exists so a read needn't
+re-map. Neither is indexed — both are read with the step, never filtered by value across rows.
 
 ## recipes (existing — two columns added)
 
@@ -764,6 +779,8 @@ then cutoffs. This is cheap, one-time, and the only real validation the domain a
 | No `total_minutes` (social import) | phantom 0 deflates score | **M dropped**, mean over 3 factors |
 | Thin extraction (under-detected steps) | silently under-scored | garbage-in ceiling, **visible** in the per-recipe log (factors printed), not hidden |
 | Corpus is one cuisine/type (baking-heavy) | fixed cutoffs mis-band | **percentile** cutoffs adapt to the real mix |
+| Unnamed technique ("cook onions down until golden" = sauté; "simmer until reduced") | keyword scan → `T=1`, misses real skill | **LLM detection** recognizes the technique semantically → correct weight; keyword scan is only the offline fallback |
+| Spice-heavy easy recipe (butter chicken: 6 pantry spices) | `N` inflated by spice count → risks over-banding | known calibration lever — pantry-staple discount on `N` (ties to the deferred availability signal, Q-04); this recipe is a calibration fixture |
 
 ## What "feels right" means
 
@@ -800,26 +817,60 @@ signal if the product ever wants "hard to shop for" (Q-04).
 - Validated additive shape: [Müller & Bergmann 2017](https://ceur-ws.org/Vol-2028/paper26.pdf),
   [Peterson 2025](https://colepeterson.me/docs/Cole_T_Peterson_MSCS_Thesis.pdf).
 
-## Deterministic scoring, not an LLM classification step
+## Semantic technique *detection* (LLM), deterministic technique *scoring*
 
-**Framework:** Fermi ROI — effort/cost vs. benefit.
+> **Revised 2026-08-17** (supersedes the original "deterministic, no LLM" decision below). Live
+> verification on a real recipe (Gimme Delicious "20-minute Butter Chicken") exposed the fatal flaw
+> in pure keyword detection: the recipe genuinely sautés ("cook onions down until lightly golden")
+> and reduces a sauce ("simmer… stirring occasionally"), but names neither technique, so the lexicon
+> scored every step at baseline (`T = 1/5`) and the band was decided entirely by counts. Keyword
+> matching cannot read intent. The recall ceiling (Q-07) is real and material.
 
-An LLM difficulty step (mirroring the taste classifier) would cost per-recipe latency, API spend,
-non-determinism, and unauditability — to reproduce a formula that is a pure count-and-scan over data
-we already store. The research found no ground truth to train on (so no learned model) and no evidence
-an LLM beats the additive score. A deterministic function is ~zero marginal cost, offline,
-reproducible, and — decisively — **calibratable**: you can move a cutoff on a transparent score, not
-on an opaque model output.
+**Framework:** Direct criterion — separate *what technique is this* (a semantic recognition task) from
+*how hard is that technique* (the calibration knob we must keep).
 
-**Choice:** pure `DifficultyScorer` over a code-constant technique table + stored counts/time. No LLM,
-no network, no DB read.
+The fix is to make **detection** semantic and keep **scoring** deterministic:
+
+- **Detection (per step) — LLM primary, keyword fallback.** The model reads each step and returns the
+  cooking techniques it uses, **constrained to the canonical names in `TECHNIQUE_DIFFICULTY`** (the
+  same "classify into a fixed vocabulary" shape as the taste classifier — `LunaTasteClassifier`
+  constrains to `VOCAB`). It rides the taste call the pipeline already makes (steps added to the
+  prompt, per-step techniques added to the JSON output) → ~zero new network cost. When no LLM key is
+  present (offline/tests), the existing `TechniqueMatcher` keyword scan is the fallback — a tiered
+  primary-plus-fallback exactly like `selectTasteClassifier` (`docs/harvest-principles.md`).
+- **Scoring (mapping + blend + bands) — unchanged, deterministic.** `TECHNIQUE_DIFFICULTY` maps a
+  detected technique → weight 1–5; per-step weight = max over the step's techniques; `T = peak/5`;
+  the additive blend and percentile bands are untouched. The difficulty *scale* stays fully auditable
+  and calibratable — you still move a band cutoff or a technique weight on transparent numbers, never
+  on the model's opinion.
+
+Why not let the LLM score difficulty directly: it would be opaque and non-calibratable, and the
+research found **no validated ground truth** to trust such a score against (Research §1). Detection is
+a *bounded, verifiable* classification (the output is a known vocabulary, spot-checkable per step);
+direct scoring is not. So the LLM does recognition, not judgement.
+
+**Choice:** LLM per-step technique detection constrained to the technique vocabulary (folded into the
+existing taste call, keyword matcher as the offline fallback); deterministic weight-mapping, additive
+blend, and percentile bands retained. Per-step **techniques** are persisted (`recipe_steps.techniques`)
+so re-weighting the table never needs a re-call.
 
 ### Alternatives Considered
-- **LLM classify (taste-step pattern):** rejected — cost + non-determinism + uncalibratable, for no
-  accuracy evidence. The taste step earns its LLM because cuisine is ambiguous; difficulty's inputs
-  aren't.
-- **Learned regression/classifier:** rejected — no validated labeled data to train against
-  (Research §1).
+- **Pure deterministic keyword detection (the original decision):** rejected on live evidence — the
+  butter-chicken recall failure shows unnamed/paraphrased techniques (the common case in real recipes)
+  slip through, zeroing `T`. Retained only as the offline/no-key fallback.
+- **LLM scores difficulty directly (0–100/band):** rejected — opaque, non-calibratable, and nothing to
+  validate it against; difficulty stops being a clean, tunable concept.
+- **Learned regression/classifier:** rejected — no validated labeled data to train against (Research §1).
+- **Separate technique-extraction LLM call (not folded into taste):** rejected for now — cleaner
+  separation of concerns, but a second per-recipe request for no added capability; revisit if the
+  taste prompt gets unwieldy.
+
+### Cost & determinism (honest tradeoffs)
+Adds an LLM dependency to the score: non-determinism (mitigated by constraining output to the
+vocabulary and persisting the detected techniques, so a recipe's score is stable once stored),
+per-recipe cost/latency (mitigated by riding the existing taste call), and the score is no longer a
+pure function of stored *text* (it is a pure function of stored *techniques* + the table). The human
+calibration pass is unchanged — no published model is validated either way.
 
 ## `TECHNIQUE_DIFFICULTY` as a code constant, not a seeded DB table
 
@@ -957,3 +1008,4 @@ launch blockers. Q-04 and Q-06 are separate follow-on features.
 | 2026-08-17 | Backend Tech Lead | Store difficulty at two levels — per-step atom (`recipe_steps.difficulty`, 1–5) aggregated into the recipe rollup (`T = max(step difficulty)`). Adds the per-step column + migration, the `stepDifficulties[]` vector on `Difficulty`, the `Step.difficulty` entity attribute, and Q-06 (per-step API exposure, deferred). Follows store-at-lowest-granularity. |
 | 2026-08-17 | Backend Tech Lead | Specified the step-difficulty **algorithm** (O-DIFF-01): the `TECHNIQUE_DIFFICULTY` entry shape (`{ canonical, weight, forms[] }`), the compiled `\b`-anchored regex match → weights → max → baseline-1 procedure, a worked trace, and the precision-over-recall posture. Added the matching-approach decision (explicit surface forms, not a stemmer/LLM) and Q-07 (lexicon-miss skew). |
 | 2026-08-17 | Backend Tech Lead | Build refinement: score at the persist chokepoint (`toRecipeInput`) instead of a separate `difficultyStep`, for per-step/step-strip alignment correctness (scoring does no I/O, so no durable step is warranted). Added the decision; broke the feature into `docs/sprint-difficulty/specs/WI-DIFF-1..4`. |
+| 2026-08-17 | Backend Tech Lead | **Reversed the "no LLM" decision on live evidence.** The 20-min butter-chicken recipe scored `T=1` because it sautés/reduces without naming the techniques — the keyword recall ceiling is material. Moved technique **detection** to LLM-primary (riding the taste call, constrained to the technique vocab) + keyword **fallback**; kept technique **scoring** deterministic. Persist per-step `techniques` (semantic atom) alongside the derived `difficulty` weight. Spec: `WI-DIFF-5`. |
