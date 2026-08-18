@@ -82,6 +82,17 @@ export const TECHNIQUE_DIFFICULTY: TechniqueEntry[] = [
   { canonical: 'layer', weight: 1, forms: ['layer', 'layered', 'layering'] },
 ];
 
+/** The canonical technique names (WI-DIFF-5) — the LLM's allowed vocabulary and the
+ * validation set for constraining its per-step detections, like `VOCAB` for taste. */
+export const TECHNIQUE_NAMES: string[] = TECHNIQUE_DIFFICULTY.map((e) => e.canonical);
+
+const WEIGHT_BY_NAME = new Map(TECHNIQUE_DIFFICULTY.map((e) => [e.canonical, e.weight]));
+
+/** The weight (1–5) for a canonical technique name, or undefined if not in the table. */
+export function techniqueWeight(name: string): number | undefined {
+  return WEIGHT_BY_NAME.get(name);
+}
+
 /**
  * DIFFICULTY_CONFIG (WI-DIFF-2, O-DIFF-02/03) — the normalization caps and band cutoffs.
  * ponytail (Q-02): PROVISIONAL cold-start values. STEP_CAP/ING_CAP/TIME_CAP are the

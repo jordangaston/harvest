@@ -5,11 +5,15 @@ import type { DifficultyBand } from '../schema.js';
 export type { DifficultyBand };
 
 /** The recipe difficulty signal (WI-DIFF-2): the continuous 0–100 `score`, its derived
- * `band`, and the per-step technique weights (1–5, index-aligned to the recipe's steps). */
+ * `band`, and the per-step technique weights (1–5, index-aligned to the recipe's steps).
+ * `stepTechniques` (WI-DIFF-5) carries the detected canonical technique names per step
+ * (`[]` where none / keyword fallback ran) — the atom persisted so re-weighting the table
+ * never re-calls the LLM; `stepDifficulties` stays the authority for weight. */
 export interface RecipeDifficulty {
   score: number;
   band: DifficultyBand;
   stepDifficulties: number[];
+  stepTechniques: string[][];
 }
 
 // Domain model for a recipe row. Repositories parse rows into this at the
@@ -79,6 +83,9 @@ export interface RecipeDetail {
   categories: RecipeCategories;
   difficulty: RecipeDifficulty | null;
   stepDifficulties: (number | null)[];
+  /** The detected canonical technique names per step (WI-DIFF-5), aligned to `steps`;
+   * null where a step stored no techniques. */
+  stepTechniques: (string[] | null)[];
 }
 
 /** Nutrition-Facts label core on the public recipe (snake_case strings). `estimated`
