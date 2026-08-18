@@ -36,6 +36,7 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     categories: data.categories,
     diets: data.diets ?? null,
     difficulty: scoreDifficulty(steps, ingredients.length, data.totalMinutes, stepTechniques),
+    cost: data.cost ?? null,
   };
 }
 

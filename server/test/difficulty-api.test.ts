@@ -33,6 +33,8 @@ const baseRecipe = (): RecipeDetail["recipe"] => ({
   nrfScore: null,
   difficultyScore: null,
   difficultyBand: null,
+  costPerServingCents: null,
+  costCoverage: null,
   allergens: null,
   allergensComplete: false,
   createdAt: new Date(),
@@ -70,6 +72,8 @@ describe("toPublicRecipeCard difficulty_band projection (WI-DIFF-4)", () => {
     imageUrl: null,
     totalMinutes: null,
     difficultyBand: null,
+    costPerServingCents: null,
+    costCoverage: null,
     ...over,
   });
 
