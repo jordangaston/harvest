@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import { LABEL_CORE_KEYS } from './label-core.js';
+import type { DifficultyBand } from '../schema.js';
+
+export type { DifficultyBand };
+
+/** The recipe difficulty signal (WI-DIFF-2): the continuous 0–100 `score`, its derived
+ * `band`, and the per-step technique weights (1–5, index-aligned to the recipe's steps). */
+export interface RecipeDifficulty {
+  score: number;
+  band: DifficultyBand;
+  stepDifficulties: number[];
+}
 
 // Domain model for a recipe row. Repositories parse rows into this at the
 // boundary. `confidence` and the nutrition macros are stored as numeric → text,
@@ -26,6 +37,8 @@ export const RecipeSchema = z.object({
   milligramsOfSodium: z.string().nullable(),
   nutritionSource: z.enum(['parsed', 'computed']).nullable(),
   nrfScore: z.string().nullable(),
+  difficultyScore: z.string().nullable(),
+  difficultyBand: z.enum(['beginner', 'intermediate', 'advanced']).nullable(),
   allergens: z.object({ contains: z.array(z.string()), mayContain: z.array(z.string()) }).nullable(),
   allergensComplete: z.boolean(),
   createdAt: z.date(),
@@ -56,12 +69,16 @@ export function emptyCategories(): RecipeCategories {
   return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] };
 }
 
-/** A recipe plus its ordered children — the aggregate a repository read returns. */
+/** A recipe plus its ordered children — the aggregate a repository read returns.
+ * `difficulty` is the reconstructed value object (null for a pre-feature recipe);
+ * `stepDifficulties` is the per-step weight aligned to `steps` (null where unscored). */
 export interface RecipeDetail {
   recipe: Recipe;
   ingredients: IngredientDetail[];
   steps: string[];
   categories: RecipeCategories;
+  difficulty: RecipeDifficulty | null;
+  stepDifficulties: (number | null)[];
 }
 
 /** Nutrition-Facts label core on the public recipe (snake_case strings). `estimated`
@@ -101,6 +118,7 @@ export interface PublicRecipe {
   steps: string[];
   nutrition?: PublicNutrition;
   nrf_score?: number;
+  difficulty?: { score: number; band: DifficultyBand };
   allergens?: PublicAllergens;
   categories: PublicCategories;
 }
@@ -121,6 +139,7 @@ export interface RecipeCard {
   title: string;
   imageUrl: string | null;
   totalMinutes: number | null;
+  difficultyBand: DifficultyBand | null;
   ingredientNames?: string[];
   cookbookIds?: string[];
 }
@@ -137,15 +156,18 @@ export interface PublicRecipeCard {
   title: string;
   image_url?: string;
   total_minutes?: number;
+  difficulty_band?: DifficultyBand;
   ingredient_names?: string[];
   cookbook_ids?: string[];
 }
 
-/** Maps a recipe card to its public shape, omitting null/absent optionals. */
+/** Maps a recipe card to its public shape, omitting null/absent optionals. The card
+ * carries the difficulty BAND only (a badge), never the raw score. */
 export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
   const out: PublicRecipeCard = { id: card.id, title: card.title };
   if (card.imageUrl) out.image_url = card.imageUrl;
   if (card.totalMinutes != null) out.total_minutes = card.totalMinutes;
+  if (card.difficultyBand) out.difficulty_band = card.difficultyBand;
   if (card.ingredientNames) out.ingredient_names = card.ingredientNames;
   if (card.cookbookIds) out.cookbook_ids = card.cookbookIds;
   return out;
@@ -192,6 +214,7 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
   const nutrition = toPublicNutrition(recipe);
   if (nutrition) publicRecipe.nutrition = nutrition;
   if (recipe.nrfScore != null) publicRecipe.nrf_score = Number(recipe.nrfScore);
+  if (detail.difficulty) publicRecipe.difficulty = { score: detail.difficulty.score, band: detail.difficulty.band };
   if (recipe.allergens) {
     publicRecipe.allergens = {
       contains: recipe.allergens.contains,
