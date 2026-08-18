@@ -1,4 +1,4 @@
-import { eq, and, desc, or, exists, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, or, exists, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
 import {
@@ -382,6 +382,39 @@ export class RecipeRepository {
    */
   async listRankable(userId: string): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
     const rows = await this.db.select().from(recipes).where(eq(recipes.userId, userId));
+    return this.assembleRankable(rows);
+  }
+
+  /**
+   * The deck candidate set (WI-RANK-4): recipes the caller can see — owned ∪ global
+   * (`user_id = caller OR user_id IS NULL`) — as `RankableRecipe` + card. Same batched
+   * assembly as {@link listRankable}, no N+1. Globals are empty until the corpus lands.
+   * @param userId - The caller whose deck is built.
+   */
+  async listDeckCandidates(userId: string): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
+    const rows = await this.db.select().from(recipes).where(or(eq(recipes.userId, userId), isNull(recipes.userId)));
+    return this.assembleRankable(rows);
+  }
+
+  /**
+   * Builds one recipe's `RankableRecipe` for the caller, or null if it isn't visible
+   * (owned or global). Used by the swipe snapshot (WI-RANK-4).
+   * @param userId - The caller (visibility check).
+   * @param recipeId - The recipe to score.
+   */
+  async getRankable(userId: string, recipeId: string): Promise<RankableRecipe | null> {
+    const rows = await this.db
+      .select()
+      .from(recipes)
+      .where(and(eq(recipes.id, recipeId), or(eq(recipes.userId, userId), isNull(recipes.userId))));
+    const [assembled] = await this.assembleRankable(rows);
+    return assembled?.recipe ?? null;
+  }
+
+  /** Assembles recipe rows into `RankableRecipe` + card, batching categories/diets (no N+1). */
+  private async assembleRankable(
+    rows: (typeof recipes.$inferSelect)[],
+  ): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
     const ids = rows.map((r) => r.id);
     const [categories, diets] = await Promise.all([
       this.affinityCategoriesByRecipe(ids),

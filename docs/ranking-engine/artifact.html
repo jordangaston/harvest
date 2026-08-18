@@ -717,6 +717,97 @@
   </section>
 
   <section>
+    <p class="eyebrow">Swipe deck &amp; feedback loop · v1.1</p>
+    <h2>Swiping, the Tinder way</h2>
+    <p class="note">The ranked list is consumed as a swipe deck. Modeled on how Tinder actually works:
+      a pre-assembled <strong>batch</strong> the client swipes through, re-ranked on the <em>next</em>
+      fetch — <strong>not</strong> a re-rank on every swipe, and <strong>not</strong> a persisted queue
+      table. Weight changes from swipes land immediately but only reshape the next deck, so the batch
+      under your thumb never reshuffles.</p>
+
+    <div class="pipe">
+      <div class="stage score">
+        <span class="n">01</span>
+        <h3>Fetch deck</h3>
+        <p><code style="font-size:11px">GET /v1/recipes/deck?limit=5</code> — top unswiped ranked cards.
+          Recently-swiped are excluded (cooldown); the deck is a query, not a table.</p>
+        <span class="verb">query, re-ranked</span>
+      </div>
+      <div class="stage sort">
+        <span class="n">02</span>
+        <h3>Swipe</h3>
+        <p>Right → Liked cookbook. Left → optional reason. Each swipe records a row with a
+          <strong>score + weights snapshot</strong>.</p>
+        <span class="verb">like / dislike</span>
+      </div>
+      <div class="stage filter">
+        <span class="n">03</span>
+        <h3>Refetch at 1–2 left</h3>
+        <p>Client prefetches the next batch before running dry — re-ranked with any updated weights,
+          excluding what was just swiped. No mid-deck reshuffle.</p>
+        <span class="verb">fetch boundary</span>
+      </div>
+    </div>
+
+    <div class="split" style="margin-top:14px">
+      <div class="panel">
+        <h3>Candidate source · owned ∪ global</h3>
+        <p class="note" style="margin-top:8px">The deck draws from the user's recipes <em>plus</em> the
+          app's global corpus — not owned-only.</p>
+        <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
+          <span class="role both" style="font-size:11px">owned · ranked per request (cheap)</span>
+          <span class="role soft" style="font-size:11px">global · user_id NULL (model ✓)</span>
+        </div>
+        <p class="note" style="margin-top:12px"><strong>Ownership model shipped</strong> —
+          <code>recipes.user_id</code> is nullable; a <code>NULL</code> owner is a global recipe
+          (migration 0011). User-scoped reads filter <code>user_id = caller</code>, so globals never
+          leak; the deck opts in with <code>… OR user_id IS NULL</code>. Still to build (Q-04):
+          <strong>populate</strong> the corpus, <strong>union</strong> it into the deck, and a
+          <strong>retrieval</strong> stage for scale — where <strong>popularity</strong> finally earns
+          its keep as the cold-start discovery signal.</p>
+      </div>
+      <div class="tbl" style="align-self:start">
+        <div class="tname">recipe_swipes <span class="card1">0 : N · labeled feedback</span></div>
+        <div class="field"><span class="fname pk">user_id, recipe_id</span><span class="ftype">pk · cascade</span></div>
+        <div class="field"><span class="fname">direction</span><span class="ftype enum">like · dislike</span></div>
+        <div class="field"><span class="fname">reason</span><span class="ftype enum">null · dislike only</span></div>
+        <div class="field"><span class="fname">score</span><span class="ftype">real · snapshot</span></div>
+        <div class="field"><span class="fname">weights</span><span class="ftype">json · snapshot</span></div>
+        <div class="field"><span class="fname">created_at</span><span class="ftype">cooldown + decay</span></div>
+      </div>
+    </div>
+
+    <div class="gates" style="margin-top:14px">
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span style="color:var(--pass)">Right swipe</span> — like</p>
+        <table>
+          <thead><tr><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>Records the swipe, then adds the recipe to the user's <strong>Liked</strong> cookbook (lazily created; a new <code>cookbooks.system_slug='liked'</code> marks it so it isn't renamed or duplicated).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="scroll">
+        <p class="gate-head" style="padding:12px 14px 0;margin:0"><span class="sev">Left swipe</span> — dislike + reason → tune</p>
+        <table>
+          <thead><tr><th>Reason</th><th>Tunes (first write-path to prefs)</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">too expensive</td><td>weight_cost +1</td></tr>
+            <tr><td class="mono">too hard</td><td>weight_difficulty +1</td></tr>
+            <tr><td class="mono">too slow</td><td>weight_time +1</td></tr>
+            <tr><td class="mono">not nutritious</td><td>weight_nutrition +1</td></tr>
+            <tr><td class="mono">disliked ingredient</td><td>user_food_prefs dislike <em>(a target)</em></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="note">Most reasons nudge a <em>weight</em> (a signal's importance); "disliked ingredient"
+      nudges a <em>target</em> (a specific dislike). Nudges are coarse (+1, capped 3) and apply at the
+      next fetch — boring-first; the learned loop (below) supersedes them, training on the
+      <code>recipe_swipes</code> snapshots.</p>
+  </section>
+
+  <section>
     <p class="eyebrow">Recorded, not built</p>
     <h2>What v1 deliberately leaves out</h2>
     <p class="note">The richer ideas the research surfaced, deferred to keep the first version boring

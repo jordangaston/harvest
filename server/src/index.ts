@@ -26,6 +26,8 @@ import {
   updateRecipeSchema,
   listRecipesQuerySchema,
   rankedRecipesQuerySchema,
+  deckQuerySchema,
+  swipeBodySchema,
   createMealPlanEntrySchema,
   mealPlanRangeQuerySchema,
   addGroceryItemsSchema,
@@ -134,6 +136,23 @@ app.get("/v1/recipes", guard, async (c) => {
 app.get("/v1/recipes/ranked", guard, async (c) => {
   const { page_token, page_size } = rankedRecipesQuerySchema.parse(c.req.query());
   return c.json(await recipes.ranked(c.get("authUserId")!, { pageSize: page_size, cursor: page_token }));
+});
+
+/** GET /v1/recipes/deck — the caller's swipe deck (WI-RANK-4): visible recipes (owned ∪
+ * global) minus liked/on-cooldown, ranked best-first, top `limit`. No `page_token` — the
+ * deck advances by swiping. Registered before `/:id` so "deck" isn't captured as an id. */
+app.get("/v1/recipes/deck", guard, async (c) => {
+  const { limit } = deckQuerySchema.parse(c.req.query());
+  return c.json(await recipes.deck(c.get("authUserId")!, { limit }));
+});
+
+/** POST /v1/recipes/:id/swipe — records a like/dislike swipe and applies its side-effect
+ * (like → Liked cookbook; reasoned dislike → preference tuning). Requires bearer token;
+ * 404 if the recipe isn't visible to the caller. Registered before `/:id`. */
+app.post("/v1/recipes/:id/swipe", guard, async (c) => {
+  const { direction, reason, reason_detail } = swipeBodySchema.parse(await c.req.json());
+  const swipe = await recipes.swipe(c.get("authUserId")!, c.req.param("id")!, { direction, reason, reasonDetail: reason_detail });
+  return c.json({ swipe });
 });
 
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer

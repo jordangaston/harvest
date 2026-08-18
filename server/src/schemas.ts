@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { OnboardingSchema } from "./models/user.js";
+import { SWIPE_REASONS } from "./schema.js";
+import { DECK_DEFAULT_LIMIT } from "./ranking/constants.js";
 
 export const requestOtpSchema = z.object({
   otp: z.object({ phone_number: z.string() }),
@@ -86,6 +88,18 @@ export const listRecipesQuerySchema = z.object({
 export const rankedRecipesQuerySchema = z.object({
   page_token: z.string().optional(),
   page_size: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+/** `GET /v1/recipes/deck` query: how many top cards to return (no paging — swipe to advance). */
+export const deckQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(DECK_DEFAULT_LIMIT),
+});
+
+/** `POST /v1/recipes/:id/swipe` body: like/dislike + an optional dislike reason and its detail. */
+export const swipeBodySchema = z.object({
+  direction: z.enum(["like", "dislike"]),
+  reason: z.enum(SWIPE_REASONS).optional(),
+  reason_detail: z.string().optional(),
 });
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');

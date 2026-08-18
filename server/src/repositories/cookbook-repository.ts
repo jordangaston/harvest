@@ -104,6 +104,33 @@ export class CookbookRepository {
   }
 
   /**
+   * Returns the id of the caller's cookbook marked with `system_slug=slug`, lazily
+   * creating it (with `name`) if absent. Idempotent via the unique `(user, slug)` index.
+   * @param slug - The system marker (e.g. 'liked').
+   * @param name - Display name used only when creating.
+   */
+  async ensureSystemCookbook(userId: string, slug: string, name: string): Promise<string> {
+    const [existing] = await this.db
+      .select({ id: cookbooks.id })
+      .from(cookbooks)
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, slug)));
+    if (existing) return existing.id;
+    // Idempotent under a concurrent first-like: onConflictDoNothing lets the loser of the
+    // (user, slug) unique-index race fall through to re-read the winner's row, not 500.
+    await this.db.insert(cookbooks).values({ userId, name, systemSlug: slug }).onConflictDoNothing();
+    const [row] = await this.db
+      .select({ id: cookbooks.id })
+      .from(cookbooks)
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, slug)));
+    return row!.id;
+  }
+
+  /** Idempotently files a recipe into a cookbook (no-op if already a member). */
+  async addRecipe(userId: string, cookbookId: string, recipeId: string): Promise<void> {
+    await this.db.insert(cookbookRecipes).values({ cookbookId, recipeId }).onConflictDoNothing();
+  }
+
+  /**
    * Sets the caller's cookbook membership for a recipe: makes membership exactly
    * `cookbookIds` (restricted to the caller's own cookbooks — ids they don't own are
    * ignored). Filing a recipe into a cookbook IS the save (C6). One transaction.

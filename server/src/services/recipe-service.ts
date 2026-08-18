@@ -1,8 +1,13 @@
 import type { Database } from "../db.js";
 import { RecipeRepository } from "../repositories/recipe-repository.js";
 import { PreferenceRepository } from "../repositories/preference-repository.js";
+import { SwipeRepository } from "../repositories/swipe-repository.js";
+import { CookbookRepository } from "../repositories/cookbook-repository.js";
 import { RankingEngine } from "../ranking/ranking-engine.js";
+import { tuneActionFor } from "../ranking/tune-mapping.js";
+import { SWIPE_COOLDOWN_DAYS } from "../ranking/constants.js";
 import { parseIngredientLine } from "../parse/ingredient.js";
+import type { SWIPE_REASONS } from "../schema.js";
 import {
   toPublicRecipe,
   toPublicRecipeCard,
@@ -18,6 +23,15 @@ export interface RankedCard {
   breakdown: Record<string, number>;
 }
 
+type SwipeReason = (typeof SWIPE_REASONS)[number];
+
+/** A swipe request: direction, plus a dislike reason and its free-text detail (the ingredient). */
+export interface SwipeInput {
+  direction: "like" | "dislike";
+  reason?: SwipeReason;
+  reasonDetail?: string;
+}
+
 /**
  * Recipe reads and owner edits. Recipes are shared entities, so `get` isn't
  * owner-scoped — any authenticated caller can open any recipe; a missing id 404s.
@@ -26,11 +40,18 @@ export class RecipeService {
   constructor(
     private readonly recipes: RecipeRepository,
     private readonly preferences: PreferenceRepository,
+    private readonly swipes: SwipeRepository,
+    private readonly cookbooks: CookbookRepository,
   ) {}
 
   /** Wire from a caller-supplied db (tests pass a local `file:` db). */
   static create(db: Database) {
-    return new RecipeService(RecipeRepository.create(db), PreferenceRepository.create(db));
+    return new RecipeService(
+      RecipeRepository.create(db),
+      PreferenceRepository.create(db),
+      SwipeRepository.create(db),
+      CookbookRepository.create(db),
+    );
   }
 
   /**
@@ -58,11 +79,73 @@ export class RecipeService {
     return {
       recipes: page.map((r) => ({
         recipe: cardById.get(r.recipeId)!,
-        score: Math.round(r.score * 1000) / 10,
+        score: round1(r.score * 100),
         breakdown: r.breakdown,
       })),
       page_token: next < ranked.length ? encodeIndex(next) : null,
     };
+  }
+
+  /**
+   * The caller's swipe deck (WI-RANK-4): visible recipes (owned ∪ global) minus any
+   * they've liked (permanent) or swiped within `SWIPE_COOLDOWN_DAYS`, ranked best-first,
+   * top `limit`. Same card/score/breakdown shape as {@link ranked}; the deck advances by
+   * swiping, so there's no `page_token`.
+   * @param userId - The caller.
+   * @param opts - `limit` (deck batch size).
+   */
+  async deck(userId: string, opts: { limit: number }): Promise<{ recipes: RankedCard[] }> {
+    const cutoff = new Date(Date.now() - SWIPE_COOLDOWN_DAYS * 86_400_000);
+    const [prefs, candidates, excluded] = await Promise.all([
+      this.preferences.getPreferences(userId),
+      this.recipes.listDeckCandidates(userId),
+      this.swipes.excludedRecipeIds(userId, cutoff),
+    ]);
+    const live = candidates.filter((c) => !excluded.has(c.recipe.id));
+    const cardById = new Map(live.map((c) => [c.recipe.id, c.card]));
+    const ranked = RankingEngine.create().rank(live.map((c) => c.recipe), prefs).slice(0, opts.limit);
+    return {
+      recipes: ranked.map((r) => ({ recipe: cardById.get(r.recipeId)!, score: round1(r.score * 100), breakdown: r.breakdown })),
+    };
+  }
+
+  /**
+   * Records a swipe and applies its side-effect (WI-RANK-4). Snapshots the pre-tune
+   * score+weights (what produced the card the user saw), then: a `like` files the recipe
+   * into the caller's "Liked" system cookbook; a reasoned `dislike` tunes preferences
+   * (bump a weight, or add a food-pref dislike when a `reasonDetail` names the ingredient).
+   * @param userId - The caller.
+   * @param recipeId - The swiped recipe (must be visible to the caller).
+   * @param input - Direction + optional dislike reason and its detail.
+   * @throws {NotFoundError} 404 if the recipe isn't visible to the caller.
+   */
+  async swipe(
+    userId: string,
+    recipeId: string,
+    input: SwipeInput,
+  ): Promise<{ direction: "like" | "dislike"; reason: SwipeReason | null; score: number }> {
+    const rankable = await this.recipes.getRankable(userId, recipeId);
+    if (!rankable) throw new NotFoundError();
+
+    const prefs = await this.preferences.getPreferences(userId);
+    const score = round1(RankingEngine.create().rank([rankable], prefs)[0]!.score * 100);
+    const reason = input.reason ?? null;
+    await this.swipes.upsert(userId, { recipeId, direction: input.direction, reason, score, weights: prefs.weights });
+
+    if (input.direction === "like") {
+      const cb = await this.cookbooks.ensureSystemCookbook(userId, "liked", "Liked");
+      await this.cookbooks.addRecipe(userId, cb, recipeId);
+    } else if (input.reason) {
+      await this.applyDislikeTuning(userId, input.reason, input.reasonDetail);
+    }
+    return { direction: input.direction, reason, score };
+  }
+
+  /** Tunes preferences for a reasoned dislike: bump a weight, add a food-pref dislike, or nothing. */
+  private async applyDislikeTuning(userId: string, reason: SwipeReason, reasonDetail?: string): Promise<void> {
+    const action = tuneActionFor(reason);
+    if (action.kind === "weight") await this.preferences.bumpWeight(userId, action.signal);
+    else if (action.kind === "dislike" && reasonDetail) await this.preferences.addDislike(userId, "primary_ingredient", reasonDetail);
   }
 
   /**
@@ -118,6 +201,11 @@ export class RecipeService {
   async remove(userId: string, recipeId: string): Promise<void> {
     if (!(await this.recipes.deleteOwned(userId, recipeId))) throw new NotFoundError();
   }
+}
+
+/** Rounds a 0–100 score to one decimal (the deck/ranked score convention). */
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 /** The ranked page_token is just the next start index into the recomputed ranking. */

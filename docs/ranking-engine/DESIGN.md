@@ -834,6 +834,122 @@ overwrite these same columns, so the schema does not change — only who writes 
 
 ---
 
+# Swipe deck & feedback loop
+
+The ranked list is consumed as a **Tinder-style swipe deck**: the user is shown recipe cards one at a
+time, best-ranked first, and swipes right (like) or left (dislike). Swipes are captured — both to drive
+the deck (don't re-show a card) and as labeled feedback to improve ranking later. This section extends
+the algorithm and data model above; it is **v1.1**, layered on the shipped ranking core.
+
+## Candidate source — owned ∪ global (the global half is blocked)
+
+The deck's candidate set is **the user's own recipes plus the app's global recipe corpus**, not just
+owned recipes (the v1 ranked endpoint's `listRankable` is owned-only). This is a `CandidateSource`
+seam:
+
+- **Owned recipes** — `recipes.user_id = caller`. Small pool; rank-all-per-request is fine (as today).
+- **Global recipes** — a shared corpus the user does not own (discovery). The **ownership model is now
+  decided**: `recipes.user_id` is nullable, and a `NULL` owner marks a global/app-owned recipe
+  (migration 0011). User-scoped reads filter `user_id = caller`, so globals never leak into an owner's
+  list; the deck opts in with `user_id = caller OR user_id IS NULL`. What remains before the global
+  half of the deck ships: **populating** the corpus (a seeding/ingestion path that writes
+  `user_id = NULL` rows, plus moderation), **unioning** globals into `listRankable`, the **retrieval**
+  stage below, and the clone-vs-reference question on "like" — see Q-04. Until then the deck runs over
+  owned recipes only.
+
+**Scale changes the retrieval story.** The owned pool stays tiny, so ranking it per request is free.
+A *global* corpus can be large — which is exactly the industry **retrieval-then-rank** split (Q-02,
+[S1]): a cheap **candidate-generation** step narrows the global corpus to a bounded set (v1: recent /
+popular / pre-filtered by the user's hard filters, capped at N), and only that set is scored by the
+engine. So the engine is unchanged; a `GlobalCandidateSource.retrieve(prefs, limit)` feeds it.
+
+**Popularity finally matters here.** For a stranger's recipe the user has no affinity or history, so
+the (not-yet-built) popularity signal is the natural cold-start ranker for global candidates — the
+discovery deck is popularity's primary consumer.
+
+## Deck model — batch, not a persisted queue
+
+Modeled on how Tinder actually works: a **pre-assembled batch** the client swipes through, re-ranked on
+the *next* fetch — **not** a re-rank on every swipe, and **not** a persisted queue table.
+
+- `GET /v1/recipes/deck?limit=5` returns the top-N unswiped ranked candidates. The client swipes
+  through them and **prefetches the next batch when 1–2 cards remain** (no loading stall).
+- **No queue table.** The deck is a query: `rank(candidates) minus recently-swiped`, recomputed each
+  fetch. It stays fresh as ranking improves and needs no invalidation.
+- **Re-rank at the fetch boundary, never mid-deck.** Weight/preference changes from swipes (below) are
+  written immediately but only reshape the *next* deck fetch — so the batch under the user's thumb
+  never reshuffles. This is Tinder's stability property, and with a 5-card batch the tuning still takes
+  effect within a few swipes.
+- **Cooldown exclusion.** A recipe swiped within the last `SWIPE_COOLDOWN_DAYS` (config) is excluded
+  from candidates. A *pass* ("not tonight") can resurface after the cooldown — unlike dating, a recipe
+  you skipped Tuesday may fit Friday. A `like` is excluded permanently (it is in the Liked cookbook); a
+  reasoned `dislike` also naturally ranks low after cooldown via the tuning it triggers. The exclusion
+  lives in candidate assembly (a set-level filter on `recipe_swipes.created_at`), not in the scorer.
+
+## Table: recipe_swipes
+
+Captures each swipe as labeled feedback, snapshotting the ranking context so the data is usable for
+learning later.
+
+| Column | Type | Constraints | Notes |
+| --- | --- | --- | --- |
+| user_id | text | fk → users.id, cascade | |
+| recipe_id | text | fk → recipes.id, cascade | |
+| direction | text (enum) | not null | `like` / `dislike` (extensible: `super_like`, `save`…) |
+| reason | text (enum) | null | dislike only: `too_expensive` / `too_hard` / `too_slow` / `disliked_ingredient` / `not_nutritious` / `other` |
+| score | real | not null | the recipe's rank score at swipe time |
+| weights | text (json) | not null | snapshot of the six weights used to rank it |
+| created_at | integer (timestamp) | not null | for cooldown + time-decay learning |
+
+Primary key `(user_id, recipe_id)` — one verdict per recipe; a re-swipe upserts. Index
+`(user_id, created_at)` for cooldown and recent-activity queries. `weights` is the truly
+non-recoverable context (weights drift over time); `score` is convenient; the per-signal `breakdown`
+JSON is an optional richer add (the recipe's normalized features at swipe time).
+
+## Table change: cookbooks.system_slug
+
+Add a nullable `system_slug` (text) to `cookbooks`, unique per `(user_id, system_slug)`, to reliably
+identify system-managed collections (`'liked'`, later `'cooked'`/`'saved'`) so they are not
+duplicated, renamed, or deleted like user cookbooks. `NULL` = an ordinary user cookbook.
+
+## Endpoints & side-effects
+
+- `GET /v1/recipes/deck?limit=5` — the next batch of unswiped ranked cards (owned-only until the global
+  corpus exists). Same card + score + breakdown shape as `/v1/recipes/ranked`.
+- `POST /v1/recipes/:id/swipe` `{ direction, reason? }` — upserts a `recipe_swipes` row with the score
+  and weights snapshot, then applies the side-effect for its direction:
+  - **`like` → Liked cookbook.** Lazily create the user's `system_slug='liked'` cookbook if absent, add
+    the recipe (reusing `cookbooks` / `cookbook_recipes`). [For a *global* recipe the user does not own,
+    whether "like" references the shared row or clones a copy into the user's library is part of the
+    Q-04 global-corpus design.]
+  - **`dislike` + `reason` → tune.** The **first write-path into `user_preferences`** (WI-RANK-1's
+    repository is read-only). The reason names the signal that should have down-ranked the card:
+
+    | Reason | Effect |
+    | --- | --- |
+    | `too_expensive` | `weight_cost` +1 (cap 3) |
+    | `too_hard` | `weight_difficulty` +1 |
+    | `too_slow` | `weight_time` +1 |
+    | `not_nutritious` | `weight_nutrition` +1 |
+    | `disliked_ingredient` | add a `dislike` to `user_food_prefs` for the ingredient (a *target*, not a weight) |
+    | `other` / none | record only |
+
+    Most reasons nudge a *weight* (a signal's importance); `disliked_ingredient` nudges a *target* (a
+    specific dislike) — the right distinction. Nudges are coarse (+1 integer, capped 3) and, per the
+    deck model, take effect at the next fetch. Coarse immediate tuning is boring-first; the learned
+    loop (Future) supersedes it.
+
+## Buildable now vs. blocked
+
+- **Now (over owned recipes):** `recipe_swipes` table, `cookbooks.system_slug`, `GET /v1/recipes/deck`,
+  `POST /v1/recipes/:id/swipe` with the Liked-cookbook and reason-tuning side-effects, cooldown
+  exclusion. This is a self-contained work item on top of the shipped ranking core.
+- **Blocked on the global corpus (Q-04):** the global half of the candidate source and its retrieval
+  stage. Design the `CandidateSource` seam now (owned-only implementation), slot global in when the
+  corpus exists.
+
+---
+
 # Open Questions / Future
 
 | ID | Question | Status | Resolution |
@@ -841,6 +957,9 @@ overwrite these same columns, so the schema does not change — only who writes 
 | Q-01 | No researched source published a concrete allergen-severity or diet-strictness enum. Are `{severe,moderate,mild}` / `{strict,flexible}` the right granularity, or do users need finer tiers (e.g. religious vs. ethical vs. medical)? | open | Validate with onboarding UX; enums are cheap to extend. |
 | Q-02 | Ranking is computed per request. At what catalog size does this need a precomputed rank table or retrieval/ranking split (the industry pattern [S1])? | open | Revisit if p95 latency degrades; catalogs are per-user and small in v1. |
 | Q-03 | When both a hard filter and a soft signal touch the same concept (a user "avoids" but does not "forbid" dairy), is a fixed penalty constant right, or should it scale with severity? | open | Research flagged this as unresolved industry-wide; start with fixed constants, tune from data. |
+| Q-04 | Ownership model resolved: `recipes.user_id NULL` = global (migration 0011). Still open: how the corpus gets **populated + moderated** (a NULL-owner ingestion path), and does "liking" a global recipe reference the shared row or **clone** it into the user's library? | partial | Data model shipped. Build the `CandidateSource` seam owned-only now; corpus population + clone-vs-reference are their own work items. |
+| Q-05 | Immediate +1 weight nudges on a reasoned dislike can feel unpredictable ("why did everything change?"). Is coarse integer tuning at the fetch boundary enough, or does it need smoothing / a finer scale / a confirmation? | open | Ship coarse + capped + batch-boundary as the guardrail; revisit when the learned loop lands. |
+| Q-06 | What is the right `SWIPE_COOLDOWN_DAYS` before a passed recipe can resurface, and should a reasoned dislike be a longer/permanent exclusion than a bare pass? | open | Start with one constant; tune from swipe data (which is now captured). |
 
 **Future (recorded, not built) — the richer ideas the research surfaced, deliberately deferred to
 keep v1 boring:**
@@ -853,9 +972,10 @@ keep v1 boring:**
   recipes — a Bradley-Terry / choice-model fit [S4] or matrix-factorization ranking objective
   (BPR/WARP) [S3]. Writes the same weight columns; the ranker is unchanged.
 - **Implicit feedback with time-decay.** Learn affinity and weights from behavior (cooked, saved,
-  skipped), weighting recent events more via exponential decay `k·e^(−t)` and stronger actions more
-  than weak ones [S2][S6]. Requires an interaction-events table (not yet present — no popularity data
-  either).
+  swiped), weighting recent events more via exponential decay `k·e^(−t)` and stronger actions more
+  than weak ones [S2][S6]. The interaction-events table now exists — `recipe_swipes`, with its
+  per-swipe `score`/`weights` snapshot and `created_at` — so this loop can train on real labels; it
+  supersedes the coarse per-swipe nudges (§ Swipe deck).
 - **Confidence weighting.** Store a per-preference confidence alongside the preference [S6], so a
   weakly-held like pulls less than a strongly-held one.
 - **Relative soft attributes.** Model subjective attributes (a recipe feeling "fancy" or "quick")
@@ -895,3 +1015,5 @@ any named app ships it.
 | --- | --- | --- |
 | 2026-08-18 | Jordan Gaston | Initial design — algorithm + preference data model |
 | 2026-08-18 | Jordan Gaston | Nutrition normalization → saturating squash `x⁺/(x⁺+k)`, k=57 from NRF 15/3 literature [S11] (was min-max clamp over [−50, 100], which flattened the healthy tail); reworked worked example accordingly |
+| 2026-08-18 | Jordan Gaston | Added Swipe deck & feedback loop (v1.1): candidate source (owned ∪ global — global blocked on a corpus that doesn't exist, Q-04), batch deck (no queue table, re-rank at fetch boundary, cooldown exclusion), `recipe_swipes` table (score/weights snapshot), `cookbooks.system_slug`, like→Liked-cookbook, reasoned-dislike→weight/target tuning |
+| 2026-08-18 | Jordan Gaston | Global-corpus ownership model shipped: `recipes.user_id` nullable, `NULL` = global recipe (migration 0011). Resolves the data-model half of Q-04; corpus population + deck union + retrieval + clone-vs-reference remain |
