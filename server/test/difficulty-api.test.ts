@@ -37,6 +37,7 @@ const baseRecipe = (): RecipeDetail["recipe"] => ({
   costCoverage: null,
   allergens: null,
   allergensComplete: false,
+  equipmentComplete: false,
   createdAt: new Date(),
 });
 

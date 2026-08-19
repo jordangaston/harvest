@@ -7,6 +7,7 @@ import type { RecipeCategories } from "../models/recipe.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
 import type { DietCompat } from "../diet/diet.js";
 import type { RecipeCost } from "../price/cost-estimator.js";
+import type { DetectedEquipment } from "../equipment/equipment.js";
 import { hasRecipe } from "./mapping.js";
 
 /**
@@ -72,6 +73,10 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   // The categorizeStep's per-step detected techniques (WI-DIFF-5), aligned to `steps`.
   // Absent until that step runs / when the LLM is off; stripped in lockstep in toRecipeInput.
   stepTechniques?: string[][];
+  // The equipmentStep's detected equipment (WI-EQ-2): recipe-level set + per-step alignment
+  // (aligned to `steps`, stripped in lockstep in toRecipeInput) + completeness. Absent until
+  // that step runs; a withheld recipe leaves it undefined → persists equipment_complete=false.
+  equipment?: DetectedEquipment;
 }
 
 export interface RecipeExtractor {

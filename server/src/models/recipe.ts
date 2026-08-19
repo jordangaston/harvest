@@ -47,6 +47,7 @@ export const RecipeSchema = z.object({
   costCoverage: z.string().nullable(),
   allergens: z.object({ contains: z.array(z.string()), mayContain: z.array(z.string()) }).nullable(),
   allergensComplete: z.boolean(),
+  equipmentComplete: z.boolean(),
   createdAt: z.date(),
 });
 

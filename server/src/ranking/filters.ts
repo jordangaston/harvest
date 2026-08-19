@@ -27,3 +27,17 @@ export class DietFilter implements FilterRule {
       strictness === 'strict' && recipe.dietFit[dietId] === 'incompatible');
   }
 }
+
+/**
+ * Equipment you lack is a physical constraint, not a taste (WI-EQ-3, EQUIPMENT-SIGNAL.md).
+ * Excludes a recipe only when the user has reviewed their kitchen, detection is complete, and
+ * a REQUIRED (non-substitutable) item is not owned. Unreviewed kitchen → never hide; incomplete
+ * detection → lenient; a `recommended`-missing item is the soft penalty's job, not the filter's.
+ */
+export class EquipmentFilter implements FilterRule {
+  excludes(recipe: RankableRecipe, prefs: UserPreferences): boolean {
+    if (!prefs.equipmentReviewed || !recipe.equipmentComplete) return false;
+    const owned = new Set(prefs.ownedEquipment);
+    return recipe.equipment.some(({ equipment, essentiality }) => essentiality === 'required' && !owned.has(equipment));
+  }
+}
