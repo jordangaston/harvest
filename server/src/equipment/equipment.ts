@@ -1,5 +1,22 @@
 import { type Equipment, type Essentiality } from '../schema.js';
 
+/** One detected appliance for a recipe: the canonical type + its per-recipe essentiality
+ * (the LLM's judgment; the config `defaultEssentiality` prior on fallback). */
+export interface DetectedItem {
+  equipment: Equipment;
+  essentiality: Essentiality;
+}
+
+/** A recipe's equipment signal (WI-EQ-2): the rolled-up set the filter reads, the per-step
+ * alignment for the "which step needs it" UI, and whether detection ran to completion.
+ * `complete = false` after the deterministic fallback (or a withheld recipe) keeps the
+ * filter lenient. */
+export interface DetectedEquipment {
+  equipment: DetectedItem[];
+  stepEquipment: Equipment[][];
+  complete: boolean;
+}
+
 /**
  * EQUIPMENT (WI-EQ-1) — the notable-appliance config: each canonical `Equipment` value with
  * its per-type essentiality PRIOR (the fallback the LLM overrides per recipe) and the surface

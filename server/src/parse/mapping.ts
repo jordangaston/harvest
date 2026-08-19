@@ -5,6 +5,7 @@ import type { ExtractedRecipe } from "./website.js";
 import type { ExtractedRecipeData } from "./extractor.js";
 import type { RecipeDifficulty } from "../models/recipe.js";
 import { DifficultyScorer } from "../difficulty/difficulty-scorer.js";
+import type { Equipment } from "../schema.js";
 
 // One shared, stateless scorer — the compiled technique regex is built once.
 const difficultyScorer = DifficultyScorer.create();
@@ -17,7 +18,7 @@ const difficultyScorer = DifficultyScorer.create();
  */
 export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): RecipeInput {
   const ingredients = stripIngredientSections(data.ingredients);
-  const { steps, stepTechniques } = stripSteps(data.steps, data.stepTechniques);
+  const { steps, stepTechniques, stepEquipment } = stripSteps(data.steps, data.stepTechniques, data.equipment?.stepEquipment);
   const parsed = data.servings ? parseInt(data.servings, 10) : NaN;
   const hasServings = Number.isFinite(parsed) && parsed > 0;
   return {
@@ -37,6 +38,9 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     diets: data.diets ?? null,
     difficulty: scoreDifficulty(steps, ingredients.length, data.totalMinutes, stepTechniques),
     cost: data.cost ?? null,
+    // Re-align the per-step equipment to the FINAL (stripped) steps; the recipe-level set +
+    // completeness are order-independent (WI-EQ-2).
+    equipment: data.equipment ? { ...data.equipment, stepEquipment: stepEquipment ?? [] } : null,
   };
 }
 
@@ -58,15 +62,25 @@ function scoreDifficulty(
   }
 }
 
-/** Strips bare section-label steps, carrying `stepTechniques` in lockstep so it stays
- * aligned to the FINAL steps: zip (step, techniques), filter by the same `isSectionLabel`
- * predicate, unzip. `stepTechniques` is absent when the LLM was off (keyword fallback runs).
- * Never empties a non-empty step list (mirrors `stripSectionLabels`). */
-function stripSteps(steps: string[], stepTechniques?: string[][]): { steps: string[]; stepTechniques?: string[][] } {
-  if (!stepTechniques) return { steps: stripSectionLabels(steps) };
-  const kept = steps.map((step, i) => ({ step, techniques: stepTechniques[i] ?? [] })).filter((p) => !isSectionLabel(p.step));
-  const rows = kept.length ? kept : steps.map((step, i) => ({ step, techniques: stepTechniques[i] ?? [] }));
-  return { steps: rows.map((r) => r.step), stepTechniques: rows.map((r) => r.techniques) };
+/** Strips bare section-label steps, carrying the per-step LLM arrays (`stepTechniques`,
+ * `stepEquipment`) in lockstep so each stays aligned to the FINAL steps: zip, filter by the
+ * same `isSectionLabel` predicate, unzip. Either array is absent when its LLM tier was off
+ * (the keyword fallback scans the stripped step text). Never empties a non-empty step list
+ * (mirrors `stripSectionLabels`). */
+function stripSteps(
+  steps: string[],
+  stepTechniques?: string[][],
+  stepEquipment?: Equipment[][],
+): { steps: string[]; stepTechniques?: string[][]; stepEquipment?: Equipment[][] } {
+  if (!stepTechniques && !stepEquipment) return { steps: stripSectionLabels(steps) };
+  const zip = steps.map((step, i) => ({ step, techniques: stepTechniques?.[i] ?? [], equipment: stepEquipment?.[i] ?? [] }));
+  const kept = zip.filter((p) => !isSectionLabel(p.step));
+  const rows = kept.length ? kept : zip;
+  return {
+    steps: rows.map((r) => r.step),
+    ...(stepTechniques ? { stepTechniques: rows.map((r) => r.techniques) } : {}),
+    ...(stepEquipment ? { stepEquipment: rows.map((r) => r.equipment) } : {}),
+  };
 }
 
 /** Resolves the recipe's nutrition + NRF score to persist: the nutritionStep's estimate

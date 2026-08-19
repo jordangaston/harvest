@@ -1,6 +1,6 @@
 import { eq, and, desc, or, exists, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, cookbooks, cookbookRecipes, type SourceType } from '../schema.js';
+import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, recipeEquipment, cookbooks, cookbookRecipes, type SourceType, type Equipment } from '../schema.js';
 import {
   RecipeSchema,
   emptyCategories,
@@ -20,6 +20,7 @@ import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import type { DietCompat } from '../diet/diet.js';
 import type { RecipeCost } from '../price/cost-estimator.js';
+import type { DetectedEquipment } from '../equipment/equipment.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
@@ -54,6 +55,9 @@ export interface RecipeInput {
   difficulty?: RecipeDifficulty;
   /** Cost signal (WI-CS-2). Null/omit when unpriceable — persists null columns. */
   cost?: RecipeCost | null;
+  /** Equipment signal (WI-EQ-2). Null/omit when the step was withheld — persists
+   * equipment_complete=false and zero `recipe_equipment` rows. `stepEquipment` aligns to `steps`. */
+  equipment?: DetectedEquipment | null;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -169,9 +173,10 @@ export class RecipeRepository {
   private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
-    await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques);
+    await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques, recipe.equipment?.stepEquipment);
     await this.insertCategories(tx, recipeId, recipe.categories);
     await this.insertDiets(tx, recipeId, recipe.diets);
+    await this.insertEquipment(tx, recipeId, recipe.equipment);
     return recipeId;
   }
 
@@ -197,6 +202,20 @@ export class RecipeRepository {
     });
     if (rows.length === 0) return;
     await tx.insert(recipeDiets).values(rows).onConflictDoNothing();
+  }
+
+  /**
+   * Bulk-inserts the recipe's rolled-up equipment set — one row per detected item, carrying
+   * its per-recipe essentiality (WI-EQ-2). No-op when withheld or empty. `onConflictDoNothing`
+   * keeps a workflow replay idempotent. `equipment_complete` is written on the recipe row.
+   * @param tx - Active transaction client.
+   * @param recipeId - Parent recipe.
+   * @param equipment - The detector result; null/undefined means "withheld".
+   */
+  private async insertEquipment(tx: Tx, recipeId: string, equipment?: DetectedEquipment | null): Promise<void> {
+    if (!equipment || equipment.equipment.length === 0) return;
+    const rows = equipment.equipment.map((e) => ({ recipeId, equipment: e.equipment, essentiality: e.essentiality }));
+    await tx.insert(recipeEquipment).values(rows).onConflictDoNothing();
   }
 
   /**
@@ -240,6 +259,7 @@ export class RecipeRepository {
         difficultyBand: recipe.difficulty?.band ?? null,
         costPerServingCents: recipe.cost?.centsPerServing ?? null,
         costCoverage: recipe.cost != null ? String(recipe.cost.coverage) : null,
+        equipmentComplete: recipe.equipment?.complete ?? false,
         ...nutritionColumns(recipe.nutrition),
         ...allergenColumns(recipe.allergens),
       })
@@ -268,13 +288,16 @@ export class RecipeRepository {
    * @param difficulties - Per-step weights aligned to `steps`, or undefined when unscored.
    * @param techniques - Per-step detected technique names (WI-DIFF-5) aligned to `steps`;
    *   an empty/absent row stores null, so an un-detected step reads back as null.
+   * @param equipment - Per-step detected equipment (WI-EQ-2) aligned to `steps`; an empty/absent
+   *   row stores null, like `techniques`.
    */
-  private async insertSteps(tx: Tx, recipeId: string, steps: string[], difficulties?: number[], techniques?: string[][]): Promise<void> {
+  private async insertSteps(tx: Tx, recipeId: string, steps: string[], difficulties?: number[], techniques?: string[][], equipment?: Equipment[][]): Promise<void> {
     if (steps.length === 0) return;
     await tx.insert(recipeSteps).values(
       steps.map((text, i) => {
         const t = techniques?.[i];
-        return { recipeId, position: i, text, difficulty: difficulties?.[i] ?? null, techniques: t && t.length ? t : null };
+        const e = equipment?.[i];
+        return { recipeId, position: i, text, difficulty: difficulties?.[i] ?? null, techniques: t && t.length ? t : null, equipment: e && e.length ? e : null };
       }),
     );
   }
