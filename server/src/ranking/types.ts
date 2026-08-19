@@ -6,6 +6,7 @@ export type RankableRecipe = {
   createdAt: Date;
   costPerServingCents: number | null;
   difficultyBand: 'beginner' | 'intermediate' | 'advanced' | null;
+  mealPrepFit: 'unsuitable' | 'suitable' | 'designed' | null;
   nrfScore: number | null;
   totalMinutes: number | null;
   categories: { cuisine: string[]; dishType: string[]; primaryIngredient: string[] };

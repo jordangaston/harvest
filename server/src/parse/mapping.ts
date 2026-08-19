@@ -38,6 +38,7 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     diets: data.diets ?? null,
     difficulty: scoreDifficulty(steps, ingredients.length, data.totalMinutes, stepTechniques),
     cost: data.cost ?? null,
+    mealPrepFit: data.mealPrepFit ?? null,
     // Re-align the per-step equipment to the FINAL (stripped) steps; the recipe-level set +
     // completeness are order-independent (WI-EQ-2).
     equipment: data.equipment ? { ...data.equipment, stepEquipment: stepEquipment ?? [] } : null,

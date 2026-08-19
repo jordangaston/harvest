@@ -84,7 +84,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
 
     const prefs = await PreferenceRepository.create(db).getPreferences(userId);
 
-    expect(prefs.weights).toEqual({ cost: 3, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0 });
+    expect(prefs.weights).toEqual({ cost: 3, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
     expect(prefs.skillLevel).toBe("beginner");
     expect(prefs.budgetCentsPerServing).toBeNull();
     expect(prefs.allergens).toEqual([]);
@@ -97,10 +97,20 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
 
     const prefs = await PreferenceRepository.create(db).getPreferences(userId);
 
-    expect(prefs.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0 });
+    expect(prefs.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
     expect(prefs.allergens).toEqual([]);
     expect(prefs.diets).toEqual([]);
     expect(prefs.foodPrefs).toEqual([]);
+  });
+
+  it("cold-starts weight_meal_prep to 3 from the meal_prepping goal", async () => {
+    const userId = await makeUser({ goals: ["meal_prepping"] });
+
+    const prefs = await PreferenceRepository.create(db).getPreferences(userId);
+
+    expect(prefs.weights.mealPrep).toBe(3);
+    // Only the meal-prep weight is bumped; every other weight stays at its baseline.
+    expect(prefs.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 3 });
   });
 
   it("rejects an out-of-range stored weight at the boundary", async () => {

@@ -1,6 +1,6 @@
 import type { UserPreferences } from '../models/user-preferences.js';
 import type { RankableRecipe } from './types.js';
-import { NUTRITION_K, BUDGET_SLOPE, DIFFICULTY_BY_DISTANCE } from './constants.js';
+import { NUTRITION_K, BUDGET_SLOPE, DIFFICULTY_BY_DISTANCE, MEAL_PREP_SCORE } from './constants.js';
 
 /** One soft signal: its weight for a user and its normalized score (or null when unavailable) for a recipe. */
 export interface SignalScorer {
@@ -80,6 +80,16 @@ export class TimeScorer implements SignalScorer {
     const t = prefs.timeBudgetMinutes;
     if (recipe.totalMinutes === null || t === null) return null;
     return clamp01((BUDGET_SLOPE * t - recipe.totalMinutes) / t);
+  }
+}
+
+/** Band-map lookup (signal #10): designed→1.0, suitable→0.6, unsuitable→0.15; null fit → null. */
+export class MealPrepScorer implements SignalScorer {
+  key = 'mealPrep';
+  weight = (p: UserPreferences) => p.weights.mealPrep;
+  score(recipe: RankableRecipe): number | null {
+    if (recipe.mealPrepFit === null) return null;
+    return MEAL_PREP_SCORE[recipe.mealPrepFit];
   }
 }
 

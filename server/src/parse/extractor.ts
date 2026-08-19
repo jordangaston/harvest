@@ -3,7 +3,7 @@ import type { ExtractedRecipe } from "./website.js";
 import { parseIngredientLine, type StructuredIngredient } from "./ingredient.js";
 import { LABEL_CORE_KEYS, type LabelCoreText } from "../models/label-core.js";
 import type { EstimateResult } from "../nutrition/nutrition-estimator.js";
-import type { RecipeCategories } from "../models/recipe.js";
+import type { RecipeCategories, MealPrepFit } from "../models/recipe.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
 import type { DietCompat } from "../diet/diet.js";
 import type { RecipeCost } from "../price/cost-estimator.js";
@@ -73,6 +73,9 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   // The categorizeStep's per-step detected techniques (WI-DIFF-5), aligned to `steps`.
   // Absent until that step runs / when the LLM is off; stripped in lockstep in toRecipeInput.
   stepTechniques?: string[][];
+  // The categorizeStep's meal-prep fit band (signal #10). Absent until that step runs;
+  // null when unscored → persists as a null column.
+  mealPrepFit?: MealPrepFit | null;
   // The equipmentStep's detected equipment (WI-EQ-2): recipe-level set + per-step alignment
   // (aligned to `steps`, stripped in lockstep in toRecipeInput) + completeness. Absent until
   // that step runs; a withheld recipe leaves it undefined → persists equipment_complete=false.

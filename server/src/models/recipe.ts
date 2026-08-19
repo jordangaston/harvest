@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { LABEL_CORE_KEYS } from './label-core.js';
-import type { DifficultyBand } from '../schema.js';
+import { MEAL_PREP_FITS, type DifficultyBand, type MealPrepFit } from '../schema.js';
 
-export type { DifficultyBand };
+export type { DifficultyBand, MealPrepFit };
 
 /** The recipe difficulty signal (WI-DIFF-2): the continuous 0–100 `score`, its derived
  * `band`, and the per-step technique weights (1–5, index-aligned to the recipe's steps).
@@ -43,6 +43,7 @@ export const RecipeSchema = z.object({
   nrfScore: z.string().nullable(),
   difficultyScore: z.string().nullable(),
   difficultyBand: z.enum(['beginner', 'intermediate', 'advanced']).nullable(),
+  mealPrepFit: z.enum(MEAL_PREP_FITS).nullable(),
   costPerServingCents: z.number().int().nullable(),
   costCoverage: z.string().nullable(),
   allergens: z.object({ contains: z.array(z.string()), mayContain: z.array(z.string()) }).nullable(),

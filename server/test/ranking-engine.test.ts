@@ -3,7 +3,7 @@ import type { UserPreferences } from '../src/models/user-preferences.js';
 import type { RankableRecipe } from '../src/ranking/types.js';
 import { AllergenFilter, DietFilter, EquipmentFilter } from '../src/ranking/filters.js';
 import {
-  CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer,
+  CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer, MealPrepScorer,
 } from '../src/ranking/scorers.js';
 import { RankingEngine } from '../src/ranking/ranking-engine.js';
 
@@ -15,6 +15,7 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     createdAt: new Date('2026-01-01'),
     costPerServingCents: 300,
     difficultyBand: 'intermediate',
+    mealPrepFit: null,
     nrfScore: 50,
     totalMinutes: 30,
     categories: { cuisine: [], dishType: [], primaryIngredient: [] },
@@ -33,7 +34,7 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
     skillLevel: 'intermediate',
     budgetCentsPerServing: 400,
     timeBudgetMinutes: 30,
-    weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0 },
+    weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 0 },
     allergens: [],
     diets: [],
     foodPrefs: [],
@@ -94,6 +95,15 @@ describe('scorer normalization (Test Case 1)', () => {
 
   it('popularity: always null', () => {
     expect(new PopularityScorer().score()).toBeNull();
+  });
+
+  it('meal-prep: designed → 1.0, suitable → 0.6, unsuitable → 0.15, null → null; weight reads prefs', () => {
+    const mp = new MealPrepScorer();
+    expect(mp.score(rankableRecipe({ mealPrepFit: 'designed' }))).toBe(1.0);
+    expect(mp.score(rankableRecipe({ mealPrepFit: 'suitable' }))).toBe(0.6);
+    expect(mp.score(rankableRecipe({ mealPrepFit: 'unsuitable' }))).toBe(0.15);
+    expect(mp.score(rankableRecipe({ mealPrepFit: null }))).toBeNull();
+    expect(mp.weight(preferences({ weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 2 } }))).toBe(2);
   });
 });
 
@@ -295,7 +305,7 @@ describe('tie-break ordering (Test Case 6)', () => {
     };
     const lowCoverage = rankableRecipe({ id: 'a', difficultyBand: null, ...base });
     const highCoverage = rankableRecipe({ id: 'b', difficultyBand: 'intermediate', ...base });
-    const prefs = preferences({ weights: { cost: 1, difficulty: 1, nutrition: 0, affinity: 0, time: 0, popularity: 0 } });
+    const prefs = preferences({ weights: { cost: 1, difficulty: 1, nutrition: 0, affinity: 0, time: 0, popularity: 0, mealPrep: 0 } });
     const ranked = engine.rank([lowCoverage, highCoverage], prefs);
     expect(ranked.map((r) => r.recipeId)).toEqual(['b', 'a']);
   });
@@ -303,7 +313,7 @@ describe('tie-break ordering (Test Case 6)', () => {
   it('equal coverage → newer createdAt, then id ascending', () => {
     const mk = (id: string, createdAt: Date) =>
       rankableRecipe({ id, createdAt, costPerServingCents: 200, difficultyBand: null, nrfScore: null, totalMinutes: null });
-    const prefs = preferences({ weights: { cost: 1, difficulty: 0, nutrition: 0, affinity: 0, time: 0, popularity: 0 } });
+    const prefs = preferences({ weights: { cost: 1, difficulty: 0, nutrition: 0, affinity: 0, time: 0, popularity: 0, mealPrep: 0 } });
     const older = mk('z', new Date('2026-01-01'));
     const newer = mk('a', new Date('2026-06-01'));
     expect(engine.rank([older, newer], prefs).map((r) => r.recipeId)).toEqual(['a', 'z']);
@@ -319,7 +329,7 @@ describe('worked-example regression (Test Case 7)', () => {
     skillLevel: 'intermediate',
     budgetCentsPerServing: 400,
     timeBudgetMinutes: 30,
-    weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, popularity: 0 },
+    weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, popularity: 0, mealPrep: 0 },
     allergens: [{ allergen: 'peanut', severity: 'severe' }],
     diets: [],
     foodPrefs: [
@@ -351,5 +361,36 @@ describe('worked-example regression (Test Case 7)', () => {
     expect(ranked.map((r) => r.recipeId)).toEqual(['R1', 'R3']);
     expect(round1(ranked[0].score)).toBe(81.7);
     expect(round1(ranked[1].score)).toBe(71.2);
+  });
+});
+
+describe('meal-prep contribution (signal #10, worked example)', () => {
+  const engine = RankingEngine.create();
+  // Two recipes identical but for meal_prep_fit; cost is the sole other soft signal (score 1
+  // at budget), so the score delta is exactly the meal-prep term. Σw = 11 (others) + weight.
+  const mk = (mealPrepFit: RankableRecipe['mealPrepFit']) =>
+    rankableRecipe({ costPerServingCents: 400, difficultyBand: null, nrfScore: null, totalMinutes: null, mealPrepFit });
+  const prefsAt = (mealPrep: number) =>
+    preferences({ weights: { cost: 11, difficulty: 0, nutrition: 0, affinity: 0, time: 0, popularity: 0, mealPrep } });
+
+  it('a designed recipe outscores an unsuitable one by ~18 points at weight 3', () => {
+    const [designed] = engine.rank([mk('designed')], prefsAt(3));
+    const [unsuitable] = engine.rank([mk('unsuitable')], prefsAt(3));
+    expect(designed.breakdown.mealPrep).toBe(1.0);
+    expect(unsuitable.breakdown.mealPrep).toBe(0.15);
+    expect(round1(designed.score) - round1(unsuitable.score)).toBeCloseTo(18.2, 1);
+  });
+
+  it('the same gap is smaller at weight 1', () => {
+    const gapAt = (w: number) =>
+      round1(engine.rank([mk('designed')], prefsAt(w))[0].score) - round1(engine.rank([mk('unsuitable')], prefsAt(w))[0].score);
+    const gap1 = gapAt(1);
+    expect(gap1).toBeGreaterThan(0);
+    expect(gap1).toBeLessThan(gapAt(3));
+  });
+
+  it('drops out of the average for a null-fit recipe', () => {
+    const [ranked] = engine.rank([mk(null)], prefsAt(3));
+    expect(ranked.breakdown).not.toHaveProperty('mealPrep');
   });
 });
