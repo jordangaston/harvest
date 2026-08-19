@@ -42,11 +42,11 @@ Each task has a prompt and a pass criterion (completed unaided = pass).
 | 1 | "Find two dinners you'd actually make tonight, and skip ones you wouldn't." | Do they swipe unprompted? gesture vs. button? does the first-use hint land? |
 | 2 | "You passed on that one — is there a way to tell us *why*? Do it for one, skip it for another." | reason-chip discovery + the skip path; does the confirmation register? |
 | 3 | "Before deciding on this card, find out what's in it and why it's suggested for you." | detail-sheet discovery; is the "why" line + breakdown understood? |
-| 4 | "One of these is a definite for this week — is there a stronger signal than a like?" | super/"Cook this week" discovery + its meaning |
+| 4 | "One of these is a definite for this week — is there a stronger signal than a like?" | **Save**/"cook this week" discovery + its meaning |
 | 5 | "You didn't mean to skip that last one — undo it." | undo discovery + does it feel reliable? |
 | 6 | *(moderator sets Start state → empty)* "What would you do here?" | is the empty/cooldown state understood? do the CTAs pull toward settings/plan? |
 | 7 | *(moderator sets Simulate save failures)* "Keep swiping." | does the rollback read as "not saved, try again" — never a lost/ghost swipe? |
-| 8 | "Open your preferences. Make price matter less, and make sure you never see peanuts. Which of those changes *hides* recipes and which just *reorders* them?" | the hard-vs-soft distinction; the "applies to next batch" banner; control legibility |
+| 8 | "Open your preferences. Set how many dinners you want this week, tell us a cuisine you love, and make sure you never see peanuts. Which of those *hides* recipes and which just *shapes* what you see?" | the hard-vs-soft distinction (allergen hides; cuisine/meal-counts shape) conveyed by grouping alone — no banner, no weight sliders (D-10); control legibility incl. the meal-count steppers |
 | 9 | *(moderator sets Reduce motion)* "Swipe a couple more." | does the experience still work and feel intentional without the fling? |
 
 ## How comments are collected

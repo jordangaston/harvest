@@ -12,6 +12,7 @@ locked: false
 | --- | --- | --- |
 | frontend-architect (agent) | addressed | ponytail + refactoring-ui gate; 8 findings (`fa-1`…`fa-8`). 7 applied; `fa-5` kept by decision. |
 | Jordan Gaston | reviewed → addressed | Ran the live prototype in-sim and left 10 pins; all 10 addressed (see changelog). All comment pins cleared afterward. |
+| Jordan Gaston | reviewed → addressed | Second in-sim round on the settings + a new meal-count component: Cook→Save button; weekly-budget slider + budget/time/skill top cards; "More…" search-to-add for cuisines/ingredients/kitchen; removed the importance-weight card; new `MealCounts` intake, also surfaced in settings. A `/refactoring-ui` diagnosis on the intake ("feels confusing") drove the days-picker removal (D-11). |
 
 ---
 
@@ -23,8 +24,9 @@ surfaces that sit on top of it:
 
 - **The swipe deck** — a Tinder/Bumble-style card stack the user swipes to like or pass recipes. Likes
   flow into the Liked cookbook, which feeds meal planning. Dislikes optionally tune the ranking.
-- **The settings surface** — the plain-language controls that expose the whole user-preference model
-  (importance weights, targets, food likes/dislikes, and the hard filters: allergens, diets, equipment).
+- **The settings surface** — the plain-language controls for the user-preference model: weekly meal counts,
+  weekly grocery budget, time per meal, skill, food likes/dislikes, and the hard filters (allergens, diets,
+  equipment). The ranking weights are *not* hand-dialed here — they're tuned by the dislike loop (D-10).
 
 It consumes the backend contract verbatim; it never changes it. Where an interaction needs an endpoint or
 field the contract does not provide, it is flagged as a **proposed backend follow-up**, not built (see
@@ -67,11 +69,15 @@ names as authoritative** and flags the delta as Q-07.
 - **Dislike reasons** — `too_expensive` → raises cost weight; `too_hard` → difficulty weight; `too_slow` →
   time weight; `not_nutritious` → nutrition weight; `disliked_ingredient` (with `reason_detail` = the
   ingredient) → adds a disliked-ingredient preference; `other` → records only.
-- **Preference model the settings screen exposes** — soft-signal importance weights `0–3` for cost,
-  difficulty, nutrition, affinity, time, meal-prep; targets skill_level (beginner/intermediate/advanced),
-  budget per serving, time budget; liked/disliked cuisines, dish types, ingredients; hard filters —
-  allergens (each `severe`/`moderate`/`mild`), diets (each `strict`/`flexible`), owned equipment plus an
-  "I've reviewed my kitchen" flag that turns the equipment filter on.
+- **Preference model the settings screen exposes** — the concrete, user-legible inputs: **weekly meal
+  counts** (how many breakfasts / lunches / dinners / snacks / kids meals per week), **weekly grocery
+  budget**, **time per meal**, **skill level** (beginner/intermediate/advanced); liked cuisines and
+  disliked ingredients (preset chips + a "More…" search over a larger corpus); hard filters — allergens
+  (each `severe`/`moderate`/`mild`), diets (each `strict`/`flexible`), owned equipment. The soft-signal
+  **importance weights** `0–3` (cost, difficulty, nutrition, affinity, time, meal-prep) still exist in the
+  preference model but are **no longer dialed directly** in settings — they're tuned by the dislike-reason
+  loop and inferred from the concrete inputs above (see D-10). The "I've reviewed my kitchen" flag is
+  implicit now that equipment is plain toggle chips.
 
 ## Interaction → backend mapping
 
@@ -93,11 +99,12 @@ the gaps** — interactions the current API cannot serve, specified as proposed 
 | 11 | Empty / cooldown state | `ranked-deck` returns `[]` | ✅ served |
 | 12 | Light "liked!" confirmation | client-only (uses the swipe response); no endpoint | ✅ served |
 | 13 | Periodic "you've liked N — plan your week?" nudge | a running like-count | ⚠️ **gap** — no count field in the contract. Client tallies session likes; a durable count needs a Liked-cookbook size read (Q-09) |
-| 14 | "Cook this week" (up-swipe / Cook button) | `POST …/swipe {direction:'save'}` → files into the **Saved** cookbook, excluded permanently | ✅ served (`save` shipped) |
+| 14 | "Cook this week" (up-swipe / **Save** button) | `POST …/swipe {direction:'save'}` → files into the **Saved** cookbook, excluded permanently | ✅ served (`save` shipped) |
 | 14a | Pick a *specific* cookbook in the picker | `PUT /v1/recipes/:id/cookbooks` (existing membership endpoint) | ✅ served (separate call) |
 | 15 | Undo the last swipe | none — no un-swipe endpoint | ⚠️ **gap** — client-side pre-commit undo only (cancels the optimistic POST inside its delay window); undoing an already-recorded swipe needs `DELETE /v1/recipes/:id/swipe` (Q-11) |
 | 16 | Settings: **view** current preferences | none documented | ⚠️ **gap** — needs `GET /v1/preferences` (Q-12) |
-| 17 | Settings: **edit** weights, targets, food prefs, filters | none documented | ⚠️ **gap** — needs `PUT /v1/preferences` (Q-12) |
+| 17 | Settings: **edit** meal counts, weekly budget, time, skill, food prefs (+ "More…" search), filters | none documented | ⚠️ **gap** — needs `PUT /v1/preferences` (Q-12) |
+| 17a | **Weekly meal counts** — how many breakfasts/lunches/dinners/snacks/kids meals (standalone intake + a settings card) | part of the preference model (`PUT /v1/preferences`, Q-12) | ⚠️ **gap** — client draft; the meal-planning that *consumes* the counts is out of scope (Q-14) |
 | 18 | Settings edits apply to the **next** batch | inherent — the deck re-ranks at the next fetch | ✅ served |
 | 19 | Telemetry (swipe rate, like ratio, chip usage, time-per-card, exhaustion) | client `analytics.track` (`lib/analytics`) | ✅ served (client) |
 
@@ -126,7 +133,7 @@ sequenceDiagram
     C-->>D: batch (never reshuffles once in hand)
 
     loop each card
-    U->>D: drag / tap like|pass|super|undo
+    U->>D: drag / tap like|pass|save|undo
     note over D: card animates away immediately (optimistic)
     D->>S: recordSwipe(id, direction, reason?)
     note over S: fire-and-forget + retry/rollback
@@ -265,14 +272,22 @@ classDiagram
     }
     class PreferenceDraft {
         +SkillLevel skillLevel
-        +int budgetCentsPerServing
+        +int weeklyBudgetCents
         +int timeBudgetMinutes
+        +WeeklyMeals weeklyMeals
         +Weights weights
         +AllergenPref[] allergens
         +DietPref[] diets
         +Equipment[] ownedEquipment
-        +bool equipmentReviewed
-        +FoodPref[] foodPrefs
+        +string[] likedCuisines
+        +string[] dislikedIngredients
+    }
+    class WeeklyMeals {
+        +int breakfast
+        +int lunch
+        +int dinner
+        +int snack
+        +int kids
     }
     class StudioComment {
         +string id
@@ -285,9 +300,11 @@ classDiagram
     DeckCard "1" --> "1" SwipeIntent : produces
 ~~~
 
-`DeckCard`, `Weights`, `AllergenPref`, `DietPref`, `FoodPref` mirror the ranking doc's shapes (consumed,
-not redefined). `SwipeIntent.state ∈ {pending, committed, failed, rolledBack}` drives optimistic UI.
-`StudioComment` is prototype-only (§ Design Studio prototype).
+`DeckCard`, `Weights`, `AllergenPref`, `DietPref` mirror the ranking doc's shapes (consumed, not
+redefined). `Weights` is still carried on the draft (it round-trips) but is **not user-edited** in
+settings (D-10). `WeeklyMeals` is the meal-count intake added this cycle (D-11). `SwipeIntent.state ∈
+{pending, committed, failed, rolledBack}` drives optimistic UI. `StudioComment` is prototype-only
+(§ Design Studio prototype).
 
 ---
 
@@ -336,7 +353,7 @@ classDiagram
     class ReasonSheet
     class IngredientPicker
     class ActionBar {
-        +undo, pass, super, like buttons
+        +undo, pass, save, like buttons
     }
     class EmptyState
     class RewardToast
@@ -344,6 +361,7 @@ classDiagram
     class GestureHint
     class SettingsScreen
     class FilterSection
+    class MealCounts
     class CommentLayer
     class useDeck
     class useSwipe
@@ -364,6 +382,7 @@ classDiagram
     SwipeDeck --> useDeck
     SwipeDeck --> useSwipe
     SettingsScreen --> FilterSection
+    SettingsScreen --> MealCounts
     SettingsScreen --> usePreferences
 ~~~
 
@@ -375,13 +394,22 @@ classDiagram
   (`Animated.spring`). The `Animated.View` carries **only the transform**; the styled card is a child
   `View` with `className` — colors never sit on the animated view (the documented NativeWind-in-
   `Animated.View` pitfall).
-- **`ActionBar`** — button equivalents for every gesture: **Undo**, **Pass**, **Super ("Cook this week")**,
-  **Like**. Full accessibility parity (§ Accessibility). Order left→right: undo, pass, super, like.
+- **`ActionBar`** — button equivalents for every gesture: **Undo**, **Pass**, **Save ("cook this week")**,
+  **Like**. Full accessibility parity (§ Accessibility). Order left→right: undo, pass, save, like — the
+  Save button carries a bookmark icon and is sized to match Pass/Like (the primary discovery action).
 - **`ReasonSheet` / `IngredientPicker`** — the skippable dislike-reason chooser (a `Modal animationType=
   "slide"` per the design system), chips: *Too expensive · Too hard · Takes too long · Not nutritious
   enough · Don't like an ingredient → picker · Just not feeling it*. Confirms briefly on choice.
-- **`SettingsScreen` / `FilterSection`** — the preference surface. Soft sliders (0–3) and hard filters,
-  visibly separated (§ Settings surface).
+- **`SettingsScreen` / `FilterSection`** — the preference surface, grouped by spacing not headers
+  (D-03). Top cards, most-likely-to-change first: **`MealCounts`**, **weekly grocery budget** (slider),
+  **time per meal** (slider), **skill level** (segmented). Then the hard filters (allergies / diet /
+  kitchen) and tastes (cuisines / ingredients). It no longer surfaces the importance-weight editors (D-10).
+- **`MealCounts`** — the reusable, controlled "How many meals each week?" card (a − n + stepper per meal
+  type). Lives in `components/planner`, rendered by both the standalone `MealPlanIntake` intake screen and
+  `SettingsScreen`, so the two share one implementation (D-11).
+- **`SearchAddSheet` / `MoreChip`** — a "More…" chip (a **hollow** secondary-action affordance, distinct
+  from filled value chips) opens a search sheet to add cuisines / disliked ingredients / kitchen equipment
+  from a larger corpus than the preset chips (D-12).
 - **`CommentLayer`** — the studio-only on-canvas comment pins (§ Design Studio prototype).
 - **Hooks** — `useDeck` (batch + prefetch + empty), `useSwipe` (optimistic + retry/rollback),
   `usePreferences` (read/draft/save). In the prototype these are backed by an in-memory mock; in the app
@@ -445,8 +473,10 @@ This surface uses the app-wide shade system (full spec in `AGENTS.md § Shades, 
 - **Over the photo**, pills (score, badges, "Recipe details") are **translucent-dark + cream text** — a
   light pill reads as white on an image.
 - **Selection:** segmented active = solid `brand` + white; multi-select chip = `brand-light` + `border-brand`;
-  unselected chip = `sand-200` + muted (recedes so the current settings lead).
-- **Action bar:** Pass = `error` (red) · Cook = `brand` (terracotta) · Like = `success` (green) · Undo =
+  unselected chip = `sand-200` + muted (recedes so the current settings lead). A **secondary action** in a
+  chip row (the "More…" search) is **hollow** — no fill, a neutral `sand-400` border, muted glyph/text — so
+  it can't be mistaken for a selected value (value chips are always filled). See D-12.
+- **Action bar:** Pass = `error` (red) · **Save** = `brand` (terracotta) · Like = `success` (green) · Undo =
   `bg-card` (quiet). See D-09.
 
 ---
@@ -454,9 +484,9 @@ This surface uses the app-wide shade system (full spec in `AGENTS.md § Shades, 
 ## Accessibility
 
 - **Gesture ↔ button parity.** Every gesture has an `ActionBar` button with a VoiceOver label: Undo
-  ("Undo last swipe"), Pass ("Pass on {title}"), Super ("Cook this week — choose a cookbook for {title}"), Like
-  ("Like {title}"). The card exposes `accessibilityActions` (magic-tap = like) so VoiceOver users never need
-  the drag.
+  ("Undo last swipe"), Pass ("Pass on {title}"), Save ("Save — cook this week, choose a cookbook for {title}"),
+  Like ("Like {title}"). The card exposes `accessibilityActions` (magic-tap = like) so VoiceOver users never
+  need the drag.
 - **Reason chips** are buttons with descriptive labels ("Too expensive — show fewer pricey recipes").
 - **Badges** carry `accessibilityLabel`s ("25 minutes", "3 dollars 50 per serving", "intermediate
   difficulty") so the glanceable row is legible to screen readers.
@@ -474,7 +504,7 @@ This surface uses the app-wide shade system (full spec in `AGENTS.md § Shades, 
 | Empty / cooldown | `ranked-deck` → `[]` | "You're all caught up — check back later, or tweak your preferences." CTAs → **Settings**, **Meal plan** |
 | Error | fetch fails | inline retry card ("Couldn't load recipes — Retry"); last good batch stays swipeable if present |
 | Offline | no connectivity | swipes queue locally (optimistic) and flush on reconnect; a subtle "offline — saved" chip; deck served from the persisted cache |
-| Like confirmation | a `like` / super swipe | **green ✓ toast** at the top of the card ("Added to Liked", "Saved to {cookbook}") |
+| Like confirmation | a `like` / save swipe | **green ✓ toast** at the top of the card ("Added to Liked", "Saved to {cookbook}") |
 | Swipe rollback | POST failed after retries | the card returns to the front with a red "Didn't save — swipe again" banner |
 
 ---
@@ -531,7 +561,7 @@ too-heavy reason loop.
 (I'd eat this → Liked), **dislike** (not for me → tune), and **save** ("cook this week" → Saved). **Choice:**
 `save` is a real `direction`, **implemented server-side** — it records the swipe, files the recipe into the
 caller's **Saved** system cookbook (mirroring `like` → Liked), and excludes it from the deck permanently. The
-up-swipe / Cook button posts `direction:'save'`; the cookbook picker then places it in a *specific* cookbook
+up-swipe / Save button posts `direction:'save'`; the cookbook picker then places it in a *specific* cookbook
 via the existing `PUT /v1/recipes/:id/cookbooks`. *Alternatives:* a like-backed prototype hack (rejected — the
 API was genuinely missing the action, so we shipped it); omit the super-action (rejected — the brief wants it).
 
@@ -589,11 +619,48 @@ from `lib/elevation.ts` (shadow), not tone**; saturated colour spent only on mea
 
 ### D-09 Semantic action colours & toasts
 **Framework:** Direct criterion — colour should signal, not decorate. **Choice:** the action bar is
-**Pass = `error` (red), Like = `success` (green), Cook = `brand` (terracotta), Undo = `bg-card` (quiet
+**Pass = `error` (red), Like = `success` (green), Save = `brand` (terracotta), Undo = `bg-card` (quiet
 cream)** — three meaningful verbs + one receding utility, each captioned and icon-backed (never colour
-alone). Toasts follow: **success drops from the top in green (✓), error rises from the bottom in red (!)**.
+alone). The `brand` action is captioned **"Save"** (bookmark icon) — "cook this week → Saved cookbook".
+Toasts follow: **success drops from the top in green (✓), error rises from the bottom in red (!)**.
 *Alternative:* the earlier monochrome/`sand` buttons (rejected — muddy, no signal). The drag ✓/✗ disc stays
 monochrome (D-02) — transient gesture feedback, not a committed action.
+
+### D-10 Settings no longer dials the importance weights
+**Framework:** Direct criterion — declarative settings (D-03) + underwhelming simplicity (design owner).
+An earlier settings draft had a card of six "How much should price / speed / easiness / nutrition / your
+tastes / meal-prep matter?" segmented sliders — the direct editors for the ranking weights. On review this
+was the single most algorithm-splaining block on the screen: it asked the user to hand-tune the ranker's
+internals. **Choice:** remove the weight-question card entirely. The weights still live in the preference
+model, but they're set the way a user actually reasons — by the **dislike-reason loop** ("too expensive"
+raises the cost weight, etc.) and inferred from the concrete inputs (budget, time, skill, tastes). The
+settings surface only asks for things a person can answer about themselves, never for a weight. *Alternatives:*
+keep the sliders (rejected — reads as an algorithm console); hide them behind an "advanced" disclosure
+(rejected — still teaches the algorithm, just later; YAGNI).
+
+### D-11 Weekly meal-count intake (`MealCounts`), days picker dropped
+**Framework:** Direct criterion — gather how much to cook with one obvious mental model. **Choice:** a
+`MealCounts` card asks **"How many meals each week?"** with a − n + stepper per meal type (breakfasts,
+lunches, dinners, snacks, kids meals). It's a controlled component reused by a standalone `MealPlanIntake`
+intake screen and by `SettingsScreen` (one implementation, two mounts), backed by a new `weeklyMeals`
+preference field. The stepper makes the **number the hero** (large/bold; zero dimmed so "none" reads as a
+real state) and de-emphasises the +/− controls (Refactoring UI Ch2). *Alternatives:* an earlier draft also
+had a "Which days?" day-of-week picker; **dropped** — the ambiguous single-letter days (`M T W T F S S`)
+and the undefined days↔counts relationship (per day? per week? 6 days but 1 dinner was allowed) were the
+source of a "confusing" feel in review (Refactoring UI Ch1/Ch5). One question with an explicit *each week*
+unit removed the tension. Which-days scheduling, if wanted later, is a separate step so it never competes
+with the counts. What *consumes* the counts (the meal-planning algorithm) stays out of scope (Q-14).
+
+### D-12 Weekly grocery budget slider; "More…" as a hollow secondary action
+**Framework:** Direct criterion — legible inputs + affordances that signal their role. **Choice (budget):**
+budget is a **weekly grocery budget** set by a slider (`$30–$400 / week`), not a per-serving figure —
+per-serving cost is *calculated*, not something a shopper thinks in. Budget / time / skill are the top three
+settings cards (most-likely-to-change first). **Choice ("More…"):** cuisines, disliked ingredients, and
+kitchen equipment each show preset chips plus a **"More…"** chip that opens a search sheet over a larger
+corpus. The "More…" chip is a **secondary action**, so it must not wear the selected-value affordance
+(`brand-light` fill + border, which it originally did and read as a selected chip); it's **hollow** — no
+fill, neutral border, muted search glyph — because value chips are always filled. *Alternative:* a filled
+"More…" pill (rejected — indistinguishable from a selected value).
 
 ---
 
@@ -608,6 +675,7 @@ monochrome (D-02) — transient gesture feedback, not a committed action.
 | Q-11 | `DELETE /v1/recipes/:id/swipe` for a durable un-swipe (Bumble-style backtrack). | open (follow-up) | Client pre-commit undo only until it exists. |
 | Q-12 | `GET`/`PUT /v1/preferences` for the settings surface to read/persist the preference model. | open (follow-up) | Prototype uses a local draft; blocks real persistence. |
 | Q-13 | Should the ranking engine ever get a Bumble-style "relax this filter if the deck runs dry" fallback? | open | Not now; would change D-03. Ties to ranking Q-06 cooldown. |
+| Q-14 | What consumes `weeklyMeals` (the meal counts) — the meal-planning generator that turns "5 dinners + 3 breakfasts a week" into a plan? | open (follow-up) | Intake is captured here; the planner that reads it is out of scope. Ties to the "you've liked N — plan your week" nudge (F-04). |
 
 ---
 
@@ -623,3 +691,6 @@ monochrome (D-02) — transient gesture feedback, not a committed action.
 | 2026-08-19 | Jordan Gaston | **Shade-system migration (whole app).** Root cause of the recurring "everything reads white/flat": a bimodal neutral ramp with no tertiary + no shadow scale. Fixes: (1) `tailwind.config.js` — one 10-step warm-neutral ramp `sand-50…900` + full `brand` ramp + `success`/`error` `light/DEFAULT/dark`; retired the `taupe`/`umber` experiment. (2) New `lib/elevation.ts` (low/medium/high) — depth via shadow, not tone; replaced all hand-rolled shadows and lifted every flat `bg-card` surface across `components/` + `app/` (audit-driven). (3) Semantic action bar: Pass=`error`, Cook=`brand`, Like=`success`, Undo=`card` (quiet). (4) Selection rule: segmented active = solid `brand`+white, multi-chip selected = `brand-light`+border, unselected chip = `sand-200`+muted. Gated with a `/refactoring-ui` audit (strengthened elevation so warm cards actually separate; darkened banner text to AA; moved the Filters icon off red). Documented in AGENTS.md § Shades, depth & colour. Typecheck clean, 20/20 tests, verified live in-sim. |
 | 2026-08-19 | Jordan Gaston | Doc body synced to the built state: card anatomy (translucent-dark on-photo pills, badge row capped to core+1, detail sheet raw values + ingredient qty/thumbnails); new § Colour & depth; D-03 rewritten as declarative-settings; added D-08 (shade ramp + depth-via-shadow) and D-09 (semantic action colours & toasts); mapping row 14 (super → cookbook picker); motion/states updated for semantic toasts. |
 | 2026-08-19 | Jordan Gaston | **`save` is now a first-class swipe action** (backend). The `/swipe` API was missing it. Added `save` to `SWIPE_DIRECTIONS` (schema + request schema + model), a side-effect that files the recipe into a system **Saved** cookbook (mirroring `like`→Liked), and permanent deck exclusion (`swipe-repository.excludedRecipeIds`). No migration — `direction` is a plain text column. Tests: `swipe-deck` TC3b + repository exclusion; **server suite 361 green**. Prototype's `super`→`save`; doc contract/mapping/APIs/D-01/Q-10 updated. |
+| 2026-08-19 | Jordan Gaston | **Deck + settings polish (in-sim pins).** Action bar: the `brand` action is now **Save** (bookmark, sized to Pass/Like) — "cook this week → Saved". Settings: budget is a **weekly grocery budget slider** ($30–$400/week, `weeklyBudgetCents`), and budget/time/skill are the top three cards (D-12); cuisines / disliked ingredients / kitchen each gain a **"More…"** search-to-add over a larger corpus, drawn as a **hollow** secondary-action chip so it can't be mistaken for a selected value (D-12). Typecheck clean, 20/20 tests. |
+| 2026-08-19 | Jordan Gaston | **Removed the importance-weight editors from settings (D-10).** Dropped the "How much should price / speed / easiness / nutrition / tastes / meal-prep matter?" card — the most algorithm-splaining block. Weights persist in the model but are tuned via the dislike-reason loop + inferred from concrete inputs, not hand-dialed. Preference model / mapping / entities updated. |
+| 2026-08-19 | Jordan Gaston | **New `MealCounts` meal-count intake (D-11).** A "How many meals each week?" card — a − n + stepper per meal type (breakfasts/lunches/dinners/snacks/kids), with the count as the hero and the steppers receding (Refactoring UI Ch2). Added `weeklyMeals: Record<MealType,number>` to the preference model; the controlled card is reused by a standalone `MealPlanIntake` studio study **and** rendered as the first card in `SettingsScreen` so users adjust it mid-swipe. An earlier draft's "Which days?" day-of-week picker was **dropped** after a `/refactoring-ui` review traced the "confusing" feel to ambiguous single-letter days + an undefined days↔counts relationship (Ch1/Ch5). New Q-14: what consumes the counts (the meal-planning generator) is a follow-up. Typecheck clean, 20/20 tests, verified live in-sim. |
