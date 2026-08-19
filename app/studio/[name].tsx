@@ -3,7 +3,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { ScrollView, VStack, Center, Text } from "../../components/ui";
-import { Controls } from "../../design/Controls";
+import { Controls } from "../../design/ControlsPanel";
 import { seedValues } from "../../design/controls.ts";
 import { studies } from "../../design/registry";
 import type { Study } from "../../design/types";
