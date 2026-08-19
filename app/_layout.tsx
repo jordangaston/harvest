@@ -3,7 +3,7 @@ import React from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Stack } from "expo-router";
+import { Stack, usePathname } from "expo-router";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { LoadingScreen } from "../components/recime/LoadingScreen";
 import { ScreenTracker } from "../components/recime/ScreenTracker";
@@ -21,6 +21,13 @@ import {
   Karla_800ExtraBold,
 } from "@expo-google-fonts/karla";
 import { Lora_600SemiBold, Lora_700Bold } from "@expo-google-fonts/lora";
+
+/** The analytics feed, hidden on the Design Studio so it doesn't clutter component previews. */
+function DebugOverlay() {
+  const pathname = usePathname();
+  if (pathname.startsWith("/studio")) return null;
+  return <AnalyticsDebugOverlay />;
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -82,7 +89,7 @@ export default function RootLayout() {
             <Stack.Screen name="importing" options={{ animation: "fade" }} />
             <Stack.Screen name="profile" />
           </Stack>
-          {__DEV__ ? <AnalyticsDebugOverlay /> : null}
+          {__DEV__ ? <DebugOverlay /> : null}
           {__DEV__ ? <StudioLauncher /> : null}
         </SafeAreaProvider>
       </GestureHandlerRootView>
