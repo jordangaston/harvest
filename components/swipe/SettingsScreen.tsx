@@ -5,21 +5,10 @@ import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { analytics } from "../../lib/analytics";
 import { ELEVATION } from "../../lib/elevation";
 import {
-  Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, Weights, money, formatTime, difficultyLabel, DifficultyBand,
+  Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, money, formatTime, DifficultyBand,
 } from "./mock";
 
-const IMPORTANCE = [
-  { label: "None", value: 0 }, { label: "Some", value: 1 }, { label: "A lot", value: 2 }, { label: "Max", value: 3 },
-];
-const WEIGHT_QUESTIONS: { key: keyof Weights; q: string }[] = [
-  { key: "cost", q: "How much should price matter?" },
-  { key: "time", q: "How much should speed matter?" },
-  { key: "difficulty", q: "How much should easiness matter?" },
-  { key: "nutrition", q: "How much should nutrition matter?" },
-  { key: "affinity", q: "How much should your tastes matter?" },
-  { key: "mealPrep", q: "How much should meal-prep matter?" },
-];
-const CUISINES = ["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
+const CUISINES =["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
 // Larger corpus the "＋ More" search draws from (the preset chips + the long tail).
 const ALL_CUISINES = [...CUISINES, "Korean", "Vietnamese", "Spanish", "Greek", "Lebanese", "Turkish", "Ethiopian", "Peruvian", "Brazilian", "Caribbean", "Moroccan", "Filipino", "Malaysian", "Indonesian", "Portuguese", "German", "British", "American", "Tex-Mex", "Cajun", "Middle Eastern", "Soul food", "Nordic", "Argentine"];
 const ALL_INGREDIENTS = ["Cilantro", "Mushrooms", "Olives", "Blue cheese", "Anchovies", "Bell peppers", "Coconut", "Tofu", "Eggplant", "Liver", "Capers", "Raisins", "Onions", "Garlic", "Ginger", "Fennel", "Beets", "Cumin", "Pickles", "Sardines", "Oysters", "Lamb", "Goat cheese", "Cottage cheese", "Tahini", "Miso", "Cabbage", "Brussels sprouts", "Okra", "Turnip", "Cauliflower", "Kimchi"];
@@ -184,11 +173,7 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
     analytics.track("Settings Preference Changed", { control, from, to, kind });
 
-  const setWeight = (key: keyof Weights, v: number) => {
-    track(`weight.${key}`, p.weights[key], v, "soft");
-    setP((s) => ({ ...s, weights: { ...s.weights, [key]: v } }));
-  };
-  const toggle = <K extends "likedCuisines" | "dislikedIngredients" | "ownedEquipment">(key: K, item: string, kind: "soft" | "hard") => {
+  const toggle =<K extends "likedCuisines" | "dislikedIngredients" | "ownedEquipment">(key: K, item: string, kind: "soft" | "hard") => {
     setP((s) => {
       const has = s[key].includes(item);
       track(key, has ? "on" : "off", has ? "off" : "on", kind);
@@ -276,15 +261,6 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
               </VStack>
 
               <VStack space={14}>
-                <Card>
-                  {WEIGHT_QUESTIONS.map((w) => (
-                    <VStack key={w.key} space={8}>
-                      <Text className="text-base text-ink">{w.q}</Text>
-                      <Segmented label={w.q} value={p.weights[w.key]} onChange={(v) => setWeight(w.key, v)} options={IMPORTANCE} />
-                    </VStack>
-                  ))}
-                </Card>
-
                 <Card>
                   <Text className="text-sm font-bold text-ink">Cuisines you like</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8 }}>
