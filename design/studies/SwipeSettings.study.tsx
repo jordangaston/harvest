@@ -1,17 +1,16 @@
 import React from "react";
-import { SettingsScreen } from "../../components/swipe/SettingsScreen";
-import { Center, Pressable, Text } from "../../components/ui";
+import { View } from "react-native";
+import { SettingsContent } from "../../components/swipe/SettingsScreen";
 import type { Study } from "../types.ts";
 
+// Rendered INLINE (not in a Modal) so the studio's CommentLayer can overlay it — a
+// Modal renders above everything and can't be annotated. The deck's gear still opens
+// the modal version (SettingsScreen).
 function SwipeSettingsStudyView() {
-  const [open, setOpen] = React.useState(true);
   return (
-    <Center className="flex-1">
-      <Pressable onPress={() => setOpen(true)} className="rounded-full border border-brand bg-brand-light px-4 py-2">
-        <Text className="font-bold text-brand">Open preferences</Text>
-      </Pressable>
-      <SettingsScreen visible={open} onClose={() => setOpen(false)} />
-    </Center>
+    <View className="w-full overflow-hidden rounded-2xl bg-cream" style={{ borderWidth: 1, borderColor: "#E4D6BC" }}>
+      <SettingsContent onClose={() => {}} embedded />
+    </View>
   );
 }
 

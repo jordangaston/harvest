@@ -90,11 +90,8 @@ function Card({ children }: { children: React.ReactNode }) {
  * by kind (allergies / diet / kitchen, then tastes) with spacing, not headers. Operable
  * controls hold local draft state (no live re-rank in the prototype; see docs/swipe-ui/DESIGN.md).
  */
-export function SettingsScreen({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function SettingsContent({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const [p, setP] = React.useState<Preferences>(DEFAULT_PREFERENCES);
-
-  // Reset the draft each time the sheet opens.
-  React.useEffect(() => { if (visible) setP(DEFAULT_PREFERENCES); }, [visible]);
 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
     analytics.track("Settings Preference Changed", { control, from, to, kind });
@@ -111,17 +108,8 @@ export function SettingsScreen({ visible, onClose }: { visible: boolean; onClose
     });
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
-        <View className="overflow-hidden rounded-t-3xl bg-cream" style={{ height: "92%" }}>
-          <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}>
-            <HStack className="items-center justify-between px-5 pb-2 pt-4">
-              <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Your preferences</Text>
-              <Pressable onPress={onClose} accessibilityLabel="Close preferences" className="rounded-full bg-card p-2"><Icon name="close" size={20} color="#2E2419" /></Pressable>
-            </HStack>
-
-            <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 8, gap: 28 }}>
+  const body = (
+    <>
               {/* Grouped by spacing, not explanatory headers — declarative: set what you want, no algorithm lesson. */}
               <VStack space={14}>
                 <Card>
@@ -224,8 +212,35 @@ export function SettingsScreen({ visible, onClose }: { visible: boolean; onClose
               <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Save preferences" className="items-center rounded-full bg-brand py-3.5">
                 <Text className="text-base font-bold text-white">Save</Text>
               </Pressable>
-            </ScrollView>
-          </SafeAreaView>
+    </>
+  );
+
+  // Flat layout (studio preview) — no inner scroll, so the studio's outer ScrollView moves the
+  // content AND its comment pins together; a pin anchored to a scrolling viewport would drift.
+  if (embedded) {
+    return <View style={{ padding: 20 }}><VStack space={28}>{body}</VStack></View>;
+  }
+
+  return (
+    <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}>
+      <HStack className="items-center justify-between px-5 pb-2 pt-4">
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Your preferences</Text>
+        <Pressable onPress={onClose} accessibilityLabel="Close preferences" className="rounded-full bg-card p-2"><Icon name="close" size={20} color="#2E2419" /></Pressable>
+      </HStack>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 8, gap: 28 }}>
+        {body}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/** The deck's gear opens this — the settings content in a bottom-sheet Modal. */
+export function SettingsScreen({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
+        <View className="overflow-hidden rounded-t-3xl bg-cream" style={{ height: "92%" }}>
+          {visible ? <SettingsContent onClose={onClose} /> : null}
         </View>
       </View>
     </Modal>
