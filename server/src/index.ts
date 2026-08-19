@@ -11,6 +11,8 @@ import { CookbookService } from "./services/cookbook-service.js";
 import { MealPlanService } from "./services/meal-plan-service.js";
 import { GroceryService } from "./services/grocery-service.js";
 import { toPublicGroceryItem } from "./models/grocery-item.js";
+import { PreferenceRepository } from "./repositories/preference-repository.js";
+import { preferencesBodySchema, toPreferencesDTO, fromPreferencesDTO } from "./preferences-dto.js";
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
 import { InvalidPhoneError } from "./util/phone.js";
@@ -56,6 +58,7 @@ export function buildApp(db: Database) {
   const cookbooks = CookbookService.create(db);
   const mealPlan = MealPlanService.create(db);
   const groceries = GroceryService.create(db);
+  const preferences = PreferenceRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -153,6 +156,28 @@ app.post("/v1/recipes/:id/swipe", guard, async (c) => {
   const { direction, reason, reason_detail } = swipeBodySchema.parse(await c.req.json());
   const swipe = await recipes.swipe(c.get("authUserId")!, c.req.param("id")!, { direction, reason, reasonDetail: reason_detail });
   return c.json({ swipe });
+});
+
+/** DELETE /v1/recipes/:id/swipe — un-swipes: removes the swipe and reverses its cookbook
+ * filing (like → un-file from Liked, save → Saved), so the recipe re-enters the deck.
+ * Idempotent (204 even if there was no swipe). Requires bearer token. */
+app.delete("/v1/recipes/:id/swipe", guard, async (c) => {
+  await recipes.unswipe(c.get("authUserId")!, c.req.param("id")!);
+  return c.body(null, 204);
+});
+
+/** GET /v1/preferences — the caller's full preference model (weekly meals, budget, time,
+ * skill, tastes, and hard filters). Cold-start defaults if never saved. Requires bearer token. */
+app.get("/v1/preferences", guard, async (c) => {
+  return c.json({ preferences: toPreferencesDTO(await preferences.getPreferences(c.get("authUserId")!)) });
+});
+
+/** PUT /v1/preferences — upserts the user-editable subset (weights stay server-owned).
+ * Requires bearer token; 400 on an invalid value (ZodError). */
+app.put("/v1/preferences", guard, async (c) => {
+  const body = preferencesBodySchema.parse(await c.req.json());
+  const saved = await preferences.savePreferences(c.get("authUserId")!, fromPreferencesDTO(body));
+  return c.json({ preferences: toPreferencesDTO(saved) });
 });
 
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer

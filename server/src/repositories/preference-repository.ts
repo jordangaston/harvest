@@ -1,7 +1,7 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
-import { UserPreferencesSchema, type UserPreferences } from '../models/user-preferences.js';
+import { UserPreferencesSchema, ZERO_MEALS, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -49,7 +49,9 @@ export class PreferenceRepository {
       userId: prefs.userId,
       skillLevel: prefs.skillLevel,
       budgetCentsPerServing: prefs.budgetCentsPerServing,
+      weeklyBudgetCents: prefs.weeklyBudgetCents,
       timeBudgetMinutes: prefs.timeBudgetMinutes,
+      weeklyMeals: prefs.weeklyMeals ?? ZERO_MEALS,
       weights: {
         cost: prefs.weightCost,
         difficulty: prefs.weightDifficulty,
@@ -72,6 +74,8 @@ export class PreferenceRepository {
     const row = await this.coldStartRow(this.db, userId);
     return UserPreferencesSchema.parse({
       ...row,
+      weeklyBudgetCents: null,
+      weeklyMeals: ZERO_MEALS,
       weights: {
         cost: row.weightCost,
         difficulty: row.weightDifficulty,
@@ -146,5 +150,58 @@ export class PreferenceRepository {
         .values({ userId, facet, value, sentiment: 'dislike' })
         .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: 'dislike' } });
     });
+  }
+
+  /**
+   * Persists the user-editable preferences from the settings surface (a full upsert of the
+   * editable subset). Weights are left untouched — they're server-owned (dislike-tuned). Liked
+   * cuisines / disliked ingredients replace only the `cuisine`/`like` and `primary_ingredient`/
+   * `dislike` food-pref slices; other facets survive. Reviewing preferences sets the equipment gate.
+   * @returns The re-resolved preferences after the write.
+   */
+  async savePreferences(userId: string, input: PreferencesUpdate): Promise<UserPreferences> {
+    await this.db.transaction(async (tx) => {
+      await this.ensureRow(tx, userId);
+      await tx
+        .update(userPreferences)
+        .set({
+          skillLevel: input.skillLevel,
+          weeklyBudgetCents: input.weeklyBudgetCents,
+          timeBudgetMinutes: input.timeBudgetMinutes,
+          weeklyMeals: input.weeklyMeals,
+          equipmentReviewed: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(userPreferences.userId, userId));
+
+      await tx.delete(userAllergens).where(eq(userAllergens.userId, userId));
+      if (input.allergens.length)
+        await tx.insert(userAllergens).values(input.allergens.map((a) => ({ userId, allergen: a.allergen, severity: a.severity })));
+
+      await tx.delete(userDiets).where(eq(userDiets.userId, userId));
+      if (input.diets.length)
+        await tx.insert(userDiets).values(input.diets.map((d) => ({ userId, dietId: d.dietId, strictness: d.strictness })));
+
+      await tx.delete(userEquipment).where(eq(userEquipment.userId, userId));
+      if (input.ownedEquipment.length)
+        await tx.insert(userEquipment).values(input.ownedEquipment.map((equipment) => ({ userId, equipment })));
+
+      // Replace only the two slices the settings screen owns; leave the rest (dish-type, etc.).
+      await tx.delete(userFoodPrefs).where(
+        and(
+          eq(userFoodPrefs.userId, userId),
+          or(
+            and(eq(userFoodPrefs.facet, 'cuisine'), eq(userFoodPrefs.sentiment, 'like')),
+            and(eq(userFoodPrefs.facet, 'primary_ingredient'), eq(userFoodPrefs.sentiment, 'dislike')),
+          ),
+        ),
+      );
+      const foodRows = [
+        ...input.likedCuisines.map((value) => ({ userId, facet: 'cuisine' as const, value, sentiment: 'like' as const })),
+        ...input.dislikedIngredients.map((value) => ({ userId, facet: 'primary_ingredient' as const, value, sentiment: 'dislike' as const })),
+      ];
+      if (foodRows.length) await tx.insert(userFoodPrefs).values(foodRows).onConflictDoNothing();
+    });
+    return this.getPreferences(userId);
   }
 }

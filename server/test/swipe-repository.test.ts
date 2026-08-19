@@ -71,4 +71,18 @@ describe("SwipeRepository (WI-RANK-4)", () => {
     expect(excluded.has(recentDislike)).toBe(true); // within cooldown
     expect(excluded.has(oldDislike)).toBe(false); // resurfaced
   });
+
+  it("delete removes the row and returns it; null when there was none", async () => {
+    const userId = await makeUser();
+    const recipeId = await makeRecipe(userId);
+    const repo = SwipeRepository.create(db);
+
+    await repo.upsert(userId, { recipeId, direction: "like", score: 90, weights: WEIGHTS });
+    const removed = await repo.delete(userId, recipeId);
+    expect(removed?.direction).toBe("like");
+    expect(await db.select().from(recipeSwipes).where(eq(recipeSwipes.userId, userId))).toHaveLength(0);
+
+    // Idempotent: deleting again returns null, no throw.
+    expect(await repo.delete(userId, recipeId)).toBeNull();
+  });
 });

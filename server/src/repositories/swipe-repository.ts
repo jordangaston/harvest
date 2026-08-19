@@ -47,6 +47,18 @@ export class SwipeRepository {
   }
 
   /**
+   * Removes the `(user, recipe)` swipe if present, returning the removed row (or null) so the
+   * caller can reverse any cookbook filing. Idempotent — deleting a non-existent swipe is a no-op.
+   */
+  async delete(userId: string, recipeId: string): Promise<RecipeSwipe | null> {
+    const [row] = await this.db
+      .delete(recipeSwipes)
+      .where(and(eq(recipeSwipes.userId, userId), eq(recipeSwipes.recipeId, recipeId)))
+      .returning();
+    return row ? RecipeSwipeSchema.parse(row) : null;
+  }
+
+  /**
    * Recipe ids to exclude from the user's deck: every `like`/`save` (permanent) plus any
    * swipe at/after `cooldownCutoff` (recent dislikes rest before resurfacing).
    * @param cooldownCutoff - Swipes on/after this instant are still on cooldown.

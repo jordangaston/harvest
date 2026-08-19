@@ -447,7 +447,12 @@ export const userPreferences = sqliteTable('user_preferences', {
     .references(() => users.id, { onDelete: 'cascade' }),
   skillLevel: text('skill_level', { enum: DIFFICULTY_BANDS }).notNull().default('beginner'),
   budgetCentsPerServing: integer('budget_cents_per_serving'),
+  // The user's weekly grocery budget (the value settings edits); per-serving cost is
+  // calculated by the ranker, not entered. Nullable until they set one.
+  weeklyBudgetCents: integer('weekly_budget_cents'),
   timeBudgetMinutes: integer('time_budget_minutes'),
+  // How many of each meal type to plan per week (meal-count intake). JSON; null → all-zero.
+  weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
   weightCost: integer('weight_cost').notNull().default(1),
   weightDifficulty: integer('weight_difficulty').notNull().default(1),
   weightNutrition: integer('weight_nutrition').notNull().default(1),

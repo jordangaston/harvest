@@ -78,6 +78,11 @@ async function swipe(
   return { status: res.status, body: await res.json() };
 }
 
+async function unswipe(token: string, recipeId: string): Promise<number> {
+  const res = await app.request(`/v1/recipes/${recipeId}/swipe`, { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
+  return res.status;
+}
+
 describe("swipe deck & feedback (WI-RANK-4)", () => {
   it("TC1: deck returns ranked unswiped cards", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
@@ -244,6 +249,27 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     const { status, body } = await getDeck(token);
     expect(status).toBe(200);
     expect(body).toEqual({ recipes: [] });
+  });
+
+  it("TC10: un-swipe deletes the swipe, un-files it, and the recipe returns to the deck", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const r1 = await seedRecipe(userId, { title: "High", nrfScore: 90 });
+
+    await swipe(token, r1, { direction: "like" });
+    expect((await getDeck(token)).body.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
+
+    expect(await unswipe(token, r1)).toBe(204);
+    expect(await db.select().from(recipeSwipes).where(eq(recipeSwipes.recipeId, r1))).toHaveLength(0);
+    // Un-filed from Liked.
+    const liked = await db.select().from(cookbooks).where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, "liked")));
+    const members = await db.select().from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, liked[0]!.id));
+    expect(members.map((m) => m.recipeId)).not.toContain(r1);
+    // Deck-eligible again.
+    expect((await getDeck(token)).body.recipes.map((x: any) => x.recipe.id)).toContain(r1);
+
+    // Idempotent (204 with no prior swipe) + 401 without a bearer.
+    expect(await unswipe(token, r1)).toBe(204);
+    expect((await app.request(`/v1/recipes/${r1}/swipe`, { method: "DELETE" })).status).toBe(401);
   });
 });
 

@@ -143,6 +143,21 @@ export class RecipeService {
     return { direction: input.direction, reason, score };
   }
 
+  /**
+   * Un-swipes: removes the `(user, recipe)` swipe and reverses its cookbook filing, so the
+   * recipe becomes deck-eligible again. Idempotent — a no-op if there was no swipe. A `like`
+   * un-files from Liked, a `save` from Saved; a dislike just clears the row.
+   */
+  async unswipe(userId: string, recipeId: string): Promise<void> {
+    const removed = await this.swipes.delete(userId, recipeId);
+    if (!removed) return;
+    if (removed.direction === "like" || removed.direction === "save") {
+      const [slug, name] = removed.direction === "like" ? ["liked", "Liked"] : ["saved", "Saved"];
+      const cb = await this.cookbooks.ensureSystemCookbook(userId, slug, name);
+      await this.cookbooks.removeRecipe(userId, cb, recipeId);
+    }
+  }
+
   /** Tunes preferences for a reasoned dislike: bump a weight, add a food-pref dislike, or nothing. */
   private async applyDislikeTuning(userId: string, reason: SwipeReason, reasonDetail?: string): Promise<void> {
     const action = tuneActionFor(reason);
