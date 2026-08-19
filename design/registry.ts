@@ -16,6 +16,7 @@ import { LoadingScreenStudy } from "./studies/LoadingScreen.study";
 import { LogoStudy } from "./studies/Logo.study";
 import { MealAddRecipeSheetStudy } from "./studies/MealAddRecipeSheet.study";
 import { MealMenuStudy } from "./studies/MealMenu.study";
+import { MealPlanIntakeStudy } from "./studies/MealPlanIntake.study";
 import { NewCookbookSheetStudy } from "./studies/NewCookbookSheet.study";
 import { OnboardingChecklistStudy } from "./studies/OnboardingChecklist.study";
 import { OnboardingScreenStudy } from "./studies/OnboardingScreen.study";
@@ -50,6 +51,7 @@ export const studies: Study[] = [
   LogoStudy,
   MealAddRecipeSheetStudy,
   MealMenuStudy,
+  MealPlanIntakeStudy,
   NewCookbookSheetStudy,
   OnboardingChecklistStudy,
   OnboardingScreenStudy,
