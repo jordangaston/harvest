@@ -439,9 +439,10 @@ export class RecipeRepository {
     rows: (typeof recipes.$inferSelect)[],
   ): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
     const ids = rows.map((r) => r.id);
-    const [categories, diets] = await Promise.all([
+    const [categories, diets, equipment] = await Promise.all([
       this.affinityCategoriesByRecipe(ids),
       this.dietFitByRecipe(ids),
+      this.equipmentByRecipe(ids),
     ]);
     return rows.map((row) => {
       const recipe = RecipeSchema.parse(row);
@@ -460,6 +461,8 @@ export class RecipeRepository {
             complete: recipe.allergensComplete,
           },
           dietFit: diets.get(recipe.id) ?? {},
+          equipment: equipment.get(recipe.id) ?? [],
+          equipmentComplete: recipe.equipmentComplete,
           popularity: null,
         },
         card: toPublicRecipeCard({
@@ -507,6 +510,22 @@ export class RecipeRepository {
       const fit = map.get(recipeId) ?? {};
       fit[dietId] = verdict;
       map.set(recipeId, fit);
+    }
+    return map;
+  }
+
+  /** Batches each recipe id → its rolled-up equipment set (WI-EQ-3), for the filter. */
+  private async equipmentByRecipe(recipeIds: string[]): Promise<Map<string, RankableRecipe['equipment']>> {
+    const map = new Map<string, RankableRecipe['equipment']>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: recipeEquipment.recipeId, equipment: recipeEquipment.equipment, essentiality: recipeEquipment.essentiality })
+      .from(recipeEquipment)
+      .where(inArray(recipeEquipment.recipeId, recipeIds));
+    for (const { recipeId, equipment, essentiality } of rows) {
+      const list = map.get(recipeId) ?? [];
+      list.push({ equipment, essentiality });
+      map.set(recipeId, list);
     }
     return map;
   }

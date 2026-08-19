@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { UserPreferences } from '../src/models/user-preferences.js';
 import type { RankableRecipe } from '../src/ranking/types.js';
-import { AllergenFilter, DietFilter } from '../src/ranking/filters.js';
+import { AllergenFilter, DietFilter, EquipmentFilter } from '../src/ranking/filters.js';
 import {
   CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer,
 } from '../src/ranking/scorers.js';
@@ -20,6 +20,8 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     categories: { cuisine: [], dishType: [], primaryIngredient: [] },
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
+    equipment: [],
+    equipmentComplete: true,
     popularity: null,
     ...overrides,
   };
@@ -140,6 +142,86 @@ describe('diet filter matrix (Test Case 3)', () => {
     const p = preferences({ diets: [{ dietId: 'vegan', strictness: 'flexible' }] });
     expect(filter.excludes(incompatible, p)).toBe(false);
     expect(filter.excludes(unknown, p)).toBe(false);
+  });
+});
+
+describe('equipment filter matrix (WI-EQ-3)', () => {
+  const filter = new EquipmentFilter();
+  const reviewed = (owned: ('air_fryer' | 'sous_vide')[] = []) => preferences({ equipmentReviewed: true, ownedEquipment: owned });
+  const requiredItem = (complete: boolean) => rankableRecipe({ equipment: [{ equipment: 'sous_vide', essentiality: 'required' }], equipmentComplete: complete });
+  const recommendedItem = rankableRecipe({ equipment: [{ equipment: 'air_fryer', essentiality: 'recommended' }], equipmentComplete: true });
+
+  it('unreviewed kitchen never excludes', () => {
+    expect(filter.excludes(requiredItem(true), preferences())).toBe(false);
+  });
+  it('incomplete detection stays lenient', () => {
+    expect(filter.excludes(requiredItem(false), reviewed())).toBe(false);
+  });
+  it('required-missing excludes; required-owned keeps', () => {
+    expect(filter.excludes(requiredItem(true), reviewed())).toBe(true);
+    expect(filter.excludes(requiredItem(true), reviewed(['sous_vide']))).toBe(false);
+  });
+  it('recommended-missing keeps (the soft penalty, not the filter)', () => {
+    expect(filter.excludes(recommendedItem, reviewed())).toBe(false);
+  });
+});
+
+describe('missing-equipment soft penalty (WI-EQ-3)', () => {
+  const engine = RankingEngine.create();
+  // average = (cost 1 + difficulty 1 + nutrition 0.5 + affinity 0.5 + time 1)/5 = 0.8.
+  const recipe = (equipment: RankableRecipe['equipment']) =>
+    rankableRecipe({
+      costPerServingCents: 400, difficultyBand: 'intermediate', nrfScore: 57, totalMinutes: 30,
+      categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] },
+      equipment, equipmentComplete: true,
+    });
+  const airFryer: RankableRecipe['equipment'] = [{ equipment: 'air_fryer', essentiality: 'recommended' }];
+
+  it('subtracts a flat 0.10 for a reviewed user missing recommended gear', () => {
+    const [r] = engine.rank([recipe(airFryer)], preferences({ equipmentReviewed: true, ownedEquipment: [] }));
+    expect(r.score).toBeCloseTo(0.8 - 0.1, 6);
+  });
+  it('no penalty when the gear is owned, or the kitchen is unreviewed', () => {
+    expect(engine.rank([recipe(airFryer)], preferences({ equipmentReviewed: true, ownedEquipment: ['air_fryer'] }))[0].score).toBeCloseTo(0.8, 6);
+    expect(engine.rank([recipe(airFryer)], preferences({ equipmentReviewed: false }))[0].score).toBeCloseTo(0.8, 6);
+  });
+  it('is flat once, not per item', () => {
+    const two: RankableRecipe['equipment'] = [
+      { equipment: 'air_fryer', essentiality: 'recommended' },
+      { equipment: 'blender', essentiality: 'recommended' },
+    ];
+    expect(engine.rank([recipe(two)], preferences({ equipmentReviewed: true, ownedEquipment: [] }))[0].score).toBeCloseTo(0.8 - 0.1, 6);
+  });
+});
+
+describe('equipment worked example (WI-EQ-3)', () => {
+  const engine = RankingEngine.create();
+  const base = {
+    costPerServingCents: 400, difficultyBand: 'intermediate' as const, nrfScore: 57, totalMinutes: 30,
+    categories: { cuisine: [], dishType: [], primaryIngredient: [] }, equipmentComplete: true,
+  };
+  const A = rankableRecipe({ id: 'A', ...base, equipment: [{ equipment: 'sous_vide', essentiality: 'required' }] });
+  const B = rankableRecipe({ id: 'B', ...base, equipment: [{ equipment: 'air_fryer', essentiality: 'recommended' }] });
+  const C = rankableRecipe({ id: 'C', ...base, equipment: [{ equipment: 'slow_cooker', essentiality: 'required' }] });
+  const D = rankableRecipe({ id: 'D', ...base, equipment: [] });
+  const E = rankableRecipe({ id: 'E', ...base, equipmentComplete: false, equipment: [{ equipment: 'smoker', essentiality: 'required' }] });
+  const reviewed = preferences({ equipmentReviewed: true, ownedEquipment: ['slow_cooker', 'blender'] });
+  const score = (ranked: { recipeId: string; score: number }[], id: string) => ranked.find((r) => r.recipeId === id)!.score;
+
+  // average = (cost 1 + difficulty 1 + nutrition 0.5 + time 1)/4 = 0.875 (empty categories → affinity null).
+  it('reviewed → excludes A, keeps B/C/D/E, penalizes only B by 0.10', () => {
+    const ranked = engine.rank([A, B, C, D, E], reviewed);
+    expect(ranked.map((r) => r.recipeId).sort()).toEqual(['B', 'C', 'D', 'E']);
+    expect(score(ranked, 'D')).toBeCloseTo(0.875, 6);
+    expect(score(ranked, 'C')).toBeCloseTo(0.875, 6);
+    expect(score(ranked, 'E')).toBeCloseTo(0.875, 6);
+    expect(score(ranked, 'B')).toBeCloseTo(0.875 - 0.1, 6);
+  });
+
+  it('unreviewed → keeps all five, none penalized', () => {
+    const ranked = engine.rank([A, B, C, D, E], preferences({ equipmentReviewed: false }));
+    expect(ranked).toHaveLength(5);
+    for (const r of ranked) expect(r.score).toBeCloseTo(0.875, 6);
   });
 });
 

@@ -5,6 +5,7 @@ import { recipeEquipment, recipeSteps, recipes } from "../src/schema.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { ImportJobRepository } from "../src/repositories/import-job-repository.js";
+import { RecipeRepository } from "../src/repositories/recipe-repository.js";
 import { persistAndReady } from "../src/import-persist.js";
 import { EquipmentDetector } from "../src/equipment/equipment-detector.js";
 import { EquipmentMatcher } from "../src/equipment/equipment-matcher.js";
@@ -98,5 +99,17 @@ describe("equipment persisted through the pipeline (WI-EQ-2)", () => {
     expect(await db.select().from(recipeEquipment).where(eq(recipeEquipment.recipeId, recipeId))).toHaveLength(0);
     const steps = await db.select().from(recipeSteps).where(eq(recipeSteps.recipeId, recipeId));
     expect(steps.every((s) => s.equipment === null)).toBe(true);
+  });
+
+  it("surfaces the equipment set + completeness on the RankableRecipe (WI-EQ-3)", async () => {
+    const { userId, jobId } = await seedJob();
+    const [withEquip] = await persistAndReady(db, [await attach(BASE)], input({ jobId, userId }));
+    const [plain] = await persistAndReady(db, [await attach(PLAIN)], input({ jobId, userId }));
+
+    const rankable = await RecipeRepository.create(db).listRankable(userId);
+    const byId = new Map(rankable.map((r) => [r.recipe.id, r.recipe]));
+    expect(byId.get(withEquip)!.equipment).toEqual([{ equipment: "air_fryer", essentiality: "recommended" }]);
+    expect(byId.get(withEquip)!.equipmentComplete).toBe(false);
+    expect(byId.get(plain)!.equipment).toEqual([]);
   });
 });

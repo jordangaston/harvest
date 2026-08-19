@@ -1,12 +1,12 @@
 import type { UserPreferences } from '../models/user-preferences.js';
 import type { RankableRecipe, RankedRecipe } from './types.js';
-import { type FilterRule, AllergenFilter, DietFilter } from './filters.js';
+import { type FilterRule, AllergenFilter, DietFilter, EquipmentFilter } from './filters.js';
 import {
   type SignalScorer,
   CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer,
 } from './scorers.js';
 import {
-  PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT,
+  PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT, PENALTY_MISSING_EQUIPMENT,
 } from './constants.js';
 
 /** Pure filter-then-rank engine: hard filters drop recipes, a weighted average of soft signals ranks survivors. */
@@ -18,7 +18,7 @@ export class RankingEngine {
 
   static create(): RankingEngine {
     return new RankingEngine(
-      [new AllergenFilter(), new DietFilter()],
+      [new AllergenFilter(), new DietFilter(), new EquipmentFilter()],
       [new CostScorer(), new DifficultyScorer(), new NutritionScorer(), new AffinityScorer(), new TimeScorer(), new PopularityScorer()],
     );
   }
@@ -55,7 +55,15 @@ export class RankingEngine {
       if (strictness === 'flexible' && verdict === 'incompatible') total += PENALTY_FLEXIBLE_INCOMPATIBLE;
       if (verdict === 'unknown') total += PENALTY_UNKNOWN_VERDICT;
     }
+    if (prefs.equipmentReviewed && this.missingRecommendedEquipment(recipe, prefs)) total += PENALTY_MISSING_EQUIPMENT;
     return total;
+  }
+
+  /** Whether a reviewed user lacks any `recommended` (substitutable) gear the recipe suggests —
+   * a flat once-per-recipe penalty. `required`-missing is the filter's job, not the penalty's. */
+  private missingRecommendedEquipment(recipe: RankableRecipe, prefs: UserPreferences): boolean {
+    const owned = new Set(prefs.ownedEquipment);
+    return recipe.equipment.some(({ equipment, essentiality }) => essentiality === 'recommended' && !owned.has(equipment));
   }
 
   private compare(a: RankedRecipe, b: RankedRecipe, recipes: RankableRecipe[]): number {
