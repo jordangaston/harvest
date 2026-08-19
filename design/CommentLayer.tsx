@@ -1,8 +1,8 @@
 import React from "react";
 import { Modal, View, TextInput, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
-import { ELEVATION } from "../../lib/elevation";
+import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../components/ui";
+import { ELEVATION } from "../lib/elevation";
 
 export type StudyComment = {
   id: string;
@@ -14,13 +14,13 @@ export type StudyComment = {
 };
 
 /**
- * A commentable overlay for the Design Studio. Numbered pins sit on the component
- * canvas. `seed` comes from a committed file (design/comments/<name>.json) — the
- * durable, shared record the frontend-architect agent appends to. Pins a human drops
- * in-app persist to AsyncStorage (dev-local) and render alongside. Toggle "Comment"
- * to annotate (which suspends the component's own gestures) or off to interact.
+ * A commentable overlay for the Design Studio — wraps EVERY study (see app/studio/[name].tsx)
+ * so any component can be annotated. Numbered pins sit on the component canvas. An optional
+ * `seed` comes from a committed file (`design/comments/<name>.ts`) for studies that have one;
+ * otherwise commenting is in-app only. Pins a human drops persist to AsyncStorage (dev-local).
+ * Toggle "Comment" to annotate (which suspends the component's own gestures) or off to interact.
  */
-export function CommentLayer({ studyName, seed, children }: { studyName: string; seed: StudyComment[]; children: React.ReactNode }) {
+export function CommentLayer({ studyName, seed = [], children }: { studyName: string; seed?: StudyComment[]; children: React.ReactNode }) {
   const KEY = `swipe-comments:${studyName}`;
   const [size, setSize] = React.useState({ width: 0, height: 0 });
   const [local, setLocal] = React.useState<StudyComment[]>([]);
@@ -52,7 +52,7 @@ export function CommentLayer({ studyName, seed, children }: { studyName: string;
 
   return (
     <View style={{ width: "100%" }}>
-      <View onLayout={(e) => setSize(e.nativeEvent.layout)} style={{ position: "relative" }}>
+      <View onLayout={(e) => setSize(e.nativeEvent.layout)} style={{ position: "relative", alignItems: "center" }}>
         {children}
 
         {mode ? <Pressable accessibilityLabel="Tap to place a comment" onPress={onCanvasTap} style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(46,36,25,0.06)" }]} /> : null}

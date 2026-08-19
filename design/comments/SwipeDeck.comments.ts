@@ -1,4 +1,4 @@
-import type { StudyComment } from "../../components/swipe/CommentLayer";
+import type { StudyComment } from "../CommentLayer";
 
 /**
  * Durable, shared review comments for the SwipeDeck study — the frontend-architect

@@ -4,9 +4,16 @@ import { useLocalSearchParams } from "expo-router";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { ScrollView, VStack, Center, Text } from "../../components/ui";
 import { Controls } from "../../design/ControlsPanel";
+import { CommentLayer, type StudyComment } from "../../design/CommentLayer";
+import { SWIPE_DECK_COMMENTS } from "../../design/comments/SwipeDeck.comments";
 import { seedValues } from "../../design/controls.ts";
 import { studies } from "../../design/registry";
 import type { Study } from "../../design/types";
+
+/** Committed comment seeds for studies that have one; every other study comments in-app only. */
+const COMMENT_SEEDS: Record<string, StudyComment[]> = {
+  SwipeDeck: SWIPE_DECK_COMMENTS,
+};
 
 /** Holds the control values for one study; remounted per study so state resets. */
 function StudioDetailBody({ study }: { study: Study }) {
@@ -14,7 +21,11 @@ function StudioDetailBody({ study }: { study: Study }) {
   return (
     <ScrollView className="flex-1 px-5" contentContainerStyle={{ paddingVertical: 24, gap: 24 }}>
       <Text className="text-xs font-bold uppercase tracking-wide text-muted">{study.name}</Text>
-      <Center>{study.render(values)}</Center>
+      <Center>
+        <CommentLayer studyName={study.name} seed={COMMENT_SEEDS[study.name]}>
+          {study.render(values)}
+        </CommentLayer>
+      </Center>
       {study.controls?.length ? (
         <Controls specs={study.controls} values={values} onChange={setValues} />
       ) : null}

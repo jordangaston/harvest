@@ -1,18 +1,16 @@
 import React from "react";
 import { SwipeDeck } from "../../components/swipe/SwipeDeck";
-import { CommentLayer } from "../../components/swipe/CommentLayer";
-import { SWIPE_DECK_COMMENTS } from "../comments/SwipeDeck.comments";
 import type { Study } from "../types.ts";
 
+// The Design Studio wraps every study in a CommentLayer (app/studio/[name].tsx), so this
+// study just renders the component; its committed comment seed is in design/comments/.
 function SwipeDeckStudyView({ initial, failSaves, reduceMotion }: { initial: string; failSaves: boolean; reduceMotion: boolean }) {
   return (
-    <CommentLayer studyName="SwipeDeck" seed={SWIPE_DECK_COMMENTS}>
-      <SwipeDeck
-        initial={initial as "deck" | "empty" | "error"}
-        failSaves={failSaves}
-        forceReduceMotion={reduceMotion}
-      />
-    </CommentLayer>
+    <SwipeDeck
+      initial={initial as "deck" | "empty" | "error"}
+      failSaves={failSaves}
+      forceReduceMotion={reduceMotion}
+    />
   );
 }
 
