@@ -1,5 +1,6 @@
 import type { Database } from '../db.js';
-import type { RecipeCategories } from '../models/recipe.js';
+import type { RecipeCategories, MealPrepFit } from '../models/recipe.js';
+import { MEAL_PREP_KEEPS_WELL_DISH_TYPES, MEAL_PREP_BATCH_SERVINGS } from '../ranking/constants.js';
 import { FdcFoodRepository } from '../nutrition/fdc-food-repository.js';
 import { FoodMatcher, type IngredientMatcher } from '../nutrition/food-matcher.js';
 import { inVocab } from './vocab.js';
@@ -17,6 +18,9 @@ export interface CategorizerIngredient {
 export interface RecipeAnalysisResult {
   categories: RecipeCategories;
   stepTechniques: string[][];
+  /** Meal-prep fit (signal #10): the LLM band, else a deterministic heuristic from dish
+   * type + servings; null only when neither is decisive. */
+  mealPrepFit: MealPrepFit | null;
 }
 
 /**
@@ -44,25 +48,33 @@ export class RecipeCategorizer {
    * @param title - The recipe title.
    * @param ingredients - The recipe's ingredients (names read).
    * @param steps - The recipe's ordered step texts; `stepTechniques[i]` aligns to `steps[i]`.
-   * @returns The VOCAB-constrained facets and the `TECHNIQUE_NAMES`-constrained techniques
-   *   per step. A LLM failure degrades taste to empty and techniques to `[]` per step
-   *   (primary_ingredient survives), never throwing.
+   * @param servings - The recipe's serving count (for the meal-prep heuristic fallback); null when unknown.
+   * @returns The VOCAB-constrained facets, the `TECHNIQUE_NAMES`-constrained techniques
+   *   per step, and the meal-prep fit band. A LLM failure degrades taste to empty and
+   *   techniques to `[]` per step (primary_ingredient survives), never throwing.
    */
-  async analyze(title: string, ingredients: CategorizerIngredient[], steps: string[]): Promise<RecipeAnalysisResult> {
+  async analyze(
+    title: string,
+    ingredients: CategorizerIngredient[],
+    steps: string[],
+    servings: number | null = null,
+  ): Promise<RecipeAnalysisResult> {
     const names = ingredients.map((i) => i.name);
     const primaryHits = this.rules.tag(title, names).primaryIngredient;
     const fdcPrimary = await this.fdcPrimaryIngredients(names);
     const primaryIngredient = this.resolvePrimary(primaryHits, fdcPrimary);
     const analysis = await this.resolveAnalysis(title, names, steps);
+    const dishType = valid('dishType', analysis.dishType);
 
     return {
       categories: {
         cuisine: valid('cuisine', analysis.cuisine),
         mealType: valid('mealType', analysis.mealType),
-        dishType: valid('dishType', analysis.dishType),
+        dishType,
         primaryIngredient: valid('primaryIngredient', primaryIngredient),
       },
       stepTechniques: analysis.stepTechniques,
+      mealPrepFit: analysis.mealPrepFit ?? heuristicMealPrepFit(dishType, servings),
     };
   }
 
@@ -92,13 +104,22 @@ export class RecipeCategorizer {
     try {
       return await this.analyzer.analyze(title, names, steps);
     } catch {
-      return { cuisine: [], mealType: [], dishType: [], stepTechniques: [] };
+      return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
     }
   }
 }
 
 function dedup(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+/** Deterministic meal-prep fallback (design § Detection): a keeps-well dish type AND a
+ * batch-scale serving count → `suitable`; else `unsuitable`. Never `designed` — explicit
+ * batch intent needs the model. */
+function heuristicMealPrepFit(dishType: string[], servings: number | null): MealPrepFit {
+  const keepsWell = dishType.some((d) => MEAL_PREP_KEEPS_WELL_DISH_TYPES.includes(d));
+  const batchScale = servings != null && servings >= MEAL_PREP_BATCH_SERVINGS;
+  return keepsWell && batchScale ? 'suitable' : 'unsuitable';
 }
 
 /** Keeps only VOCAB members for the facet (defence — the LLM can emit anything). */

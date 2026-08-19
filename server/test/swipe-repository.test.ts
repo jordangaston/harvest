@@ -30,7 +30,7 @@ async function makeRecipe(userId: string): Promise<string> {
   return row.id;
 }
 
-const WEIGHTS = { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0 };
+const WEIGHTS = { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 };
 
 describe("SwipeRepository (WI-RANK-4)", () => {
   it("upsert overwrites the row on a re-swipe", async () => {

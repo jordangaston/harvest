@@ -25,6 +25,7 @@ export const UserPreferencesSchema = z.object({
     affinity: weight(),
     time: weight(),
     popularity: weight(),
+    mealPrep: weight(),
   }),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
   diets: z.array(z.object({ dietId: z.string(), strictness: z.enum(DIET_STRICTNESS) })),

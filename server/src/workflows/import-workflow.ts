@@ -277,12 +277,17 @@ async function categorizeOne(
   input: ImportInput,
 ): Promise<ExtractedRecipeData> {
   try {
-    const { categories, stepTechniques } = await categorizer.analyze(recipe.title, recipe.ingredients, recipe.steps);
+    const { categories, stepTechniques, mealPrepFit } = await categorizer.analyze(
+      recipe.title,
+      recipe.ingredients,
+      recipe.steps,
+      parsedServings(recipe),
+    );
     console.log(
       `[step] categorize job=${input.jobId} title=${recipe.title} cuisine=${categories.cuisine.length} ` +
-        `dish=${categories.dishType.length} primary=${categories.primaryIngredient.length} outcome=ok`,
+        `dish=${categories.dishType.length} primary=${categories.primaryIngredient.length} meal_prep=${mealPrepFit ?? 'none'} outcome=ok`,
     );
-    return { ...recipe, categories, stepTechniques: stepTechniques.length ? stepTechniques : undefined };
+    return { ...recipe, categories, stepTechniques: stepTechniques.length ? stepTechniques : undefined, mealPrepFit };
   } catch (err) {
     console.log(`[step] categorize job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;
@@ -293,6 +298,13 @@ async function categorizeOne(
 function resolvedServings(recipe: ExtractedRecipeData): number {
   const parsed = recipe.servings ? parseInt(recipe.servings, 10) : NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+}
+
+/** The recipe's actual serving count, or null when absent/unparseable — the meal-prep
+ * heuristic must not read the C4 default-4 as a real batch signal. */
+function parsedServings(recipe: ExtractedRecipeData): number | null {
+  const parsed = recipe.servings ? parseInt(recipe.servings, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 /** `estimated | parsed | withheld` — which branch the estimate took, for the log line. */

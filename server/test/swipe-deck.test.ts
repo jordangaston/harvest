@@ -138,8 +138,8 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     const { body } = await swipe(token, r, { direction: "dislike" });
     const [row] = await db.select().from(recipeSwipes).where(eq(recipeSwipes.recipeId, r));
     expect(row!.score).toBeCloseTo(body.swipe.score, 5);
-    // eat_healthier cold-start: nutrition bumped to 3, others 1, popularity 0.
-    expect(row!.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 3, affinity: 1, time: 1, popularity: 0 });
+    // eat_healthier cold-start: nutrition bumped to 3, others 1, popularity 0, meal-prep 1.
+    expect(row!.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 3, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
   });
 
   it("TC5: reasoned dislike tunes the mapped weight (cold-start → row created, capped at 3)", async () => {

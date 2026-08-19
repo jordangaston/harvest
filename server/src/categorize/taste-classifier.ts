@@ -1,6 +1,7 @@
 import { fetchWithRetry } from '../parse/http.js';
 import { VOCAB } from './vocab.js';
 import { TECHNIQUE_NAMES, techniqueWeight } from '../difficulty/technique-difficulty.js';
+import { MEAL_PREP_FITS, type MealPrepFit } from '../schema.js';
 
 /**
  * RecipeAnalyzer (WI-TS-2 + WI-DIFF-5) — the ONE OpenAI gpt-5.6-luna call that both
@@ -16,9 +17,11 @@ export interface TasteFacets {
   dishType: string[];
 }
 
-/** The analyzer's output: the taste facets plus per-step detected techniques. */
+/** The analyzer's output: the taste facets, per-step detected techniques, and the
+ * meal-prep fit band (signal #10; null when the model omits/off-enums it). */
 export interface RecipeAnalysis extends TasteFacets {
   stepTechniques: string[][];
+  mealPrepFit: MealPrepFit | null;
 }
 
 export interface RecipeAnalyzer {
@@ -42,13 +45,18 @@ function systemPrompt(): string {
     'mealType is WHEN it is eaten (e.g. a french toast is "breakfast"); dishType is the ' +
     "dish's FORM (e.g. that french toast is a \"pancake\" or \"bread\"). " +
     'Also, for each step, list the cooking techniques it uses. ' +
-    'Return JSON {"cuisine": string[], "mealType": string[], "dishType": string[], "stepTechniques": string[][]}. ' +
+    'Also classify how well the recipe suits MEAL PREP (batch-cook, portion, refrigerate/freeze, ' +
+    'reheat over days): "designed" (built for it — batch quantities, make-ahead, stores/freezes, ' +
+    'portioned), "suitable" (keeps and reheats fine — stews, curries, grain bowls, roasts), or ' +
+    '"unsuitable" (degrades — fried/crispy, delicate, eat-immediately, single-serving plating). ' +
+    'Return JSON {"cuisine": string[], "mealType": string[], "dishType": string[], "stepTechniques": string[][], "mealPrepFit": string}. ' +
     `Use ONLY these cuisine values: ${VOCAB.cuisine.join(', ')}. ` +
     `Use ONLY these mealType values: ${VOCAB.mealType.join(', ')}. ` +
     `Use ONLY these dishType values: ${VOCAB.dishType.join(', ')}. ` +
     'Return at most two of each; use an empty array for a facet you are not confident about. ' +
     `For each step, list the cooking techniques it uses, using ONLY these technique names: ${TECHNIQUE_NAMES.join(', ')}. ` +
-    'Return stepTechniques as an array aligned to the steps, each an array of technique names (empty if none).'
+    'Return stepTechniques as an array aligned to the steps, each an array of technique names (empty if none). ' +
+    `Use ONLY these mealPrepFit values: ${MEAL_PREP_FITS.join(', ')}.`
   );
 }
 
@@ -87,7 +95,7 @@ export class LunaRecipeAnalyzer implements RecipeAnalyzer {
 /** Offline double: returns nothing, deterministically. Selected when no key is set. */
 export class StubRecipeAnalyzer implements RecipeAnalyzer {
   async analyze(): Promise<RecipeAnalysis> {
-    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [] };
+    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
   }
 }
 
@@ -100,16 +108,23 @@ function constrain(content: string | undefined, stepCount: number): RecipeAnalys
       mealType?: unknown;
       dishType?: unknown;
       stepTechniques?: unknown;
+      mealPrepFit?: unknown;
     };
     return {
       cuisine: pick(parsed.cuisine, VOCAB.cuisine),
       mealType: pick(parsed.mealType, VOCAB.mealType),
       dishType: pick(parsed.dishType, VOCAB.dishType),
       stepTechniques: pickTechniques(parsed.stepTechniques, stepCount),
+      mealPrepFit: pickMealPrepFit(parsed.mealPrepFit),
     };
   } catch {
-    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [] };
+    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
   }
+}
+
+/** The model's meal-prep band, validated to the enum (off-enum / missing → null). */
+function pickMealPrepFit(value: unknown): MealPrepFit | null {
+  return (MEAL_PREP_FITS as readonly string[]).includes(value as string) ? (value as MealPrepFit) : null;
 }
 
 function pick(value: unknown, vocab: readonly string[]): string[] {

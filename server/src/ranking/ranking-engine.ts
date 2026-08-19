@@ -3,7 +3,7 @@ import type { RankableRecipe, RankedRecipe } from './types.js';
 import { type FilterRule, AllergenFilter, DietFilter } from './filters.js';
 import {
   type SignalScorer,
-  CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer,
+  CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer, MealPrepScorer,
 } from './scorers.js';
 import {
   PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT,
@@ -19,7 +19,7 @@ export class RankingEngine {
   static create(): RankingEngine {
     return new RankingEngine(
       [new AllergenFilter(), new DietFilter()],
-      [new CostScorer(), new DifficultyScorer(), new NutritionScorer(), new AffinityScorer(), new TimeScorer(), new PopularityScorer()],
+      [new CostScorer(), new DifficultyScorer(), new NutritionScorer(), new AffinityScorer(), new TimeScorer(), new PopularityScorer(), new MealPrepScorer()],
     );
   }
 

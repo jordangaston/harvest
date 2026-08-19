@@ -101,7 +101,7 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
     const { userId, jobId } = await seedJob();
     // salmon → seafood (FDC "Fish"); cuisine/meal_type/dish_type come from the LLM (stubbed here).
     const taste: RecipeAnalyzer = {
-      analyze: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"], stepTechniques: [] }),
+      analyze: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"], stepTechniques: [], mealPrepFit: null }),
     };
     const categorized = await attach(offlineCategorizer(taste), BASE);
     const [recipeId] = await persistAndReady(db, [categorized], input({ jobId, userId }));

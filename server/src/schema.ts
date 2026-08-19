@@ -35,6 +35,9 @@ const GOALS = [
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
+// Meal-prep suitability band (signal #10): the ordinal fit persisted on a recipe, null
+// until scored at import. A schema tuple like DIFFICULTY_BANDS.
+export const MEAL_PREP_FITS = ['unsuitable', 'suitable', 'designed'] as const;
 // Ranking preferences (WI-RANK-1): severity gates allergen filter-vs-soft; strictness
 // gates diet filter-vs-penalty; the affinity facets are the 3-value subset of FACETS
 // that user food prefs mirror; sentiment is the like/dislike direction.
@@ -150,6 +153,9 @@ export const recipes = sqliteTable(
     // nrfScore) and its derived band. Null until scored at ingest (WI-DIFF-3).
     difficultyScore: text('difficulty_score'),
     difficultyBand: text('difficulty_band', { enum: DIFFICULTY_BANDS }),
+    // Meal-prep suitability (signal #10): the ordinal fit band, null until scored at
+    // import (design MEAL-PREP-SIGNAL.md). Feeds MealPrepScorer via the band→score map.
+    mealPrepFit: text('meal_prep_fit', { enum: MEAL_PREP_FITS }),
     allergens: text('allergens', { mode: 'json' }).$type<{ contains: string[]; mayContain: string[] }>(),
     allergensComplete: integer('allergens_complete', { mode: 'boolean' }).notNull().default(false),
     // Cost signal (WI-CS-1): absolute USD cents per serving + the fraction of gram-weight
@@ -433,6 +439,9 @@ export const userPreferences = sqliteTable('user_preferences', {
   weightAffinity: integer('weight_affinity').notNull().default(1),
   weightTime: integer('weight_time').notNull().default(1),
   weightPopularity: integer('weight_popularity').notNull().default(0),
+  // Meal-prep signal weight (signal #10): 0–3, seeded to 3 by the `meal_prepping`
+  // goal at cold-start, else the uniform baseline 1 (design Q-MP1).
+  weightMealPrep: integer('weight_meal_prep').notNull().default(1),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -539,5 +548,7 @@ export type MealSlot = (typeof MEAL_SLOTS)[number];
 export type GroceryAisle = (typeof GROCERY_AISLES)[number];
 /** Difficulty band union (WI-DIFF-1), shared with the domain models. */
 export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
+/** Meal-prep suitability band union (signal #10), shared with the domain models. */
+export type MealPrepFit = (typeof MEAL_PREP_FITS)[number];
 /** Affinity facet union (WI-RANK-1), the food-pref facets. */
 export type AffinityFacet = (typeof AFFINITY_FACETS)[number];

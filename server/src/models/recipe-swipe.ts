@@ -21,6 +21,7 @@ export const RecipeSwipeSchema = z.object({
     affinity: weight(),
     time: weight(),
     popularity: weight(),
+    mealPrep: weight(),
   }),
   createdAt: z.date(),
 });

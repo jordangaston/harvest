@@ -14,6 +14,7 @@ const WEIGHT_COLUMN = {
   affinity: 'weightAffinity',
   time: 'weightTime',
   popularity: 'weightPopularity',
+  mealPrep: 'weightMealPrep',
 } as const;
 
 export type WeightSignal = keyof typeof WEIGHT_COLUMN;
@@ -55,6 +56,7 @@ export class PreferenceRepository {
         affinity: prefs.weightAffinity,
         time: prefs.weightTime,
         popularity: prefs.weightPopularity,
+        mealPrep: prefs.weightMealPrep,
       },
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
@@ -74,6 +76,7 @@ export class PreferenceRepository {
         affinity: row.weightAffinity,
         time: row.weightTime,
         popularity: row.weightPopularity,
+        mealPrep: row.weightMealPrep,
       },
       allergens: [],
       diets: [],
@@ -102,6 +105,7 @@ export class PreferenceRepository {
       weightAffinity: 1,
       weightTime: 1,
       weightPopularity: 0,
+      weightMealPrep: goals.includes('meal_prepping') ? 3 : 1,
     };
   }
 

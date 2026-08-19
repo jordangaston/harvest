@@ -5,6 +5,7 @@ import { RuleTagger } from "../src/categorize/rule-tagger.js";
 import { StubRecipeAnalyzer, type RecipeAnalyzer, type TasteFacets } from "../src/categorize/taste-classifier.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
 import type { FoodMatch, IngredientMatcher } from "../src/nutrition/food-matcher.js";
+import type { MealPrepFit } from "../src/schema.js";
 
 /** WI-TS-2: the categorizer. Pure units + the dominance merge with injected stubs. */
 
@@ -23,10 +24,14 @@ const SCAMPI_MATCHER = matcherOf({
   "chicken broth": { fdcId: 2, category: "Soups, Sauces and Gravies", quality: "medium" },
 });
 
-/** A stub analyzer that yields the given taste facets (no step techniques). */
-function analyzerOf(facets: TasteFacets | (() => Promise<TasteFacets>)): RecipeAnalyzer {
+/** A stub analyzer that yields the given taste facets (no step techniques). The optional
+ * `mealPrepFit` seeds the LLM band; omitted → null (the categorizer falls to its heuristic). */
+function analyzerOf(
+  facets: TasteFacets | (() => Promise<TasteFacets>),
+  mealPrepFit: MealPrepFit | null = null,
+): RecipeAnalyzer {
   const resolve = typeof facets === "function" ? facets : async () => facets;
-  return { analyze: async () => ({ ...(await resolve()), stepTechniques: [] }) };
+  return { analyze: async () => ({ ...(await resolve()), stepTechniques: [], mealPrepFit }) };
 }
 
 describe("VOCAB", () => {
@@ -127,5 +132,32 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
     expect(categories.mealType).toEqual([]);
     expect(categories.dishType).toEqual([]);
     expect(categories.primaryIngredient).toEqual(["seafood"]);
+  });
+});
+
+describe("RecipeCategorizer.analyze — meal-prep fit (signal #10)", () => {
+  const rules = new RuleTagger();
+
+  it("takes the LLM band when present, over the heuristic", async () => {
+    // Non-keeps-well dish + low servings would heuristic to `unsuitable`; the LLM `designed` wins.
+    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], dishType: ["salad"] }, "designed"));
+    const { mealPrepFit } = await cat.analyze("Batch Meal-Prep Salad Jars", [{ name: "water" }], [], 2);
+    expect(mealPrepFit).toBe("designed");
+  });
+
+  it("falls back to `suitable` for a keeps-well dish at batch scale", async () => {
+    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], dishType: ["stew"] }));
+    const { mealPrepFit } = await cat.analyze("Beef Stew", [{ name: "beef" }], [], 8);
+    expect(mealPrepFit).toBe("suitable");
+  });
+
+  it("falls back to `unsuitable`, never `designed`, without batch cues", async () => {
+    const cat = new RecipeCategorizer(matcherOf({}), rules, new StubRecipeAnalyzer());
+    // keeps-well dish but low servings → not batch-scale.
+    expect((await cat.analyze("Small Soup", [{ name: "water" }], [], 2)).mealPrepFit).toBe("unsuitable");
+    // batch servings but a non-keeps-well dish (empty from the stub) → unsuitable.
+    expect((await cat.analyze("Fried Thing", [{ name: "oil" }], [], 8)).mealPrepFit).toBe("unsuitable");
+    // no servings info → unsuitable (the C4 default-4 must not read as batch intent).
+    expect((await cat.analyze("Mystery", [{ name: "water" }], [])).mealPrepFit).toBe("unsuitable");
   });
 });

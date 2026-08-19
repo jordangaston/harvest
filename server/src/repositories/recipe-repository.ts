@@ -13,6 +13,7 @@ import {
   type RecipeCardPage,
   type RecipeDifficulty,
   type PublicRecipeCard,
+  type MealPrepFit,
 } from '../models/recipe.js';
 import type { RankableRecipe } from '../ranking/types.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
@@ -54,6 +55,8 @@ export interface RecipeInput {
   difficulty?: RecipeDifficulty;
   /** Cost signal (WI-CS-2). Null/omit when unpriceable — persists null columns. */
   cost?: RecipeCost | null;
+  /** Meal-prep fit (signal #10). Null/omit when unscored — persists a null column. */
+  mealPrepFit?: MealPrepFit | null;
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -238,6 +241,7 @@ export class RecipeRepository {
         nrfScore: recipe.nrfScore != null ? String(recipe.nrfScore) : null,
         difficultyScore: recipe.difficulty ? String(recipe.difficulty.score) : null,
         difficultyBand: recipe.difficulty?.band ?? null,
+        mealPrepFit: recipe.mealPrepFit ?? null,
         costPerServingCents: recipe.cost?.centsPerServing ?? null,
         costCoverage: recipe.cost != null ? String(recipe.cost.coverage) : null,
         ...nutritionColumns(recipe.nutrition),
@@ -428,6 +432,7 @@ export class RecipeRepository {
           createdAt: recipe.createdAt,
           costPerServingCents: recipe.costPerServingCents,
           difficultyBand: recipe.difficultyBand,
+          mealPrepFit: recipe.mealPrepFit,
           nrfScore: recipe.nrfScore == null ? null : Number(recipe.nrfScore),
           totalMinutes: recipe.totalMinutes,
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
