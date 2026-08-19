@@ -58,7 +58,7 @@ export interface AllergenPref { allergen: string; severity: "severe" | "moderate
 export interface DietPref { diet: string; strictness: "strict" | "flexible" }
 export interface Preferences {
   skillLevel: DifficultyBand;
-  budgetCents: number;
+  weeklyBudgetCents: number; // max weekly grocery spend (per-serving cost is calculated, not input)
   timeBudgetMin: number;
   weights: Weights;
   likedCuisines: string[];
@@ -71,7 +71,7 @@ export interface Preferences {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   skillLevel: "intermediate",
-  budgetCents: 500,
+  weeklyBudgetCents: 12000,
   timeBudgetMin: 35,
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
   likedCuisines: ["Italian", "Thai", "Mexican"],

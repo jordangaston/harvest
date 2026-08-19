@@ -274,8 +274,8 @@ function ActionBar({ canUndo, onUndo, onPass, onSuper, onLike }: { canUndo: bool
       <ActionBtn size={66} bg="bg-error" caption="Pass" label="Pass on this recipe" onPress={onPass}>
         <Icon name="close" size={30} color="#fff" />
       </ActionBtn>
-      <ActionBtn size={58} bg="bg-brand" caption="Cook" label="Cook this week — choose a cookbook" onPress={onSuper}>
-        <Icon name="bookmark" size={24} color="#fff" />
+      <ActionBtn size={66} bg="bg-brand" caption="Save" label="Save — cook this week, choose a cookbook" onPress={onSuper}>
+        <Icon name="bookmark" size={28} color="#fff" />
       </ActionBtn>
       <ActionBtn size={66} bg="bg-success" caption="Like" label="Like this recipe" onPress={onLike}>
         <Icon name="heart" size={30} color="#fff" />

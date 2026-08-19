@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, View } from "react-native";
+import { Modal, View, PanResponder, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { analytics } from "../../lib/analytics";
@@ -20,6 +20,9 @@ const WEIGHT_QUESTIONS: { key: keyof Weights; q: string }[] = [
   { key: "mealPrep", q: "How much should meal-prep matter?" },
 ];
 const CUISINES = ["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
+// Larger corpus the "＋ More" search draws from (the preset chips + the long tail).
+const ALL_CUISINES = [...CUISINES, "Korean", "Vietnamese", "Spanish", "Greek", "Lebanese", "Turkish", "Ethiopian", "Peruvian", "Brazilian", "Caribbean", "Moroccan", "Filipino", "Malaysian", "Indonesian", "Portuguese", "German", "British", "American", "Tex-Mex", "Cajun", "Middle Eastern", "Soul food", "Nordic", "Argentine"];
+const ALL_INGREDIENTS = ["Cilantro", "Mushrooms", "Olives", "Blue cheese", "Anchovies", "Bell peppers", "Coconut", "Tofu", "Eggplant", "Liver", "Capers", "Raisins", "Onions", "Garlic", "Ginger", "Fennel", "Beets", "Cumin", "Pickles", "Sardines", "Oysters", "Lamb", "Goat cheese", "Cottage cheese", "Tahini", "Miso", "Cabbage", "Brussels sprouts", "Okra", "Turnip", "Cauliflower", "Kimchi"];
 const ALLERGENS = ["peanut", "tree nut", "milk", "egg", "soy", "wheat", "fish", "shellfish"];
 const DIETS = ["Vegetarian", "Vegan", "Pescatarian", "Gluten-free", "Keto", "Paleo", "Dairy-free"];
 const EQUIPMENT = [
@@ -67,16 +70,77 @@ function Chip({ label, active, onToggle }: { label: string; active: boolean; onT
   );
 }
 
-function Stepper({ label, value, onDec, onInc }: { label: string; value: string; onDec: () => void; onInc: () => void }) {
+/** A drag/tap slider — the value shows above; the filled track + thumb use the brand. */
+function Slider({ value, min, max, step, format, onChange }: { value: number; min: number; max: number; step: number; format: (v: number) => string; onChange: (v: number) => void }) {
+  const [w, setW] = React.useState(0);
+  const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const wRef = React.useRef(0);
+  wRef.current = w;
+  // Keep the setter in a ref so the once-created PanResponder always calls the latest onChange.
+  const applyRef = React.useRef<(x: number) => void>(() => {});
+  applyRef.current = (x: number) => {
+    const width = wRef.current;
+    if (!width) return;
+    const snapped = Math.round((min + (x / width) * (max - min)) / step) * step;
+    onChange(Math.max(min, Math.min(max, snapped)));
+  };
+  const pan = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => applyRef.current(e.nativeEvent.locationX),
+      onPanResponderMove: (e) => applyRef.current(e.nativeEvent.locationX),
+    }),
+  ).current;
   return (
-    <HStack className="items-center justify-between">
-      <Text className="text-base text-ink">{label}</Text>
-      <HStack className="items-center" space={14}>
-        <Pressable onPress={onDec} accessibilityLabel={`Decrease ${label}`} className="h-9 w-9 items-center justify-center rounded-full bg-card"><Icon name="remove" size={18} color="#2E2419" /></Pressable>
-        <Text className="text-base font-bold text-ink" style={{ minWidth: 68, textAlign: "center" }}>{value}</Text>
-        <Pressable onPress={onInc} accessibilityLabel={`Increase ${label}`} className="h-9 w-9 items-center justify-center rounded-full bg-card"><Icon name="add" size={18} color="#2E2419" /></Pressable>
-      </HStack>
-    </HStack>
+    <VStack space={8}>
+      <Text className="text-base font-bold text-brand" style={{ alignSelf: "flex-end" }}>{format(value)}</Text>
+      <View {...pan.panHandlers} onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height: 40, justifyContent: "center" }} accessibilityRole="adjustable">
+        <View className="rounded-full bg-sand" style={{ height: 8 }} />
+        <View className="absolute rounded-full bg-brand" style={{ left: 0, top: 16, height: 8, width: `${pct * 100}%` }} />
+        <View className="absolute rounded-full bg-brand" style={[{ top: 8, left: `${pct * 100}%`, marginLeft: -12, height: 24, width: 24 }, ELEVATION.low]} />
+      </View>
+    </VStack>
+  );
+}
+
+/** A "＋ More…" chip that opens the search-add sheet for a longer corpus. */
+function MoreChip({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full bg-brand-light px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#A85E2B", gap: 4 }}>
+      <Icon name="search" size={14} color="#A85E2B" />
+      <Text className="text-sm font-semibold text-brand">More…</Text>
+    </Pressable>
+  );
+}
+
+/** A search sheet to add options from a larger corpus (tap a result to toggle it). */
+function SearchAddSheet({ visible, title, corpus, selected, onToggle, onClose }: { visible: boolean; title: string; corpus: string[]; selected: string[]; onToggle: (item: string) => void; onClose: () => void }) {
+  const [q, setQ] = React.useState("");
+  React.useEffect(() => { if (visible) setQ(""); }, [visible]);
+  const results = corpus.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
+        <View className="rounded-t-3xl bg-cream" style={{ maxHeight: "80%" }}>
+          <SafeAreaView edges={["bottom"]}>
+            <HStack className="items-center justify-between px-5 pb-3 pt-4">
+              <Text className="text-lg text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+              <Pressable onPress={onClose} accessibilityLabel="Close" className="rounded-full bg-card p-2" style={ELEVATION.low}><Icon name="close" size={18} color="#2E2419" /></Pressable>
+            </HStack>
+            <View className="px-5 pb-3">
+              <TextInput value={q} onChangeText={setQ} placeholder="Search…" placeholderTextColor="#9C8460" autoFocus className="rounded-xl bg-card px-4 py-3 text-ink" style={{ fontFamily: "Karla_400Regular" }} />
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
+              <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                {results.map((o) => <Chip key={o} label={o} active={selected.includes(o)} onToggle={() => onToggle(o)} />)}
+                {results.length === 0 ? <Text className="text-sm text-muted">No matches for “{q}”.</Text> : null}
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -92,6 +156,11 @@ function Card({ children }: { children: React.ReactNode }) {
  */
 export function SettingsContent({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const [p, setP] = React.useState<Preferences>(DEFAULT_PREFERENCES);
+  const [cuisineSearch, setCuisineSearch] = React.useState(false);
+  const [ingredientSearch, setIngredientSearch] = React.useState(false);
+  // Preset chips plus anything the user added via search, so added options stay visible.
+  const cuisineChips = Array.from(new Set([...CUISINES, ...p.likedCuisines]));
+  const ingredientChips = Array.from(new Set([...COMMON_INGREDIENTS, ...p.dislikedIngredients]));
 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
     analytics.track("Settings Preference Changed", { control, from, to, kind });
@@ -110,7 +179,23 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
 
   const body = (
     <>
-              {/* Grouped by spacing, not explanatory headers — declarative: set what you want, no algorithm lesson. */}
+              {/* Most-likely-to-change first, each its own card. */}
+              <VStack space={14}>
+                <Card>
+                  <Text className="text-sm font-bold text-ink">Weekly grocery budget</Text>
+                  <Slider value={p.weeklyBudgetCents} min={3000} max={40000} step={1000} format={(c) => `${money(c)} / week`} onChange={(v) => setP((s) => ({ ...s, weeklyBudgetCents: v }))} />
+                </Card>
+                <Card>
+                  <Text className="text-sm font-bold text-ink">Time per meal</Text>
+                  <Slider value={p.timeBudgetMin} min={10} max={120} step={5} format={(m) => formatTime(m)} onChange={(v) => setP((s) => ({ ...s, timeBudgetMin: v }))} />
+                </Card>
+                <Card>
+                  <Text className="text-sm font-bold text-ink">Your skill level</Text>
+                  <Segmented label="Skill level" value={p.skillLevel} onChange={(v) => { track("skillLevel", p.skillLevel, v, "soft"); setP((s) => ({ ...s, skillLevel: v as DifficultyBand })); }} options={[{ label: "Beginner", value: "beginner" }, { label: "Intermediate", value: "intermediate" }, { label: "Advanced", value: "advanced" }]} />
+                </Card>
+              </VStack>
+
+              {/* Filters */}
               <VStack space={14}>
                 <Card>
                   <Text className="text-sm font-bold text-ink">Allergies</Text>
@@ -181,30 +266,18 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
                 </Card>
 
                 <Card>
-                  <VStack space={8}>
-                    <Text className="text-base text-ink">Your skill level</Text>
-                    <Segmented
-                      label="Skill level"
-                      value={p.skillLevel}
-                      onChange={(v) => { track("skillLevel", p.skillLevel, v, "soft"); setP((s) => ({ ...s, skillLevel: v as DifficultyBand })); }}
-                      options={[{ label: "Beginner", value: "beginner" }, { label: "Intermediate", value: "intermediate" }, { label: "Advanced", value: "advanced" }]}
-                    />
-                  </VStack>
-                  <Stepper label="Budget per serving" value={money(p.budgetCents)} onDec={() => setP((s) => ({ ...s, budgetCents: Math.max(100, s.budgetCents - 50) }))} onInc={() => setP((s) => ({ ...s, budgetCents: s.budgetCents + 50 }))} />
-                  <Stepper label="Time budget" value={formatTime(p.timeBudgetMin)} onDec={() => setP((s) => ({ ...s, timeBudgetMin: Math.max(10, s.timeBudgetMin - 5) }))} onInc={() => setP((s) => ({ ...s, timeBudgetMin: s.timeBudgetMin + 5 }))} />
-                </Card>
-
-                <Card>
                   <Text className="text-sm font-bold text-ink">Cuisines you like</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                    {CUISINES.map((c) => <Chip key={c} label={c} active={p.likedCuisines.includes(c)} onToggle={() => toggle("likedCuisines", c, "soft")} />)}
+                    {cuisineChips.map((c) => <Chip key={c} label={c} active={p.likedCuisines.includes(c)} onToggle={() => toggle("likedCuisines", c, "soft")} />)}
+                    <MoreChip onPress={() => setCuisineSearch(true)} />
                   </View>
                 </Card>
 
                 <Card>
                   <Text className="text-sm font-bold text-ink">Ingredients to avoid</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                    {COMMON_INGREDIENTS.map((i) => <Chip key={i} label={i} active={p.dislikedIngredients.includes(i)} onToggle={() => toggle("dislikedIngredients", i, "soft")} />)}
+                    {ingredientChips.map((i) => <Chip key={i} label={i} active={p.dislikedIngredients.includes(i)} onToggle={() => toggle("dislikedIngredients", i, "soft")} />)}
+                    <MoreChip onPress={() => setIngredientSearch(true)} />
                   </View>
                 </Card>
               </VStack>
@@ -212,6 +285,9 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
               <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Save preferences" className="items-center rounded-full bg-brand py-3.5">
                 <Text className="text-base font-bold text-white">Save</Text>
               </Pressable>
+
+              <SearchAddSheet visible={cuisineSearch} title="Add a cuisine" corpus={ALL_CUISINES} selected={p.likedCuisines} onToggle={(c) => toggle("likedCuisines", c, "soft")} onClose={() => setCuisineSearch(false)} />
+              <SearchAddSheet visible={ingredientSearch} title="Add an ingredient to avoid" corpus={ALL_INGREDIENTS} selected={p.dislikedIngredients} onToggle={(i) => toggle("dislikedIngredients", i, "soft")} onClose={() => setIngredientSearch(false)} />
     </>
   );
 
