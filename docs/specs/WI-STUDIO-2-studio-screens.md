@@ -29,7 +29,7 @@ Repo facts that constrain this work:
 
 ## Objective
 
-Build `design/Controls.tsx` (renders a `ControlSpec[]` using `ui` primitives,
+Build `design/ControlsPanel.tsx` (renders a `ControlSpec[]` using `ui` primitives,
 owns `values` state via the WI-STUDIO-1 helpers, keyed by study name),
 `app/studio/index.tsx` (grouped, tappable list of study names over `Backdrop`),
 `app/studio/[name].tsx` (looks up the study, renders it over `Backdrop` with the
@@ -39,7 +39,7 @@ launcher that opens `/studio`.
 
 ## Acceptance Criteria
 
-1. Given `design/Controls.tsx`, when rendered with a `ControlSpec[]`, an initial
+1. Given `design/ControlsPanel.tsx`, when rendered with a `ControlSpec[]`, an initial
    `ControlValues`, and an `onChange` callback, then it renders one labelled
    control per spec — `boolean` → `Switch`, `enum` → a row of selectable
    `Pressable` chips (selected chip uses `bg-brand-light` + `border-brand`),

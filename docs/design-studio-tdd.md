@@ -78,7 +78,7 @@ crashing.
 sequenceDiagram
     participant U as User (simulator)
     participant Detail as StudioDetailScreen
-    participant Ctrls as Controls (design/Controls.tsx)
+    participant Ctrls as Controls (design/ControlsPanel.tsx)
     participant C as Study component
 
     Detail->>Ctrls: render study.controls, keyed by study.name
