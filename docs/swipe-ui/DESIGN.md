@@ -98,7 +98,7 @@ the gaps** — interactions the current API cannot serve, specified as proposed 
 | 10 | Expandable detail: ingredients, step preview, full metadata | recipe-card fields | ⚠️ **assumed** — if the deck card omits ingredients/steps, a `GET /v1/recipes/:id` detail fetch is needed (Q-08) |
 | 11 | Empty / cooldown state | `ranked-deck` returns `[]` | ✅ served |
 | 12 | Light "liked!" confirmation | client-only (uses the swipe response); no endpoint | ✅ served |
-| 13 | Periodic "you've liked N — plan your week?" nudge | a running like-count | ⚠️ **gap** — no count field in the contract. Client tallies session likes; a durable count needs a Liked-cookbook size read (Q-09) |
+| 13 | Automatic week planning from liked recipes (replaces the old manual nudge) | a downstream planner reads the **Liked** cookbook | ⛔ **out of scope** — the planner is a separate feature; the deck only routes likes into Liked (D-13, Q-14) |
 | 14 | "Cook this week" (up-swipe / **Save** button) | `POST …/swipe {direction:'save'}` → files into the **Saved** cookbook, excluded permanently | ✅ served (`save` shipped) |
 | 14a | Pick a *specific* cookbook in the picker | `PUT /v1/recipes/:id/cookbooks` (existing membership endpoint) | ✅ served (separate call) |
 | 15 | Undo the last swipe | none — no un-swipe endpoint | ⚠️ **gap** — client-side pre-commit undo only (cancels the optimistic POST inside its delay window); undoing an already-recorded swipe needs `DELETE /v1/recipes/:id/swipe` (Q-11) |
@@ -190,11 +190,12 @@ sequenceDiagram
     note over D: EmptyState — "You're all caught up" + CTAs → Settings, Meal plan
 ~~~
 
-### F-04 Reward / return nudge
+### F-04 Reward confirmation
 
-A `like` fires a light positive confirmation (haptic + a brief inline flourish — **not** a full-screen
-match). A session like-counter drives a periodic nudge banner ("You've liked N — ready to plan your week?")
-that routes to meal planning. Threshold `N` is a config constant (default 10; Q-09).
+A `like` / `save` fires a light positive confirmation — haptic + a brief inline flourish and the green ✓
+toast (**not** a full-screen match). There is **no** "plan your week" nudge: the app **automatically**
+plans the user's week from the recipes it knows they like (the Liked cookbook), so there's nothing to
+prompt for. The session like-counter, the `NudgeBanner`, and the plan-nudge telemetry are dropped (D-13).
 
 ### F-05 Edit preferences (settings) — proposed
 
@@ -411,7 +412,6 @@ classDiagram
     }
     class EmptyState
     class RewardToast
-    class NudgeBanner
     class GestureHint
     class SettingsScreen
     class FilterSection
@@ -425,7 +425,6 @@ classDiagram
     SwipeDeck --> ActionBar
     SwipeDeck --> EmptyState
     SwipeDeck --> RewardToast
-    SwipeDeck --> NudgeBanner
     SwipeDeck --> GestureHint
     SwipeCard --> GestureLayer
     SwipeCard --> CardBadges
@@ -575,7 +574,6 @@ Client `analytics.track` (`lib/analytics`). Events instrument the UX study; each
 | `Swipe Reason Skipped` | `recipeId` | reason-chip skip rate |
 | `Deck Exhausted` | `swipesThisSession` | deck-exhaustion rate |
 | `Card Detail Expanded` | `recipeId` | detail-open rate |
-| `Plan Nudge Shown` / `Plan Nudge Tapped` | `likeCount` | nudge → meal-plan conversion |
 | `Settings Preference Changed` | `control, from, to, kind:'soft'\|'hard'` | which controls users touch |
 
 Like ratio = `like / (like+dislike)`; swipe rate = swipes / active minute; time-per-card = `msVisible`
@@ -602,7 +600,7 @@ is read-only-preview or drafts locally — it degrades, never breaks the deck.
 ## Monitoring
 
 Client metrics (above) power the UX-study dashboard: swipe rate, like ratio, reason-chip usage, time-per-card,
-deck-exhaustion rate, nudge conversion. A sustained **deck-exhaustion spike** flags over-filtering upstream
+deck-exhaustion rate. A sustained **deck-exhaustion spike** flags over-filtering upstream
 (pair with the ranking engine's `ranked_filtered_ratio`). A **reason-skip rate near 1.0** flags a
 too-heavy reason loop.
 
@@ -716,6 +714,16 @@ corpus. The "More…" chip is a **secondary action**, so it must not wear the se
 fill, neutral border, muted search glyph — because value chips are always filled. *Alternative:* a filled
 "More…" pill (rejected — indistinguishable from a selected value).
 
+### D-13 Automatic week planning replaces the like-nudge
+**Framework:** Direct criterion — design-owner product call. An earlier draft (F-04) drove a periodic
+banner ("You've liked N — ready to plan your week?") off a session like-counter, converting the user to
+meal planning by hand. **Choice:** drop the nudge entirely. The app **automatically** plans the user's week
+from the recipes it already knows they like (the **Liked** cookbook, fed by every `like` swipe) plus the
+weekly meal counts (D-11) — so there is nothing to prompt for. The deck's only job toward planning is to
+keep routing likes into Liked; the planner itself is a separate downstream feature (Q-14). Removes the
+`NudgeBanner`, the like-counter, the plan-nudge telemetry, and Q-09. *Alternative:* keep the manual nudge
+(rejected — a prompt to do a thing the app can just do is friction, not a feature).
+
 ---
 
 ## Open Questions
@@ -724,12 +732,12 @@ fill, neutral border, muted search glyph — because value chips are always fill
 | --- | --- | --- | --- |
 | Q-07 | Deck endpoint name: brief says `/v1/recipes/ranked-deck`, ranking doc says `/v1/recipes/deck`. | open | Using the brief's name; reconcile with backend before wiring. |
 | Q-08 | Does the public recipe card on the deck include ingredients/steps and all badge fields, or is a `GET /v1/recipes/:id` detail fetch needed for the DetailSheet? | open | Verify the card DTO; assume fields present, fall back to a detail fetch. |
-| Q-09 | Source + threshold for the "you've liked N" nudge — session tally vs. a durable Liked-cookbook count; N default. | open | Ship a session tally, N=10; swap to a cookbook-count read when available. |
+| Q-09 | Source + threshold for the "you've liked N" nudge — session tally vs. a durable Liked-cookbook count; N default. | **won't resolve** | The nudge is removed — week planning is automatic from the Liked cookbook (D-13). No counter needed. |
 | Q-10 | `direction:'save'` for a real "Cook this week" action. | **resolved** | Shipped: `save` records the swipe, files the recipe into the **Saved** system cookbook, and is excluded from the deck permanently (server suite green). Meal-plan wiring *from* the Saved cookbook is a separate concern. |
 | Q-11 | `DELETE /v1/recipes/:id/swipe` for a durable un-swipe (Bumble-style backtrack). | open (follow-up) | Client pre-commit undo only until it exists. |
 | Q-12 | `GET`/`PUT /v1/preferences` for the settings surface to read/persist the preference model. | open (follow-up) | Prototype uses a local draft; blocks real persistence. |
 | Q-13 | Should the ranking engine ever get a Bumble-style "relax this filter if the deck runs dry" fallback? | open | Not now; would change D-03. Ties to ranking Q-06 cooldown. |
-| Q-14 | What consumes `weeklyMeals` (the meal counts) — the meal-planning generator that turns "5 dinners + 3 breakfasts a week" into a plan? | open (follow-up) | Intake is captured here; the planner that reads it is out of scope. Ties to the "you've liked N — plan your week" nudge (F-04). |
+| Q-14 | What consumes `weeklyMeals` (the meal counts) — the meal-planning generator that turns "5 dinners + 3 breakfasts a week" into a plan? | open (follow-up) | Intake is captured here; the planner that reads it (and the **Liked** cookbook) is a separate feature. This planner is now the primary path — it replaces the removed manual nudge (D-13). |
 
 ---
 
@@ -748,3 +756,4 @@ fill, neutral border, muted search glyph — because value chips are always fill
 | 2026-08-19 | Jordan Gaston | **Deck + settings polish (in-sim pins).** Action bar: the `brand` action is now **Save** (bookmark, sized to Pass/Like) — "cook this week → Saved". Settings: budget is a **weekly grocery budget slider** ($30–$400/week, `weeklyBudgetCents`), and budget/time/skill are the top three cards (D-12); cuisines / disliked ingredients / kitchen each gain a **"More…"** search-to-add over a larger corpus, drawn as a **hollow** secondary-action chip so it can't be mistaken for a selected value (D-12). Typecheck clean, 20/20 tests. |
 | 2026-08-19 | Jordan Gaston | **Removed the importance-weight editors from settings (D-10).** Dropped the "How much should price / speed / easiness / nutrition / tastes / meal-prep matter?" card — the most algorithm-splaining block. Weights persist in the model but are tuned via the dislike-reason loop + inferred from concrete inputs, not hand-dialed. Preference model / mapping / entities updated. |
 | 2026-08-19 | Jordan Gaston | **New `MealCounts` meal-count intake (D-11).** A "How many meals each week?" card — a − n + stepper per meal type (breakfasts/lunches/dinners/snacks/kids), with the count as the hero and the steppers receding (Refactoring UI Ch2). Added `weeklyMeals: Record<MealType,number>` to the preference model; the controlled card is reused by a standalone `MealPlanIntake` studio study **and** rendered as the first card in `SettingsScreen` so users adjust it mid-swipe. An earlier draft's "Which days?" day-of-week picker was **dropped** after a `/refactoring-ui` review traced the "confusing" feel to ambiguous single-letter days + an undefined days↔counts relationship (Ch1/Ch5). New Q-14: what consumes the counts (the meal-planning generator) is a follow-up. Typecheck clean, 20/20 tests, verified live in-sim. |
+| 2026-08-19 | Jordan Gaston | **Dropped the return nudge (D-13).** Week planning is now **automatic** from the Liked cookbook + weekly meal counts, so the "you've liked N — plan your week" banner is removed along with the like-counter, `NudgeBanner`, plan-nudge telemetry, and Q-09. F-04 kept as the like/save **reward confirmation** only; mapping row 13 now describes automatic planning (out of scope, Q-14). |
