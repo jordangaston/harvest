@@ -141,7 +141,7 @@ sequenceDiagram
     API-->>S: {swipe} (200) — or error → retry → rollback
     alt 1–2 cards remain
     D->>C: prefetch next batch
-    C->>API: GET /ranked-deck?limit=5 (re-ranks; excludes swiped)
+    C->>API: GET /ranked-deck?limit=5 (re-ranks, excludes swiped)
     API-->>C: next batch appended (tail only)
     end
     end
@@ -158,7 +158,7 @@ sequenceDiagram
     participant API as swipe API
 
     U->>D: swipe left (pass)
-    note over D: card is already gone (optimistic); a bare pass is posted immediately
+    note over D: card is already gone (optimistic) — a bare pass is posted immediately
     D->>S: recordSwipe(id, 'dislike')  %% no reason yet
     D->>R: present skippable reason chooser (slide-up, non-blocking)
     alt user taps a reason chip
@@ -169,7 +169,7 @@ sequenceDiagram
     S->>API: POST /:id/swipe {direction:'dislike', reason, reason_detail?}
     R-->>U: brief confirm toast ("We'll show fewer pricey recipes")
     else user dismisses / times out
-    note over R: bare pass stands (reason:null); no confirm
+    note over R: bare pass stands (reason null) — no confirm
     end
 ~~~
 
@@ -210,7 +210,7 @@ sequenceDiagram
     API-->>H: UserPreferences
     H-->>P: render controls, grouped by kind (declarative — no algorithm copy)
     U->>P: step a meal count / drag a slider / toggle a filter / add a taste
-    note over P: local draft; no banner, no live re-rank (declarative — D-03)
+    note over P: local draft — no banner, no live re-rank (declarative, D-03)
     U->>P: Save
     P->>H: save(draft)
     H->>API: PUT /v1/preferences  %% Q-12 — proposed
@@ -239,12 +239,12 @@ sequenceDiagram
     loop each meal type
     U->>M: tap − / +
     M->>P: onChange(mealType, count)  %% clamped 0..21
-    note over P: local draft; total re-derived ("N meals a week")
+    note over P: local draft — total re-derived ("N meals a week")
     end
     U->>P: Save (settings) / Continue (intake)
     P->>H: save(draft.weeklyMeals)
     H->>API: PUT /v1/preferences  %% Q-12 — proposed
-    note over H: weeklyMeals persisted; consumed later by meal planning (Q-14)
+    note over H: weeklyMeals persisted — consumed later by meal planning (Q-14)
 ~~~
 
 `MealCounts` is one controlled component with two mounts — the standalone `MealPlanIntake` intake screen
