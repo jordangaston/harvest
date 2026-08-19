@@ -9,6 +9,7 @@ const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
 const SENTIMENTS = ['like', 'dislike'] as const;
+const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
 const weight = () => z.number().int().min(0).max(3);
 
@@ -30,6 +31,10 @@ export const UserPreferencesSchema = z.object({
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
   diets: z.array(z.object({ dietId: z.string(), strictness: z.enum(DIET_STRICTNESS) })),
   foodPrefs: z.array(z.object({ facet: z.enum(AFFINITY_FACETS), value: z.string(), sentiment: z.enum(SENTIMENTS) })),
+  // Equipment signal (WI-EQ-1): the owned appliance set + the review gate. The filter engages
+  // only when `equipmentReviewed` is true (EQUIPMENT-SIGNAL.md § Gating).
+  ownedEquipment: z.array(z.enum(EQUIPMENT_TYPES)),
+  equipmentReviewed: z.boolean(),
 });
 
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;

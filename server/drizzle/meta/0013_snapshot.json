@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ea8f2ea6-02f4-443e-9277-b036263a5e65",
+  "id": "a0a21e04-a201-4e0c-be38-f7c6f48f6335",
   "prevId": "03e11e35-c069-445e-ae9f-3d900426b211",
   "tables": {
     "cookbook_recipes": {
@@ -1039,6 +1039,67 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "recipe_equipment": {
+      "name": "recipe_equipment",
+      "columns": {
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "equipment": {
+          "name": "equipment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "essentiality": {
+          "name": "essentiality",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "recipe_equipment_lookup_idx": {
+          "name": "recipe_equipment_lookup_idx",
+          "columns": [
+            "equipment"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "recipe_equipment_recipe_id_recipes_id_fk": {
+          "name": "recipe_equipment_recipe_id_recipes_id_fk",
+          "tableFrom": "recipe_equipment",
+          "tableTo": "recipes",
+          "columnsFrom": [
+            "recipe_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recipe_equipment_recipe_id_equipment_pk": {
+          "columns": [
+            "recipe_id",
+            "equipment"
+          ],
+          "name": "recipe_equipment_recipe_id_equipment_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "recipe_steps": {
       "name": "recipe_steps",
       "columns": {
@@ -1079,6 +1140,13 @@
         },
         "techniques": {
           "name": "techniques",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "equipment": {
+          "name": "equipment",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1366,13 +1434,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "meal_prep_fit": {
-          "name": "meal_prep_fit",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "allergens": {
           "name": "allergens",
           "type": "text",
@@ -1382,6 +1443,14 @@
         },
         "allergens_complete": {
           "name": "allergens_complete",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "equipment_complete": {
+          "name": "equipment_complete",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1552,6 +1621,52 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "user_equipment": {
+      "name": "user_equipment",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "equipment": {
+          "name": "equipment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_equipment_user_id_users_id_fk": {
+          "name": "user_equipment_user_id_users_id_fk",
+          "tableFrom": "user_equipment",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "user_equipment_user_id_equipment_pk": {
+          "columns": [
+            "user_id",
+            "equipment"
+          ],
+          "name": "user_equipment_user_id_equipment_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "user_food_prefs": {
       "name": "user_food_prefs",
       "columns": {
@@ -1693,13 +1808,13 @@
           "autoincrement": false,
           "default": 0
         },
-        "weight_meal_prep": {
-          "name": "weight_meal_prep",
+        "equipment_reviewed": {
+          "name": "equipment_reviewed",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 1
+          "default": false
         },
         "updated_at": {
           "name": "updated_at",

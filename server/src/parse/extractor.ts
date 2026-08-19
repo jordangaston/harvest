@@ -7,6 +7,7 @@ import type { RecipeCategories, MealPrepFit } from "../models/recipe.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
 import type { DietCompat } from "../diet/diet.js";
 import type { RecipeCost } from "../price/cost-estimator.js";
+import type { DetectedEquipment } from "../equipment/equipment.js";
 import { hasRecipe } from "./mapping.js";
 
 /**
@@ -75,6 +76,10 @@ export interface ExtractedRecipeData extends Omit<ExtractedRecipe, "ingredients"
   // The categorizeStep's meal-prep fit band (signal #10). Absent until that step runs;
   // null when unscored → persists as a null column.
   mealPrepFit?: MealPrepFit | null;
+  // The equipmentStep's detected equipment (WI-EQ-2): recipe-level set + per-step alignment
+  // (aligned to `steps`, stripped in lockstep in toRecipeInput) + completeness. Absent until
+  // that step runs; a withheld recipe leaves it undefined → persists equipment_complete=false.
+  equipment?: DetectedEquipment;
 }
 
 export interface RecipeExtractor {

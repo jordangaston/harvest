@@ -39,6 +39,11 @@ export const PENALTY_MILD_ALLERGEN = 0.15;
 export const PENALTY_FLEXIBLE_INCOMPATIBLE = 0.2;
 export const PENALTY_UNKNOWN_VERDICT = 0.05;
 
+/** Equipment signal (WI-EQ-3): a flat, once-per-recipe penalty when a reviewed user lacks any
+ * `recommended` (substitutable) gear the recipe suggests. Flat, not per-item, to avoid burying a
+ * recipe that merely names two gadgets. Tunable. */
+export const PENALTY_MISSING_EQUIPMENT = 0.1;
+
 // Swipe deck (WI-RANK-4). Tunable: how long a swiped card stays out of the deck, and
 // the default/max deck batch size.
 export const SWIPE_COOLDOWN_DAYS = 7;

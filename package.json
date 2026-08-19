@@ -45,7 +45,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --test lib/analytics/*.test.ts"
+    "test": "node --test lib/analytics/*.test.ts design/*.test.ts"
   },
   "private": true
 }

@@ -16,6 +16,8 @@ import { RecipeCategorizer } from "../categorize/recipe-categorizer.js";
 import { DietClassifier } from "../diet/diet-classifier.js";
 import type { DietCompat } from "../diet/diet.js";
 import { CostEstimator } from "../price/cost-estimator.js";
+import { EquipmentDetector } from "../equipment/equipment-detector.js";
+import type { DetectedEquipment } from "../equipment/equipment.js";
 
 /**
  * The durable import workflow — the WDK port of DBOS's `ImportWorkflow` +
@@ -40,7 +42,8 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const costed = await costStep(enriched, input);
     const profiled = await allergenStep(costed, input);
     const categorized = await categorizeStep(profiled, input);
-    const dieted = await dietStep(categorized, input);
+    const equipped = await equipmentStep(categorized, input);
+    const dieted = await dietStep(equipped, input);
     await persistStep(dieted, input);
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
@@ -292,6 +295,50 @@ async function categorizeOne(
     console.log(`[step] categorize job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;
   }
+}
+
+/**
+ * Detect each recipe's notable equipment before persist (WI-EQ-2). Its OWN dedicated step
+ * (EQUIPMENT-SIGNAL.md Q-E4) running its own `EquipmentDetector` LLM call, placed after
+ * `categorizeStep` so the dish type is an available cue. No db — the detector is a pure
+ * matcher + the env-selected LLM seam. Best-effort, exactly like the sibling steps: a
+ * per-recipe try/catch leaves a failed recipe unenriched (equipment_complete=false), never
+ * failing an import. One info line per recipe (design Monitoring).
+ */
+async function equipmentStep(recipes: ExtractedRecipeData[], input: ImportInput): Promise<ExtractedRecipeData[]> {
+  "use step";
+  const detector = EquipmentDetector.create();
+  return Promise.all(recipes.map((recipe) => detectOneEquipment(detector, recipe, input)));
+}
+equipmentStep.maxRetries = 3;
+
+/**
+ * Detect one recipe's equipment, logging the outcome (`equipment=… complete=…`, matching the
+ * allergen/diet step logs). A detection failure returns the recipe unenriched (persists
+ * equipment_complete=false, no rows) rather than failing the import.
+ */
+async function detectOneEquipment(
+  detector: EquipmentDetector,
+  recipe: ExtractedRecipeData,
+  input: ImportInput,
+): Promise<ExtractedRecipeData> {
+  try {
+    const equipment = await detector.detect(recipe.title, recipe.ingredients.map((i) => i.name), recipe.steps);
+    console.log(
+      `[step] equipment job=${input.jobId} title=${recipe.title} ` +
+        `equipment=${equipmentSummary(equipment)} complete=${equipment.complete}`,
+    );
+    return { ...recipe, equipment };
+  } catch (err) {
+    console.log(`[step] equipment job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
+    return recipe;
+  }
+}
+
+/** The comma-joined `type:essentiality` pairs (`none` when empty) — for the log line. */
+function equipmentSummary(equipment: DetectedEquipment): string {
+  if (equipment.equipment.length === 0) return "none";
+  return equipment.equipment.map((e) => `${e.equipment}:${e.essentiality}`).join(",");
 }
 
 /** The servings the recipe persists with (mirrors `toRecipeInput`'s C4 default of 4). */

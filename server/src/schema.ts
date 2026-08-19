@@ -45,6 +45,13 @@ export const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
 export const SENTIMENTS = ['like', 'dislike'] as const;
+// Equipment signal (#9, WI-EQ-1): the controlled vocab of notable appliances (baseline
+// gear — oven, stovetop, pots, knives — is deliberately absent, never filtered), and the
+// per-recipe essentiality the LLM judges (required = non-substitutable, recommended =
+// convenient). Like `MAJOR_ALLERGENS`, a code tuple, not a table — adding one is a one-line
+// change plus its `EQUIPMENT` config entry (src/equipment/equipment.ts).
+export const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
+export const ESSENTIALITY = ['required', 'recommended'] as const;
 // Swipe deck (WI-RANK-4): swipe direction and the optional dislike reason.
 export const SWIPE_DIRECTIONS = ['like', 'dislike'] as const;
 export const SWIPE_REASONS = ['too_expensive', 'too_hard', 'too_slow', 'disliked_ingredient', 'not_nutritious', 'other'] as const;
@@ -158,6 +165,10 @@ export const recipes = sqliteTable(
     mealPrepFit: text('meal_prep_fit', { enum: MEAL_PREP_FITS }),
     allergens: text('allergens', { mode: 'json' }).$type<{ contains: string[]; mayContain: string[] }>(),
     allergensComplete: integer('allergens_complete', { mode: 'boolean' }).notNull().default(false),
+    // Equipment signal (WI-EQ-1): detection ran (distinguishes "needs nothing special" from
+    // "never processed / LLM failed"), like `allergensComplete`. The filter stays lenient
+    // when false. Rolled-up equipment set lives in `recipe_equipment`.
+    equipmentComplete: integer('equipment_complete', { mode: 'boolean' }).notNull().default(false),
     // Cost signal (WI-CS-1): absolute USD cents per serving + the fraction of gram-weight
     // priced (numeric-as-text). Both null until `costStep` scores at ingest (WI-CS-2).
     costPerServingCents: integer('cost_per_serving_cents'),
@@ -197,6 +208,9 @@ export const recipeSteps = sqliteTable('recipe_steps', {
   // step (JSON-mode text array). The atom the derived `difficulty` weight is computed
   // from, persisted so re-weighting the table never re-calls the LLM. Null when none.
   techniques: text('techniques', { mode: 'json' }).$type<string[]>(),
+  // Equipment signal (WI-EQ-1): the equipment this step needs (JSON `Equipment[]`), for the
+  // "which step needs the air fryer" UI. Null when none, like `techniques`.
+  equipment: text('equipment', { mode: 'json' }).$type<Equipment[]>(),
 });
 
 // TS-signal (WI-TS-1): the recipe's taste facets — one row per (recipe, facet,
@@ -442,6 +456,10 @@ export const userPreferences = sqliteTable('user_preferences', {
   // Meal-prep signal weight (signal #10): 0–3, seeded to 3 by the `meal_prepping`
   // goal at cold-start, else the uniform baseline 1 (design Q-MP1).
   weightMealPrep: integer('weight_meal_prep').notNull().default(1),
+  // Equipment signal (WI-EQ-1): gates the equipment filter — true once the user reviews
+  // their kitchen (onboarding/settings), even if they own nothing. Inert until then, the
+  // same "no data → no filter" stance as allergens.
+  equipmentReviewed: integer('equipment_reviewed', { mode: 'boolean' }).notNull().default(false),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -482,6 +500,36 @@ export const userFoodPrefs = sqliteTable(
     sentiment: text('sentiment', { enum: SENTIMENTS }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
+);
+
+// Equipment signal (WI-EQ-1): the recipe's rolled-up equipment set — the set the filter
+// reads. One row per (recipe, equipment) with the per-recipe `essentiality` the LLM judged
+// (config `defaultEssentiality` on fallback). Mirrors `recipe_diets` / `recipe_categories`:
+// a normalized child table so "recipes needing X" is an indexed lookup. Composite PK dedups
+// + makes replay persists idempotent (with onConflictDoNothing).
+export const recipeEquipment = sqliteTable(
+  'recipe_equipment',
+  {
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    equipment: text('equipment', { enum: EQUIPMENT_TYPES }).notNull(),
+    essentiality: text('essentiality', { enum: ESSENTIALITY }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.recipeId, t.equipment] }), index('recipe_equipment_lookup_idx').on(t.equipment)],
+);
+
+// Equipment signal (WI-EQ-1): what the user owns. Mirrors `user_allergens` — filter
+// membership. Cascades on user delete.
+export const userEquipment = sqliteTable(
+  'user_equipment',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    equipment: text('equipment', { enum: EQUIPMENT_TYPES }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.equipment] })],
 );
 
 // Swipe deck (WI-RANK-4): one row per (user, recipe) swipe — the feedback capture that
@@ -531,6 +579,8 @@ export const schema = {
   userAllergens,
   userDiets,
   userFoodPrefs,
+  recipeEquipment,
+  userEquipment,
   recipeSwipes,
 };
 export type Schema = typeof schema;
@@ -552,3 +602,6 @@ export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
 export type MealPrepFit = (typeof MEAL_PREP_FITS)[number];
 /** Affinity facet union (WI-RANK-1), the food-pref facets. */
 export type AffinityFacet = (typeof AFFINITY_FACETS)[number];
+/** Equipment vocab + essentiality unions (WI-EQ-1), shared with the domain models. */
+export type Equipment = (typeof EQUIPMENT_TYPES)[number];
+export type Essentiality = (typeof ESSENTIALITY)[number];
