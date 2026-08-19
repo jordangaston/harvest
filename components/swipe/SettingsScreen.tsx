@@ -161,8 +161,8 @@ function Card({ children }: { children: React.ReactNode }) {
  * by kind (allergies / diet / kitchen, then tastes) with spacing, not headers. Operable
  * controls hold local draft state (no live re-rank in the prototype; see docs/swipe-ui/DESIGN.md).
  */
-export function SettingsContent({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
-  const [p, setP] = React.useState<Preferences>(DEFAULT_PREFERENCES);
+export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_PREFERENCES, onSave }: { onClose: () => void; embedded?: boolean; initial?: Preferences; onSave?: (p: Preferences) => void }) {
+  const [p, setP] = React.useState<Preferences>(initial);
   const [cuisineSearch, setCuisineSearch] = React.useState(false);
   const [ingredientSearch, setIngredientSearch] = React.useState(false);
   const [equipmentSearch, setEquipmentSearch] = React.useState(false);
@@ -284,7 +284,7 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
                 </Card>
               </VStack>
 
-              <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Save preferences" className="items-center rounded-full bg-brand py-3.5">
+              <Pressable onPress={() => { onSave?.(p); onClose(); }} accessibilityRole="button" accessibilityLabel="Save preferences" className="items-center rounded-full bg-brand py-3.5">
                 <Text className="text-base font-bold text-white">Save</Text>
               </Pressable>
 
