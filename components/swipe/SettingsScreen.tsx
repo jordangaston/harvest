@@ -30,6 +30,18 @@ const EQUIPMENT = [
   { type: "pressure_cooker", label: "Pressure cooker" }, { type: "blender", label: "Blender" },
   { type: "stand_mixer", label: "Stand mixer" }, { type: "grill", label: "Grill" },
 ];
+// The preset chips + the long tail the "More…" search draws from.
+const ALL_EQUIPMENT = [
+  ...EQUIPMENT,
+  { type: "wok", label: "Wok" }, { type: "cast_iron", label: "Cast-iron skillet" },
+  { type: "dutch_oven", label: "Dutch oven" }, { type: "food_processor", label: "Food processor" },
+  { type: "rice_cooker", label: "Rice cooker" }, { type: "sous_vide", label: "Sous-vide" },
+  { type: "waffle_iron", label: "Waffle iron" }, { type: "immersion_blender", label: "Immersion blender" },
+  { type: "mandoline", label: "Mandoline" }, { type: "microwave", label: "Microwave" },
+  { type: "toaster_oven", label: "Toaster oven" }, { type: "smoker", label: "Smoker" },
+];
+const EQUIP_TYPE_TO_LABEL = Object.fromEntries(ALL_EQUIPMENT.map((e) => [e.type, e.label]));
+const EQUIP_LABEL_TO_TYPE = Object.fromEntries(ALL_EQUIPMENT.map((e) => [e.label, e.type]));
 
 /* ---------- Small building blocks ---------- */
 function Segmented<T extends string | number>({ options, value, onChange, label }: { options: { label: string; value: T }[]; value: T; onChange: (v: T) => void; label?: string }) {
@@ -104,12 +116,17 @@ function Slider({ value, min, max, step, format, onChange }: { value: number; mi
   );
 }
 
-/** A "＋ More…" chip that opens the search-add sheet for a longer corpus. */
+/**
+ * A "More…" search action. Hollow (no fill) with a neutral border so it reads as a secondary
+ * *action*, not a value — value chips are always filled, a selected one brand-filled, so an
+ * unfilled neutral pill can't be mistaken for either. (Per Jordan's review it must not share the
+ * selected-chip affordance.)
+ */
 function MoreChip({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full bg-brand-light px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#A85E2B", gap: 4 }}>
-      <Icon name="search" size={14} color="#A85E2B" />
-      <Text className="text-sm font-semibold text-brand">More…</Text>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#C2A678", gap: 4 }}>
+      <Icon name="search" size={14} color="#6E5B48" />
+      <Text className="text-sm font-semibold text-muted">More…</Text>
     </Pressable>
   );
 }
@@ -158,9 +175,11 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
   const [p, setP] = React.useState<Preferences>(DEFAULT_PREFERENCES);
   const [cuisineSearch, setCuisineSearch] = React.useState(false);
   const [ingredientSearch, setIngredientSearch] = React.useState(false);
+  const [equipmentSearch, setEquipmentSearch] = React.useState(false);
   // Preset chips plus anything the user added via search, so added options stay visible.
   const cuisineChips = Array.from(new Set([...CUISINES, ...p.likedCuisines]));
   const ingredientChips = Array.from(new Set([...COMMON_INGREDIENTS, ...p.dislikedIngredients]));
+  const equipmentChips = Array.from(new Set([...EQUIPMENT.map((e) => e.type), ...p.ownedEquipment]));
 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
     analytics.track("Settings Preference Changed", { control, from, to, kind });
@@ -250,7 +269,8 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
                 <Card>
                   <Text className="text-sm font-bold text-ink">My kitchen</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 8 }}>
-                    {EQUIPMENT.map((e) => <Chip key={e.type} label={e.label} active={p.ownedEquipment.includes(e.type)} onToggle={() => toggle("ownedEquipment", e.type, "hard")} />)}
+                    {equipmentChips.map((t) => <Chip key={t} label={EQUIP_TYPE_TO_LABEL[t] ?? t} active={p.ownedEquipment.includes(t)} onToggle={() => toggle("ownedEquipment", t, "hard")} />)}
+                    <MoreChip onPress={() => setEquipmentSearch(true)} />
                   </View>
                 </Card>
               </VStack>
@@ -288,6 +308,7 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
 
               <SearchAddSheet visible={cuisineSearch} title="Add a cuisine" corpus={ALL_CUISINES} selected={p.likedCuisines} onToggle={(c) => toggle("likedCuisines", c, "soft")} onClose={() => setCuisineSearch(false)} />
               <SearchAddSheet visible={ingredientSearch} title="Add an ingredient to avoid" corpus={ALL_INGREDIENTS} selected={p.dislikedIngredients} onToggle={(i) => toggle("dislikedIngredients", i, "soft")} onClose={() => setIngredientSearch(false)} />
+              <SearchAddSheet visible={equipmentSearch} title="Add kitchen equipment" corpus={ALL_EQUIPMENT.map((e) => e.label)} selected={p.ownedEquipment.map((t) => EQUIP_TYPE_TO_LABEL[t]).filter(Boolean)} onToggle={(label) => toggle("ownedEquipment", EQUIP_LABEL_TO_TYPE[label], "hard")} onClose={() => setEquipmentSearch(false)} />
     </>
   );
 
