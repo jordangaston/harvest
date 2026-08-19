@@ -35,6 +35,8 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
     allergens: [],
     diets: [],
     foodPrefs: [],
+    ownedEquipment: [],
+    equipmentReviewed: false,
     ...overrides,
   };
 }

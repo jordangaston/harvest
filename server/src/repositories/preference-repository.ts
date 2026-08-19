@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, type AffinityFacet } from '../schema.js';
+import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
 import { UserPreferencesSchema, type UserPreferences } from '../models/user-preferences.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
@@ -37,10 +37,11 @@ export class PreferenceRepository {
     const [prefs] = await this.db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
     if (!prefs) return this.coldStart(userId);
 
-    const [allergens, diets, foodPrefs] = await Promise.all([
+    const [allergens, diets, foodPrefs, equipment] = await Promise.all([
       this.db.select().from(userAllergens).where(eq(userAllergens.userId, userId)),
       this.db.select().from(userDiets).where(eq(userDiets.userId, userId)),
       this.db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId)),
+      this.db.select().from(userEquipment).where(eq(userEquipment.userId, userId)),
     ]);
 
     return UserPreferencesSchema.parse({
@@ -59,6 +60,8 @@ export class PreferenceRepository {
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
       foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment })),
+      ownedEquipment: equipment.map((e) => e.equipment),
+      equipmentReviewed: prefs.equipmentReviewed,
     });
   }
 
@@ -78,6 +81,8 @@ export class PreferenceRepository {
       allergens: [],
       diets: [],
       foodPrefs: [],
+      ownedEquipment: [],
+      equipmentReviewed: false,
     });
   }
 
