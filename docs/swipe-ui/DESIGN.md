@@ -58,10 +58,11 @@ names as authoritative** and flags the delta as Q-07.
 - **Deck** — `GET /v1/recipes/ranked-deck?limit=N` → an array of ranked cards, each
   `{ recipe: <public recipe card>, score: 0–100, breakdown: { <signal> → normalized 0–1 } }`. No page
   token; the deck advances by swiping. It re-ranks on every fetch. Preference changes take effect at the
-  **next** fetch, never mid-deck. Recently-swiped recipes are excluded by a cooldown; liked recipes are
-  excluded permanently.
-- **Swipe** — `POST /v1/recipes/:id/swipe` with `{ direction: 'like' | 'dislike', reason?, reason_detail? }`
-  → `{ swipe: { direction, reason, score } }`. A `like` also adds the recipe to the Liked cookbook. A
+  **next** fetch, never mid-deck. Recently-swiped recipes are excluded by a cooldown; **liked and saved**
+  recipes are excluded permanently.
+- **Swipe** — `POST /v1/recipes/:id/swipe` with `{ direction: 'like' | 'dislike' | 'save', reason?, reason_detail? }`
+  → `{ swipe: { direction, reason, score } }`. A `like` files the recipe into the **Liked** cookbook; a
+  `save` ("cook this week") files it into the **Saved** cookbook (both excluded from the deck permanently); a
   `dislike` with a reason tunes the ranking. The score/weights it was ranked with are snapshotted server-side.
 - **Dislike reasons** — `too_expensive` → raises cost weight; `too_hard` → difficulty weight; `too_slow` →
   time weight; `not_nutritious` → nutrition weight; `disliked_ingredient` (with `reason_detail` = the
@@ -92,16 +93,17 @@ the gaps** — interactions the current API cannot serve, specified as proposed 
 | 11 | Empty / cooldown state | `ranked-deck` returns `[]` | ✅ served |
 | 12 | Light "liked!" confirmation | client-only (uses the swipe response); no endpoint | ✅ served |
 | 13 | Periodic "you've liked N — plan your week?" nudge | a running like-count | ⚠️ **gap** — no count field in the contract. Client tallies session likes; a durable count needs a Liked-cookbook size read (Q-09) |
-| 14 | UP "Cook this week" super-action → **cookbook picker** (pick which cookbook to save to) | none — `direction` is `like`\|`dislike`, and no cookbook target | ⚠️ **gap** — prototype opens the picker then maps to `like`; a real "save to my week" needs `direction:'save'` **+ a cookbook id** + meal-plan wiring (Q-10) |
+| 14 | "Cook this week" (up-swipe / Cook button) | `POST …/swipe {direction:'save'}` → files into the **Saved** cookbook, excluded permanently | ✅ served (`save` shipped) |
+| 14a | Pick a *specific* cookbook in the picker | `PUT /v1/recipes/:id/cookbooks` (existing membership endpoint) | ✅ served (separate call) |
 | 15 | Undo the last swipe | none — no un-swipe endpoint | ⚠️ **gap** — client-side pre-commit undo only (cancels the optimistic POST inside its delay window); undoing an already-recorded swipe needs `DELETE /v1/recipes/:id/swipe` (Q-11) |
 | 16 | Settings: **view** current preferences | none documented | ⚠️ **gap** — needs `GET /v1/preferences` (Q-12) |
 | 17 | Settings: **edit** weights, targets, food prefs, filters | none documented | ⚠️ **gap** — needs `PUT /v1/preferences` (Q-12) |
 | 18 | Settings edits apply to the **next** batch | inherent — the deck re-ranks at the next fetch | ✅ served |
 | 19 | Telemetry (swipe rate, like ratio, chip usage, time-per-card, exhaustion) | client `analytics.track` (`lib/analytics`) | ✅ served (client) |
 
-**The three load-bearing gaps** the current API cannot serve, all deferred to backend follow-ups (Q-10–Q-12):
-a preferences **read/write** endpoint for settings, a durable **un-swipe**, and a **save/super** direction.
-None blocks the prototype (settings edits are local-draft in the studio; undo is pre-commit; UP is like-backed).
+**The remaining gaps** the current API cannot serve (Q-11–Q-12): a preferences **read/write** endpoint for
+settings and a durable **un-swipe**. (The **`save` direction is now implemented** — the swipe API is
+like/dislike/save.) Neither remaining gap blocks the prototype (settings edits are local-draft; undo is pre-commit).
 
 ---
 
@@ -394,19 +396,20 @@ are marked and not built.
 
 ### Ranked Deck `GET /v1/recipes/ranked-deck`
 Top-N unswiped ranked cards for the caller. Query `limit` (default 5). Response `[{ recipe, score:0–100,
-breakdown:{signal→0–1} }]`. No page token. Re-ranks per fetch; cooldown excludes recently-swiped; likes
-excluded permanently.
+breakdown:{signal→0–1} }]`. No page token. Re-ranks per fetch; cooldown excludes recently-swiped; likes and
+saves excluded permanently.
 
 ### Record Swipe `POST /v1/recipes/:id/swipe`
-Body `{ direction:'like'|'dislike', reason?, reason_detail? }`. Response `{ swipe:{ direction, reason,
-score } }`. `like` → Liked cookbook; reasoned `dislike` → tunes ranking. Idempotent per `(user,recipe)`.
+Body `{ direction:'like'|'dislike'|'save', reason?, reason_detail? }`. Response `{ swipe:{ direction, reason,
+score } }`. `like` → Liked cookbook; `save` → Saved cookbook (both excluded from the deck permanently);
+reasoned `dislike` → tunes ranking. Idempotent per `(user,recipe)`.
 
 ### Preferences `GET/PUT /v1/preferences` — **proposed (Q-12)**
 `GET` → the `UserPreferences` model (weights, targets, food prefs, allergens+severity, diets+strictness,
 owned equipment + reviewed flag). `PUT` upserts it. Needed by the settings surface; not in the current
 contract.
 
-### Un-swipe `DELETE /v1/recipes/:id/swipe` — **proposed (Q-11)**; Save direction — **proposed (Q-10)**.
+### Un-swipe `DELETE /v1/recipes/:id/swipe` — **proposed (Q-11)**. (The `save` direction, formerly Q-10, is now **implemented**.)
 
 ---
 
@@ -505,7 +508,7 @@ normal navigation.
 | --- | --- | --- | --- |
 | 1 | code | Ship `SwipeDeck`, `SettingsScreen`, hooks; Design Studio prototype (dev-only) | yes |
 | 2 | backend follow-up | `GET/PUT /v1/preferences` (Q-12) so settings persist | yes — additive |
-| 3 | backend follow-up (optional) | `DELETE …/swipe` (Q-11), `direction:'save'` (Q-10) | yes — additive |
+| 3 | backend follow-up (optional) | `DELETE …/swipe` (Q-11) | yes — additive |
 
 **Rollback:** revert the client; the ranking API is untouched. Until the preferences endpoint lands, settings
 is read-only-preview or drafts locally — it degrades, never breaks the deck.
@@ -523,14 +526,14 @@ too-heavy reason loop.
 
 ## Decisions
 
-### D-01 UP super-swipe is prototype-only, like-backed
-**Framework:** Direct criterion — contract fidelity + scope. The contract's `direction` is `like`|`dislike`;
-"save to my week" needs a `save`/`super_like` direction *and* meal-plan wiring, both out of scope. Right-swipe
-`like` already reaches the Liked cookbook → meal planning, so the path exists without a new direction.
-**Choice:** Ship the UP gesture + Super button in the prototype. **Per human review it opens a cookbook
-picker** — the user chooses which cookbook to save to before the card leaves — still like-backed today,
-pending backend `direction:'save'` **with a cookbook target** (Q-10). *Alternatives:* omit UP (rejected —
-the brief wants the affordance designed); build the endpoint (rejected — out of scope).
+### D-01 "Cook this week" is a first-class `save` swipe
+**Framework:** Direct criterion — the swipe API's action set. Discovery needs three verbs, not two: **like**
+(I'd eat this → Liked), **dislike** (not for me → tune), and **save** ("cook this week" → Saved). **Choice:**
+`save` is a real `direction`, **implemented server-side** — it records the swipe, files the recipe into the
+caller's **Saved** system cookbook (mirroring `like` → Liked), and excludes it from the deck permanently. The
+up-swipe / Cook button posts `direction:'save'`; the cookbook picker then places it in a *specific* cookbook
+via the existing `PUT /v1/recipes/:id/cookbooks`. *Alternatives:* a like-backed prototype hack (rejected — the
+API was genuinely missing the action, so we shipped it); omit the super-action (rejected — the brief wants it).
 
 ### D-02 Monochrome frosted ✓/✗ disc, not colored word-stamps
 **Framework:** Direct criterion — match the reference + the calm golden-hour palette. Bumble uses a quiet
@@ -601,7 +604,7 @@ monochrome (D-02) — transient gesture feedback, not a committed action.
 | Q-07 | Deck endpoint name: brief says `/v1/recipes/ranked-deck`, ranking doc says `/v1/recipes/deck`. | open | Using the brief's name; reconcile with backend before wiring. |
 | Q-08 | Does the public recipe card on the deck include ingredients/steps and all badge fields, or is a `GET /v1/recipes/:id` detail fetch needed for the DetailSheet? | open | Verify the card DTO; assume fields present, fall back to a detail fetch. |
 | Q-09 | Source + threshold for the "you've liked N" nudge — session tally vs. a durable Liked-cookbook count; N default. | open | Ship a session tally, N=10; swap to a cookbook-count read when available. |
-| Q-10 | `direction:'save'`/`'super_like'` for a real "Cook this week" super-action + meal-plan wiring. | open (follow-up) | Prototype maps UP → `like`; propose the direction. |
+| Q-10 | `direction:'save'` for a real "Cook this week" action. | **resolved** | Shipped: `save` records the swipe, files the recipe into the **Saved** system cookbook, and is excluded from the deck permanently (server suite green). Meal-plan wiring *from* the Saved cookbook is a separate concern. |
 | Q-11 | `DELETE /v1/recipes/:id/swipe` for a durable un-swipe (Bumble-style backtrack). | open (follow-up) | Client pre-commit undo only until it exists. |
 | Q-12 | `GET`/`PUT /v1/preferences` for the settings surface to read/persist the preference model. | open (follow-up) | Prototype uses a local draft; blocks real persistence. |
 | Q-13 | Should the ranking engine ever get a Bumble-style "relax this filter if the deck runs dry" fallback? | open | Not now; would change D-03. Ties to ranking Q-06 cooldown. |
@@ -619,3 +622,4 @@ monochrome (D-02) — transient gesture feedback, not a committed action.
 | 2026-08-19 | Jordan Gaston | Toasts made semantic: success = green + drops from the **top** (✓); error = red + rises from the **bottom** (!). Shared `Toast` gains a `variant`; swipe reward toast anchored to the card top. |
 | 2026-08-19 | Jordan Gaston | **Shade-system migration (whole app).** Root cause of the recurring "everything reads white/flat": a bimodal neutral ramp with no tertiary + no shadow scale. Fixes: (1) `tailwind.config.js` — one 10-step warm-neutral ramp `sand-50…900` + full `brand` ramp + `success`/`error` `light/DEFAULT/dark`; retired the `taupe`/`umber` experiment. (2) New `lib/elevation.ts` (low/medium/high) — depth via shadow, not tone; replaced all hand-rolled shadows and lifted every flat `bg-card` surface across `components/` + `app/` (audit-driven). (3) Semantic action bar: Pass=`error`, Cook=`brand`, Like=`success`, Undo=`card` (quiet). (4) Selection rule: segmented active = solid `brand`+white, multi-chip selected = `brand-light`+border, unselected chip = `sand-200`+muted. Gated with a `/refactoring-ui` audit (strengthened elevation so warm cards actually separate; darkened banner text to AA; moved the Filters icon off red). Documented in AGENTS.md § Shades, depth & colour. Typecheck clean, 20/20 tests, verified live in-sim. |
 | 2026-08-19 | Jordan Gaston | Doc body synced to the built state: card anatomy (translucent-dark on-photo pills, badge row capped to core+1, detail sheet raw values + ingredient qty/thumbnails); new § Colour & depth; D-03 rewritten as declarative-settings; added D-08 (shade ramp + depth-via-shadow) and D-09 (semantic action colours & toasts); mapping row 14 (super → cookbook picker); motion/states updated for semantic toasts. |
+| 2026-08-19 | Jordan Gaston | **`save` is now a first-class swipe action** (backend). The `/swipe` API was missing it. Added `save` to `SWIPE_DIRECTIONS` (schema + request schema + model), a side-effect that files the recipe into a system **Saved** cookbook (mirroring `like`→Liked), and permanent deck exclusion (`swipe-repository.excludedRecipeIds`). No migration — `direction` is a plain text column. Tests: `swipe-deck` TC3b + repository exclusion; **server suite 361 green**. Prototype's `super`→`save`; doc contract/mapping/APIs/D-01/Q-10 updated. |

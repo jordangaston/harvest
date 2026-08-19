@@ -27,7 +27,7 @@ type SwipeReason = (typeof SWIPE_REASONS)[number];
 
 /** A swipe request: direction, plus a dislike reason and its free-text detail (the ingredient). */
 export interface SwipeInput {
-  direction: "like" | "dislike";
+  direction: "like" | "dislike" | "save";
   reason?: SwipeReason;
   reasonDetail?: string;
 }
@@ -112,8 +112,9 @@ export class RecipeService {
   /**
    * Records a swipe and applies its side-effect (WI-RANK-4). Snapshots the pre-tune
    * score+weights (what produced the card the user saw), then: a `like` files the recipe
-   * into the caller's "Liked" system cookbook; a reasoned `dislike` tunes preferences
-   * (bump a weight, or add a food-pref dislike when a `reasonDetail` names the ingredient).
+   * into the caller's "Liked" system cookbook; a `save` ("cook this week") files it into
+   * "Saved"; a reasoned `dislike` tunes preferences (bump a weight, or add a food-pref
+   * dislike when a `reasonDetail` names the ingredient).
    * @param userId - The caller.
    * @param recipeId - The swiped recipe (must be visible to the caller).
    * @param input - Direction + optional dislike reason and its detail.
@@ -123,7 +124,7 @@ export class RecipeService {
     userId: string,
     recipeId: string,
     input: SwipeInput,
-  ): Promise<{ direction: "like" | "dislike"; reason: SwipeReason | null; score: number }> {
+  ): Promise<{ direction: "like" | "dislike" | "save"; reason: SwipeReason | null; score: number }> {
     const rankable = await this.recipes.getRankable(userId, recipeId);
     if (!rankable) throw new NotFoundError();
 
@@ -132,8 +133,9 @@ export class RecipeService {
     const reason = input.reason ?? null;
     await this.swipes.upsert(userId, { recipeId, direction: input.direction, reason, score, weights: prefs.weights });
 
-    if (input.direction === "like") {
-      const cb = await this.cookbooks.ensureSystemCookbook(userId, "liked", "Liked");
+    if (input.direction === "like" || input.direction === "save") {
+      const [slug, name] = input.direction === "like" ? ["liked", "Liked"] : ["saved", "Saved"];
+      const cb = await this.cookbooks.ensureSystemCookbook(userId, slug, name);
       await this.cookbooks.addRecipe(userId, cb, recipeId);
     } else if (input.reason) {
       await this.applyDislikeTuning(userId, input.reason, input.reasonDetail);

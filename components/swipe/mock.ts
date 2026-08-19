@@ -8,7 +8,7 @@
  */
 import React from "react";
 
-export type Direction = "like" | "dislike" | "super";
+export type Direction = "like" | "dislike" | "save";
 export type DislikeReason =
   | "too_expensive"
   | "too_hard"
@@ -286,7 +286,7 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
         if (!top) return current;
         setLastSwipe({ card: top, direction });
         setFailedSave(null);
-        if (direction === "like" || direction === "super") {
+        if (direction === "like" || direction === "save") {
           setLikeCount((n) => {
             const next = n + 1;
             if (next >= PLAN_NUDGE_AT && !nudgedRef.current) {
@@ -301,7 +301,7 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
           if (failSaves) {
             setCards((c) => [top, ...c]);
             setFailedSave(top);
-            if (direction === "like" || direction === "super") setLikeCount((n) => Math.max(0, n - 1));
+            if (direction === "like" || direction === "save") setLikeCount((n) => Math.max(0, n - 1));
           }
         }, 450);
         return rest;
@@ -314,7 +314,7 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
     setLastSwipe((last) => {
       if (!last) return null;
       setCards((c) => [last.card, ...c]);
-      if (last.direction === "like" || last.direction === "super") setLikeCount((n) => Math.max(0, n - 1));
+      if (last.direction === "like" || last.direction === "save") setLikeCount((n) => Math.max(0, n - 1));
       if (status === "empty") setStatus("ready");
       return null;
     });

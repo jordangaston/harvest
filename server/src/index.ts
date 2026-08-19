@@ -146,8 +146,8 @@ app.get("/v1/recipes/deck", guard, async (c) => {
   return c.json(await recipes.deck(c.get("authUserId")!, { limit }));
 });
 
-/** POST /v1/recipes/:id/swipe — records a like/dislike swipe and applies its side-effect
- * (like → Liked cookbook; reasoned dislike → preference tuning). Requires bearer token;
+/** POST /v1/recipes/:id/swipe — records a like/dislike/save swipe and applies its side-effect
+ * (like → Liked cookbook; save → Saved cookbook; reasoned dislike → preference tuning). Requires bearer token;
  * 404 if the recipe isn't visible to the caller. Registered before `/:id`. */
 app.post("/v1/recipes/:id/swipe", guard, async (c) => {
   const { direction, reason, reason_detail } = swipeBodySchema.parse(await c.req.json());

@@ -131,6 +131,33 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(body.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
   });
 
+  it("TC3b: save adds to the Saved cookbook (permanent exclusion, distinct from Liked)", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const r1 = await seedRecipe(userId, { title: "High", nrfScore: 90 });
+    await seedRecipe(userId, { title: "Mid", nrfScore: 60 });
+
+    const { status, body } = await swipe(token, r1, { direction: "save" });
+    expect(status).toBe(200);
+    expect(body.swipe.direction).toBe("save");
+
+    const saved = await db
+      .select()
+      .from(cookbooks)
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, "saved")));
+    expect(saved.length).toBe(1);
+    expect(saved[0]!.name).toBe("Saved");
+    const members = await db.select().from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, saved[0]!.id));
+    expect(members.map((m) => m.recipeId)).toEqual([r1]);
+
+    // Permanent exclusion: even past the cooldown, a saved recipe never resurfaces.
+    await db
+      .update(recipeSwipes)
+      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .where(and(eq(recipeSwipes.userId, userId), eq(recipeSwipes.recipeId, r1)));
+    const { body: deck } = await getDeck(token);
+    expect(deck.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
+  });
+
   it("TC4: snapshot captures score + current weights", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
     const r = await seedRecipe(userId, { title: "High", nrfScore: 90 });

@@ -53,7 +53,8 @@ export const SENTIMENTS = ['like', 'dislike'] as const;
 export const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 export const ESSENTIALITY = ['required', 'recommended'] as const;
 // Swipe deck (WI-RANK-4): swipe direction and the optional dislike reason.
-export const SWIPE_DIRECTIONS = ['like', 'dislike'] as const;
+// `save` ("cook this week") files the recipe into the caller's Saved cookbook (like `like` → Liked).
+export const SWIPE_DIRECTIONS = ['like', 'dislike', 'save'] as const;
 export const SWIPE_REASONS = ['too_expensive', 'too_hard', 'too_slow', 'disliked_ingredient', 'not_nutritious', 'other'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;

@@ -79,9 +79,9 @@ export function SwipeDeck({
         recipeId: card.recipe.id, direction, method, score: card.score,
         msVisible: Date.now() - shownAt.current,
       });
-      if (direction === "like" || direction === "super") {
+      if (direction === "like" || direction === "save") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        flash(direction === "super" ? `Saved to ${cookbook ?? "your week"} ♥` : "Added to Liked ♥");
+        flash(direction === "save" ? `Saved to ${cookbook ?? "your week"} ♥` : "Added to Liked ♥");
       } else {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         setReasonFor({ id: card.recipe.id, title: card.recipe.title });
@@ -96,7 +96,7 @@ export function SwipeDeck({
     (direction: Direction, method: "gesture" | "button", cookbook?: string) => {
       if (!deck.cards[0]) return;
       const toValue =
-        direction === "super"
+        direction === "save"
           ? { x: 0, y: -CARD_H * 1.3 }
           : { x: (direction === "like" ? 1 : -1) * CARD_W * 1.6, y: 0 };
       const done = () => { commit(direction, method, cookbook); pos.setValue({ x: 0, y: 0 }); };
@@ -119,7 +119,7 @@ export function SwipeDeck({
 
   const saveToCookbook = React.useCallback((cookbook: string) => {
     setCookbookFor(null);
-    fling("super", "button", cookbook);
+    fling("save", "button", cookbook);
   }, [fling]);
 
   const panResponder = React.useMemo(
@@ -169,7 +169,7 @@ export function SwipeDeck({
   const rotate = pos.x.interpolate({ inputRange: [-CARD_W / 2, 0, CARD_W / 2], outputRange: ["-8deg", "0deg", "8deg"] });
   const likeOpacity = pos.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: "clamp" });
   const nopeOpacity = pos.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: "clamp" });
-  const superOpacity = pos.y.interpolate({ inputRange: [-UP_THRESHOLD, 0], outputRange: [1, 0], extrapolate: "clamp" });
+  const saveOpacity = pos.y.interpolate({ inputRange: [-UP_THRESHOLD, 0], outputRange: [1, 0], extrapolate: "clamp" });
 
   return (
     <View style={{ width: CARD_W, alignSelf: "center" }}>
@@ -202,7 +202,7 @@ export function SwipeDeck({
             <SwipeCard card={top} onOpenDetail={() => openDetail(top)} />
             <Disc opacity={likeOpacity} side="right" icon="checkmark" />
             <Disc opacity={nopeOpacity} side="left" icon="close" />
-            <Disc opacity={superOpacity} side="top" icon="arrow-up" />
+            <Disc opacity={saveOpacity} side="top" icon="arrow-up" />
             {showHint ? <GestureHint /> : null}
             {deck.failedSave?.recipe.id === top.recipe.id ? (
               <View className="absolute inset-x-4 top-4 flex-row items-center justify-center rounded-full bg-error px-3 py-2" style={{ gap: 6 }}>
@@ -304,7 +304,7 @@ function ActionBtn({ size, bg, caption, label, disabled, onPress, children }: { 
   );
 }
 
-/* ---------- Cookbook picker — the super/"Cook this week" action saves to a chosen cookbook ---------- */
+/* ---------- Cookbook picker — the save/"Cook this week" action saves to a chosen cookbook ---------- */
 const MOCK_COOKBOOKS = ["This Week", "Weeknight Dinners", "Favorites"];
 function CookbookPicker({ visible, recipeTitle, onSelect, onClose }: { visible: boolean; recipeTitle: string | null; onSelect: (cookbook: string) => void; onClose: () => void }) {
   return (
