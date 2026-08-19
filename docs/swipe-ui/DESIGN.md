@@ -209,8 +209,8 @@ sequenceDiagram
     H->>API: GET /v1/preferences  %% Q-12 — proposed
     API-->>H: UserPreferences
     H-->>P: render controls, grouped by kind (declarative — no algorithm copy)
-    U->>P: adjust slider / toggle filter / add dislike
-    note over P: local draft; banner "applies to your next cards"
+    U->>P: step a meal count / drag a slider / toggle a filter / add a taste
+    note over P: local draft; no banner, no live re-rank (declarative — D-03)
     U->>P: Save
     P->>H: save(draft)
     H->>API: PUT /v1/preferences  %% Q-12 — proposed
@@ -218,7 +218,61 @@ sequenceDiagram
 ~~~
 
 In the studio prototype F-05 runs against a **local draft** (no network); the diagram shows the intended
-wiring once `GET`/`PUT /v1/preferences` exist.
+wiring once `GET`/`PUT /v1/preferences` exist. The meal-count card (F-06) and the "More…" search (O-03) are
+two of the controls this Save persists.
+
+### F-06 Set your weekly meals
+
+~~~mermaid
+sequenceDiagram
+    participant U as User
+    participant M as MealCounts
+    participant P as SettingsScreen / MealPlanIntake
+    participant H as usePreferences
+    participant API as preferences API (proposed)
+
+    note over M,P: one controlled card, two hosts
+    P->>H: preferences?
+    H->>API: GET /v1/preferences  %% Q-12 — proposed
+    API-->>H: UserPreferences { weeklyMeals }
+    H-->>M: render a − n + stepper per meal type
+    loop each meal type
+    U->>M: tap − / +
+    M->>P: onChange(mealType, count)  %% clamped 0..21
+    note over P: local draft; total re-derived ("N meals a week")
+    end
+    U->>P: Save (settings) / Continue (intake)
+    P->>H: save(draft.weeklyMeals)
+    H->>API: PUT /v1/preferences  %% Q-12 — proposed
+    note over H: weeklyMeals persisted; consumed later by meal planning (Q-14)
+~~~
+
+`MealCounts` is one controlled component with two mounts — the standalone `MealPlanIntake` intake screen
+(its own **Continue**) and the first card of `SettingsScreen` (saved with the rest of the prefs). Neither
+re-ranks the deck: meal counts feed **meal planning** (Q-14), not the ranker.
+
+### O-03 Add an option from the "More…" search
+
+~~~mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Chip row (cuisines / avoid / kitchen)
+    participant S as SearchAddSheet
+    participant P as SettingsScreen (draft)
+
+    U->>C: tap "More…" (hollow secondary action)
+    C->>S: open Modal (slide) over the larger corpus
+    U->>S: type a query
+    note over S: filter corpus by substring
+    U->>S: tap a result
+    S->>P: toggle(item) → added to the draft list
+    note over P: the added item now shows as a selected chip in the row
+    U->>S: close
+~~~
+
+The preset chips cover the common cases; **"More…"** reaches the long tail (24 cuisines / 32 ingredients /
+18 equipment) without cluttering the default row. Toggling in the sheet mutates the same draft list the
+inline chips do, so an added value appears as a **selected** chip once the sheet closes.
 
 ---
 
