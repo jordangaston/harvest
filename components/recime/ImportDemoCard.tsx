@@ -4,6 +4,7 @@ import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { VStack, HStack, Center, Text, Pressable } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { CookingLoaderText } from "./CookingLoaderText";
 
 type Stage = "source" | "sheet" | "importing";
@@ -217,7 +218,7 @@ function ShareSheet({ onPickHarvest }: { onPickHarvest: () => void }) {
           ))}
         </HStack>
 
-        <View className="mt-8 overflow-hidden rounded-2xl bg-card">
+        <View className="mt-8 overflow-hidden rounded-2xl bg-card" style={ELEVATION.low}>
           <HStack className="items-center justify-between px-4 py-3.5">
             <Text className="text-base text-ink">Copy</Text>
             <Ionicons name="copy-outline" size={20} color="#2E2419" />
@@ -240,15 +241,7 @@ function ImportingOverlay() {
     <Center className="absolute inset-0 bg-ink/30">
       <VStack
         className="items-center justify-center rounded-3xl border border-hairline bg-cream"
-        style={{
-          width: 280,
-          height: 356,
-          shadowColor: "#2E2419",
-          shadowOpacity: 0.3,
-          shadowRadius: 26,
-          shadowOffset: { width: 0, height: 14 },
-          elevation: 14,
-        }}
+        style={[{ width: 280, height: 356 }, ELEVATION.high]}
       >
         <ExpoImage
           source={require("../../assets/loader.webp")}

@@ -2,6 +2,7 @@ import React from "react";
 import { View, LayoutAnimation, Platform, UIManager, AccessibilityInfo } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { VStack, HStack, Center, Text, Pressable, Icon } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { DURATION } from "../../lib/motion";
 import type { ChecklistState } from "../../lib/onboardingChecklist";
 
@@ -78,7 +79,7 @@ export function OnboardingChecklist({
                 onPress={done ? undefined : item.onPress}
                 disabled={done}
                 className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-3.5"
-                style={done ? { opacity: 0.7 } : undefined}
+                style={[done ? { opacity: 0.7 } : undefined, ELEVATION.low]}
               >
                 {done ? (
                   <Center className="h-7 w-7 rounded-full bg-brand">

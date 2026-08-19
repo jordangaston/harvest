@@ -2,6 +2,7 @@ import React from "react";
 import { Modal, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, HStack, VStack, Text, Pressable, Icon, Center } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { MealMenu } from "./MealMenu";
 import { useAddMealPlanEntry } from "../../lib/api/hooks";
 import { mealLabel } from "./meals";
@@ -83,6 +84,7 @@ export function AddToPlanSheet({
                       key={toISO(d)}
                       onPress={() => setChosen(d)}
                       className="flex-row items-center justify-between rounded-2xl border border-hairline bg-card px-4 py-3"
+                      style={ELEVATION.low}
                     >
                       <Text className={`text-base font-semibold ${isToday ? "text-brand" : "text-ink"}`}>
                         {isToday ? "Today • " : ""}{weekdayName(d)} {d.getDate()}

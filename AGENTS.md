@@ -13,8 +13,9 @@ defined as tokens in `tailwind.config.js`; use the tokens, never raw hex in scre
 any elevated surface.** Use the warm off-white **`bg-card`** (`#FBF6EC`) instead.
 
 - **Page canvas:** `bg-cream` (`#F1E6D2`) — the honey background (via the `Backdrop`).
-- **Cards / tiles / rows / sheets sit *lighter* than the canvas:** `bg-card` (`#FBF6EC`),
-  so they lift off the background (light-on-dark depth).
+- **Cards / tiles / rows / sheets are `bg-card` (`#FBF6EC`) and lift off the canvas with a
+  *shadow*, not tone** — `bg-card` on `bg-cream` is only ~1.15:1, so separation comes from
+  `ELEVATION` (`lib/elevation.ts`), never from the colour step. (See § Shades, depth & colour.)
 - **Selected tile:** `bg-brand-light` (`#F3E0CC`) with a `border-brand`.
 - **Category chips:** the soft golden-hour pastel tints, not white.
 
@@ -29,6 +30,27 @@ save/add-recipe modals looked "white" until the sheet was moved to `bg-cream`.)
 Elements that intentionally mimic **native OS UI** stay pure white, because they
 render white on the user's real screen — e.g. the iOS notification-permission
 dialog mock on the `notifications` screen. This is the only allowed `bg-white`.
+
+## Shades, depth & colour meaning
+
+Learned the hard way (the settings screen read as flat cream): the palette is **one warm-neutral
+ramp**, depth is a **shadow**, and saturated colour is **meaning**, spent sparingly.
+
+- **The neutral ramp** (`tailwind.config.js`, `sand-50…sand-900`): `sand-50` (`#FBF6EC`, = `card`)
+  → `sand-100` (`#F1E6D2`, = `cream` canvas) → `sand-200`/`300` (chips, tracks, borders) →
+  `sand-400/500/600` (tertiary fills that must read on cream by themselves) → `sand-700` (= `muted`)
+  → `sand-800` (= `muted-canvas`) → `sand-900` (= `ink`). Reach for the right *shade*; don't make
+  `cream`/`card` do every job.
+- **Depth = shadow, never tone.** The light steps are too close to separate by colour, so every
+  raised surface (card, tile, row, floating button) carries `ELEVATION.low` (small tiles/chips),
+  `.medium` (cards, action buttons) or `.high` (the swipe card, hero) from **`lib/elevation.ts`** —
+  never a hand-rolled shadow. Sheets/modals sit on a scrim and need none; only their inner cards lift.
+- **Colour = meaning, used sparingly.** `brand` (terracotta) = primary / selected / Cook;
+  `success` (green) = positive / Like; `error` (red) = **destructive / Pass only** — don't spend red
+  on a header ornament. Each ships `light`/`DEFAULT`/`dark`, and `brand` a full `100–700` ramp.
+- **Selection states.** Single-select / segmented **active = solid `bg-brand` + white text**;
+  multi-select chip **selected = `bg-brand-light` + `border-brand` + `text-brand`**; **unselected
+  chip = `bg-sand-200` + `text-muted`** (secondary — it recedes so the *current* settings lead).
 
 ## Other conventions
 - **Type:** wordmark = **Lora** (`Lora_700Bold`); everything else = **Karla**.

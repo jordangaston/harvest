@@ -23,6 +23,8 @@ import { OptionRowStudy } from "./studies/OptionRow.study";
 import { ProgressHeaderStudy } from "./studies/ProgressHeader.study";
 import { RecipeCardStudy } from "./studies/RecipeCard.study";
 import { StepTextStudy } from "./studies/StepText.study";
+import { SwipeDeckStudy } from "./studies/SwipeDeck.study";
+import { SwipeSettingsStudy } from "./studies/SwipeSettings.study";
 import { ToastStudy } from "./studies/Toast.study";
 import { TotalTimeSheetStudy } from "./studies/TotalTimeSheet.study";
 import { TypographyStudy } from "./studies/Typography.study";
@@ -55,6 +57,8 @@ export const studies: Study[] = [
   ProgressHeaderStudy,
   RecipeCardStudy,
   StepTextStudy,
+  SwipeDeckStudy,
+  SwipeSettingsStudy,
   ToastStudy,
   TotalTimeSheetStudy,
   TypographyStudy,

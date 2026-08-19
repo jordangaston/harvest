@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { Box, VStack, HStack, Center, ScrollView, Text, Heading, Pressable, Icon } from "../../components/ui";
+import { ELEVATION } from "../../lib/elevation";
 
 const CHIPS = [
   "🌱 Vegan",
@@ -63,7 +64,7 @@ export default function Discover() {
         </View>
 
         <View className="px-5 pt-6">
-          <Box className="rounded-2xl border border-hairline bg-card p-4">
+          <Box className="rounded-2xl border border-hairline bg-card p-4" style={ELEVATION.low}>
             <Center className="mb-4 h-40 w-full rounded-2xl bg-sand">
               <Text className="text-5xl">🍋</Text>
             </Center>

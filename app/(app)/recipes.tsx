@@ -13,6 +13,7 @@ import { useOnboardingFlags, checklistState } from "../../lib/onboardingChecklis
 import { takeSavedToast } from "../../lib/savedToast";
 import { EASE, TOAST } from "../../lib/motion";
 import { VStack, HStack, Center, Text, Pressable, Icon } from "../../components/ui";
+import { ELEVATION } from "../../lib/elevation";
 
 export default function Recipes() {
   const router = useRouter();
@@ -109,7 +110,7 @@ export default function Recipes() {
               key={cb.id}
               onPress={() => router.push(`/cookbook/${cb.id}`)}
               className="mb-4 overflow-hidden rounded-2xl border border-hairline bg-card"
-              style={{ width: "48%" }}
+              style={[{ width: "48%" }, ELEVATION.low]}
             >
               {cb.cover_image_url ? (
                 <Image source={{ uri: cb.cover_image_url }} contentFit="cover" style={{ width: "100%", height: 110 }} transition={200} />
