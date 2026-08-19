@@ -8,6 +8,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { LoadingScreen } from "../components/recime/LoadingScreen";
 import { ScreenTracker } from "../components/recime/ScreenTracker";
 import { AnalyticsDebugOverlay } from "../components/recime/AnalyticsDebugOverlay";
+import { StudioLauncher } from "../design/StudioLauncher";
 import { queryClient, persistOptions } from "../lib/queryClient";
 import { getSession } from "../lib/api/session";
 import { initAnalytics } from "../lib/analytics";
@@ -82,6 +83,7 @@ export default function RootLayout() {
             <Stack.Screen name="profile" />
           </Stack>
           {__DEV__ ? <AnalyticsDebugOverlay /> : null}
+          {__DEV__ ? <StudioLauncher /> : null}
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </PersistQueryClientProvider>
