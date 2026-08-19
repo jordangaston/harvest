@@ -1,3 +1,5 @@
+import type { MealPrepFit } from '../schema.js';
+
 // Ranking tuning knobs. Literature/heuristic stopgaps — recalibrate from the real
 // catalog once recipes exist (then just re-rank; no code change needed).
 
@@ -19,7 +21,7 @@ export const DIFFICULTY_BY_DISTANCE: Record<number, number> = {
 /** Meal-prep band → score (signal #10). `unsuitable` is 0.15 (down-weighted, not buried);
  * a calibration knob — recalibrate from the real catalog. Null fit → the signal is
  * unavailable and drops from the weighted average. */
-export const MEAL_PREP_SCORE: Record<'unsuitable' | 'suitable' | 'designed', number> = {
+export const MEAL_PREP_SCORE: Record<MealPrepFit, number> = {
   unsuitable: 0.15,
   suitable: 0.6,
   designed: 1.0,

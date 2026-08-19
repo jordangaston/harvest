@@ -501,7 +501,7 @@ export const recipeSwipes = sqliteTable(
     reason: text('reason', { enum: SWIPE_REASONS }),
     score: real('score').notNull(),
     weights: text('weights', { mode: 'json' })
-      .$type<{ cost: number; difficulty: number; nutrition: number; affinity: number; time: number; popularity: number }>()
+      .$type<{ cost: number; difficulty: number; nutrition: number; affinity: number; time: number; popularity: number; mealPrep: number }>()
       .notNull(),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
