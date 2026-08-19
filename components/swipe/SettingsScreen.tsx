@@ -4,8 +4,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { analytics } from "../../lib/analytics";
 import { ELEVATION } from "../../lib/elevation";
+import { MealCounts } from "../planner/MealPlanIntake";
 import {
-  Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, money, formatTime, DifficultyBand,
+  Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, money, formatTime, DifficultyBand, MealType,
 } from "./mock";
 
 const CUISINES =["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
@@ -173,6 +174,10 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
     analytics.track("Settings Preference Changed", { control, from, to, kind });
 
+  const setMeal = (m: MealType, v: number) => {
+    track(`meals.${m}`, p.weeklyMeals[m], v, "soft");
+    setP((s) => ({ ...s, weeklyMeals: { ...s.weeklyMeals, [m]: v } }));
+  };
   const toggle =<K extends "likedCuisines" | "dislikedIngredients" | "ownedEquipment">(key: K, item: string, kind: "soft" | "hard") => {
     setP((s) => {
       const has = s[key].includes(item);
@@ -185,6 +190,7 @@ export function SettingsContent({ onClose, embedded = false }: { onClose: () => 
     <>
               {/* Most-likely-to-change first, each its own card. */}
               <VStack space={14}>
+                <MealCounts value={p.weeklyMeals} onChange={setMeal} />
                 <Card>
                   <Text className="text-sm font-bold text-ink">Weekly grocery budget</Text>
                   <Slider value={p.weeklyBudgetCents} min={3000} max={40000} step={1000} format={(c) => `${money(c)} / week`} onChange={(v) => setP((s) => ({ ...s, weeklyBudgetCents: v }))} />

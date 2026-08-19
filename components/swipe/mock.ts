@@ -56,10 +56,13 @@ export interface Weights {
 }
 export interface AllergenPref { allergen: string; severity: "severe" | "moderate" | "mild" }
 export interface DietPref { diet: string; strictness: "strict" | "flexible" }
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "kids";
+export type WeeklyMeals = Record<MealType, number>; // how many of each meal type to plan per week
 export interface Preferences {
   skillLevel: DifficultyBand;
   weeklyBudgetCents: number; // max weekly grocery spend (per-serving cost is calculated, not input)
   timeBudgetMin: number;
+  weeklyMeals: WeeklyMeals;
   weights: Weights;
   likedCuisines: string[];
   dislikedIngredients: string[];
@@ -73,6 +76,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   skillLevel: "intermediate",
   weeklyBudgetCents: 12000,
   timeBudgetMin: 35,
+  weeklyMeals: { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 },
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
   likedCuisines: ["Italian", "Thai", "Mexican"],
   dislikedIngredients: ["liver", "olives"],

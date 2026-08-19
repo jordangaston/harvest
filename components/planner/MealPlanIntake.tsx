@@ -2,9 +2,7 @@ import React from "react";
 import { View } from "react-native";
 import { VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { ELEVATION } from "../../lib/elevation";
-
-export type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "kids";
-export type WeekPlan = { meals: Record<MealType, number> };
+import type { MealType, WeeklyMeals } from "../swipe/mock";
 
 const MEALS: { key: MealType; label: string }[] = [
   { key: "breakfast", label: "Breakfasts" },
@@ -14,10 +12,9 @@ const MEALS: { key: MealType; label: string }[] = [
   { key: "kids", label: "Kids meals" },
 ];
 const MAX_PER_MEAL = 21;
+const DEFAULT_MEALS: WeeklyMeals = { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 };
 
-const DEFAULT_PLAN: WeekPlan = {
-  meals: { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 },
-};
+export const mealTotal = (m: WeeklyMeals) => MEALS.reduce((n, x) => n + m[x.key], 0);
 
 /**
  * A − n + counter where the *number* is the hero. The buttons are flat and muted so they recede
@@ -48,39 +45,44 @@ function Stepper({ value, onChange, min = 0, max = MAX_PER_MEAL, label }: { valu
 }
 
 /**
- * Gathers how many of each meal the user wants in a week. One question, one unit ("each week"),
- * so there's a single obvious mental model — no day/quantity cross-talk to reconcile. Holds a
- * local draft and hands the finished WeekPlan to onSubmit. The only saturated colour is the
- * primary action (golden-hour design system).
+ * The reusable "how many meals each week" card — one row per meal type, a stepper each. Controlled,
+ * so it drops into the intake screen and the swipe settings alike (both own the WeeklyMeals state).
+ * Styled to match the settings cards (bg-card + ELEVATION) so it slots in seamlessly.
  */
-export function MealPlanIntake({ initial = DEFAULT_PLAN, onSubmit }: { initial?: WeekPlan; onSubmit?: (plan: WeekPlan) => void }) {
-  const [plan, setPlan] = React.useState<WeekPlan>(initial);
-  const setMeal = (m: MealType, v: number) => setPlan((s) => ({ meals: { ...s.meals, [m]: v } }));
+export function MealCounts({ value, onChange }: { value: WeeklyMeals; onChange: (m: MealType, v: number) => void }) {
+  return (
+    <View className="rounded-2xl bg-card p-4" style={[{ gap: 16 }, ELEVATION.medium]}>
+      <Text className="text-sm font-bold text-ink">How many meals each week?</Text>
+      <VStack space={14}>
+        {MEALS.map((m) => (
+          <HStack key={m.key} className="items-center justify-between">
+            <Text className="text-base text-ink">{m.label}</Text>
+            <Stepper value={value[m.key]} onChange={(v) => onChange(m.key, v)} label={m.label.toLowerCase()} />
+          </HStack>
+        ))}
+      </VStack>
+    </View>
+  );
+}
 
-  const mealCount = MEALS.reduce((n, m) => n + plan.meals[m.key], 0);
-  const ready = mealCount > 0;
+/**
+ * Standalone intake screen: the MealCounts card plus a live total and a primary action. One
+ * question with an explicit "each week" unit, so there's a single obvious mental model.
+ */
+export function MealPlanIntake({ initial = DEFAULT_MEALS, onSubmit }: { initial?: WeeklyMeals; onSubmit?: (meals: WeeklyMeals) => void }) {
+  const [meals, setMeals] = React.useState<WeeklyMeals>(initial);
+  const setMeal = (m: MealType, v: number) => setMeals((s) => ({ ...s, [m]: v }));
+  const total = mealTotal(meals);
+  const ready = total > 0;
 
   return (
     <View style={{ padding: 20 }}>
       <VStack space={20}>
-        <View className="rounded-2xl bg-card p-5" style={[{ gap: 18 }, ELEVATION.medium]}>
-          <Text className="text-lg text-ink" style={{ fontFamily: "Karla_700Bold" }}>How many meals each week?</Text>
-          <VStack space={16}>
-            {MEALS.map((m) => (
-              <HStack key={m.key} className="items-center justify-between">
-                <Text className="text-base text-ink">{m.label}</Text>
-                <Stepper value={plan.meals[m.key]} onChange={(v) => setMeal(m.key, v)} label={m.label.toLowerCase()} />
-              </HStack>
-            ))}
-          </VStack>
-        </View>
-
+        <MealCounts value={meals} onChange={setMeal} />
         <VStack space={12} className="items-center">
-          <Text className="text-sm text-muted">
-            {mealCount} {mealCount === 1 ? "meal" : "meals"} a week
-          </Text>
+          <Text className="text-sm text-muted">{total} {total === 1 ? "meal" : "meals"} a week</Text>
           <Pressable
-            onPress={() => onSubmit?.(plan)}
+            onPress={() => onSubmit?.(meals)}
             disabled={!ready}
             accessibilityRole="button"
             accessibilityLabel="Continue"
