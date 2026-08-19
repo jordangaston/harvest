@@ -1,0 +1,309 @@
+<style>
+  :root {
+    --ground: #EAE6DD;
+    --panel: #F7F5F0;
+    --panel-2: #FDFCF9;
+    --ink: #211E19;
+    --soft: #5B564C;
+    --faint: #8A8477;
+    --rule: #D6D0C4;
+    --rule-strong: #C3BCAC;
+    --score: #A85E2B;   /* soft / penalty */
+    --filter: #9A3324;  /* hard exclude */
+    --pass: #5F6B2E;    /* owned / kept */
+    --score-wash: #F1E4D5;
+    --filter-wash: #F0DDD8;
+    --pass-wash: #E4E7D4;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.6; font-size: 16px; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px 96px; }
+  section { margin-top: 60px; }
+  section > * + * { margin-top: 18px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 14px; }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  h2 { font-family: var(--mono); font-weight: 600; font-size: 26px; letter-spacing: -0.01em; margin: 10px 0 0; text-wrap: balance; }
+  h3 { font-family: var(--mono); font-weight: 600; font-size: 15px; letter-spacing: 0.02em; margin: 0; }
+  p { margin: 0; max-width: 68ch; }
+  p.note { color: var(--soft); font-size: 14.5px; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+  code { font-family: var(--mono); font-size: 0.92em; background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; }
+
+  header { padding-top: 56px; border-bottom: 2px solid var(--ink); padding-bottom: 34px; }
+  .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--score); margin: 0; }
+  h1 { font-family: var(--mono); font-weight: 700; font-size: clamp(34px, 6vw, 58px); line-height: 1.02; letter-spacing: -0.02em; margin: 14px 0 0; text-wrap: balance; }
+  .dek { margin-top: 18px; font-size: 18px; color: var(--soft); max-width: 60ch; }
+  .meta { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px 10px; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; }
+  .tag { text-transform: uppercase; padding: 4px 9px; border: 1px solid var(--rule-strong); border-radius: 100px; color: var(--soft); background: var(--panel-2); }
+
+  .hero { margin-top: 34px; background: var(--ink); color: #F3EFE6; border-radius: 10px; padding: 26px 28px; }
+  .hero .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #B7A98F; }
+  .hero .rows { margin-top: 16px; display: grid; gap: 10px; }
+  .hero .r { display: grid; grid-template-columns: auto auto 1fr; gap: 12px; align-items: baseline; font-family: var(--mono); font-size: 14px; }
+  .hero .r .cond { color: #E7DFCE; }
+  .hero .r .arrow { color: #7C7361; }
+  .pill { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 4px; white-space: nowrap; }
+  .pill.exclude { color: #fff; background: var(--filter); }
+  .pill.penalty { color: #201d18; background: #E0965A; }
+  .pill.keep { color: #201d18; background: #B9C77E; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; }
+  .panel > * + * { margin-top: 10px; }
+  .panel.filter-top { border-top: 3px solid var(--filter); }
+  .panel.score-top { border-top: 3px solid var(--score); }
+
+  .tier { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+  .tier + .tier { margin-top: 12px; }
+  .tier .top { display: flex; align-items: center; gap: 12px; }
+  .tier .badge { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 9px; border-radius: 4px; white-space: nowrap; }
+  .tier.primary .badge { color: #fff; background: var(--pass); }
+  .tier.fallback .badge { color: var(--soft); background: var(--panel); border: 1px dashed var(--rule-strong); }
+  .tier h3 { font-size: 15px; }
+  .tier p { font-size: 13.5px; color: var(--soft); margin-top: 8px; }
+  .tier .arrow-down { text-align: center; color: var(--faint); font-family: var(--mono); font-size: 12px; margin: 8px 0 0; }
+
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel-2); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); background: var(--panel); font-weight: 600; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .role { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; white-space: nowrap; display: inline-block; }
+  .role.req { color: var(--filter); background: var(--filter-wash); }
+  .role.rec { color: var(--score); background: var(--score-wash); }
+  .role.own { color: var(--pass); background: var(--pass-wash); }
+  .role.na  { color: var(--faint); background: var(--panel); border: 1px dashed var(--rule-strong); }
+
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .tbl { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; font-family: var(--mono); font-size: 12.5px; }
+  .tbl .tname { background: var(--ink); color: #F3EFE6; padding: 10px 14px; font-size: 13px; letter-spacing: 0.03em; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .tbl .tname .card1 { color: #B7A98F; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .tbl .field { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--rule); }
+  .tbl .field:last-child { border-bottom: none; }
+  .tbl .fname { color: var(--ink); }
+  .tbl .ftype { color: var(--faint); text-align: right; }
+  .tbl .pk { color: var(--score); }
+  .tbl .enum { color: var(--pass); }
+  .tbl .new { color: var(--filter); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { border: 1px dashed var(--rule-strong); border-radius: 8px; padding: 12px 15px; background: var(--panel-2); max-width: 320px; }
+  .chip .h { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .chip .d { font-size: 13px; color: var(--soft); margin-top: 5px; }
+  .chip.resolved { border-style: solid; border-color: var(--pass); }
+
+  .callout { background: var(--score-wash); border: 1px solid var(--rule-strong); border-left: 3px solid var(--score); border-radius: 6px; padding: 14px 16px; font-size: 14px; color: var(--ink); }
+  .callout b { font-weight: 600; }
+
+  footer { margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--rule); font-family: var(--mono); font-size: 12px; color: var(--faint); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+  @media (max-width: 720px) { .split, .cards { grid-template-columns: 1fr; } }
+  a { color: var(--score); }
+  :focus-visible { outline: 2px solid var(--score); outline-offset: 2px; border-radius: 3px; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="kicker">Harvest · Ranking Engine · Signal #9</p>
+    <h1>Kitchen Equipment</h1>
+    <p class="dek">Detect the appliances each recipe step needs, then filter the deck by what's actually
+      in the user's kitchen. The third hard filter — no weight, it gates the pool.</p>
+    <div class="meta">
+      <span class="tag">3rd hard filter</span>
+      <span class="tag">LLM-primary detection</span>
+      <span class="tag">per-recipe essentiality</span>
+      <span class="tag">extends DESIGN.md</span>
+    </div>
+
+    <div class="hero" aria-label="filter logic">
+      <div class="lbl">The rule — a reviewed user, per detected appliance</div>
+      <div class="rows">
+        <div class="r">
+          <span class="pill exclude">exclude</span>
+          <span class="arrow">←</span>
+          <span class="cond"><strong>required</strong> equipment they don't own (non-substitutable: sous-vide, smoker)</span>
+        </div>
+        <div class="r">
+          <span class="pill penalty">−0.10</span>
+          <span class="arrow">←</span>
+          <span class="cond"><strong>recommended</strong> equipment they don't own (substitutable: air-fryer → oven)</span>
+        </div>
+        <div class="r">
+          <span class="pill keep">keep</span>
+          <span class="arrow">←</span>
+          <span class="cond">owned · or the recipe needs only baseline gear · or detection unknown</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Two halves</p>
+    <h2>Detect at import, filter at rank</h2>
+    <div class="split">
+      <div class="panel score-top">
+        <h3>A · Detection (import)</h3>
+        <p class="note">A new capability on the import pipeline: read each recipe and determine the
+          <em>notable</em> appliances its steps need — including ones only implied by context — and
+          whether each is essential or merely convenient <em>for that recipe</em>.</p>
+      </div>
+      <div class="panel filter-top">
+        <h3>B · Filter (rank)</h3>
+        <p class="note">An <code>EquipmentFilter</code> joins the engine's existing hard-filter registry
+          (alongside allergens and diets). One array entry — no engine rewrite. Required-missing
+          excludes; recommended-missing softly penalizes.</p>
+      </div>
+    </div>
+    <p class="note">Only <strong>notable</strong> appliances are tracked (a controlled vocab: air fryer,
+      slow cooker, pressure cooker, sous-vide, smoker, stand mixer, blender, …). Baseline gear — oven,
+      stovetop, knives, pans — is assumed present and never filtered.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Detection · LLM-primary, deterministic fallback</p>
+    <h2>Why this needs an LLM</h2>
+    <div class="callout">
+      <b>Equipment is often implicit and substitution is a judgment.</b> A recipe titled "Air Fryer
+      Wings" whose steps only say "cook at 400°F for 12 min" names no appliance in any step; "beat to
+      stiff peaks" implies an electric mixer. And whether an air-fryer recipe survives in an oven is
+      reasoning, not a keyword. A keyword matcher is a high-precision / low-recall floor — not a primary.
+    </div>
+    <div class="tier primary">
+      <div class="top"><span class="badge">primary</span><h3>Recipe-analysis LLM</h3></div>
+      <p>Its own pipeline step (<code>EquipmentDetector</code>) with a single-purpose prompt reading
+        title + ingredients + steps. Returns equipment constrained to the vocab — <em>including implicit
+        gear</em> — with a per-recipe <code>essentiality</code> (required / recommended), an optional
+        <code>substitute</code> note, and per-step alignment for the UI.</p>
+      <div class="arrow-down">↓ on failure / timeout</div>
+    </div>
+    <div class="tier fallback">
+      <div class="top"><span class="badge">fallback</span><h3>Alias matcher (deterministic)</h3></div>
+      <p>Word-boundary scan over step text catches <em>explicit</em> mentions only, using the per-type
+        <code>defaultEssentiality</code> prior — and sets <code>equipment_complete = false</code> so the
+        filter stays lenient. Tiered fallback: emit something rather than nothing, but don't hard-exclude
+        on uncertain data.</p>
+    </div>
+    <p class="note">Pipeline: <code>… → categorize → equipment → diet → persist</code> — its own step.
+      Best-effort like every other enrichment step; never fails the import.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">The gate · essentiality × ownership</p>
+    <h2>Required excludes, recommended penalizes</h2>
+    <p class="note">Essentiality is the allergen-severity / diet-strictness analog — judged
+      <strong>per recipe</strong> by the LLM (slow-cooking as the <em>method</em> vs. a convenience),
+      stored on <code>recipe_equipment</code>. The config default is only the fallback prior.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Recipe needs…</th><th>User owns it</th><th>User lacks it</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="role req">required</span> non-substitutable</td>
+            <td class="mono" style="color:var(--pass)">keep</td>
+            <td class="mono" style="color:var(--filter)"><strong>exclude</strong></td>
+          </tr>
+          <tr>
+            <td><span class="role rec">recommended</span> substitutable</td>
+            <td class="mono" style="color:var(--pass)">keep</td>
+            <td class="mono" style="color:var(--score)">keep · <strong>−0.10</strong></td>
+          </tr>
+          <tr>
+            <td><span class="role na">baseline</span> oven/stovetop/knife</td>
+            <td class="mono" style="color:var(--faint)">not tracked</td>
+            <td class="mono" style="color:var(--faint)">not tracked</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="split">
+      <div class="panel">
+        <h3>Gated on review</h3>
+        <p class="note">The filter engages <strong>only when <code>equipment_reviewed = true</code></strong>
+          — a flag set when the user reviews their kitchen (even if they own nothing). This distinguishes
+          "owns nothing special" from "hasn't told us," so we never hide recipes from a user who simply
+          hasn't set up. Same stance as allergens: no data → no filter.</p>
+      </div>
+      <div class="panel">
+        <h3>Lenient on unknowns</h3>
+        <p class="note">A recipe with <code>equipment_complete = false</code> (imported before this
+          feature, or an LLM miss) is treated as <em>unknown</em> and kept — over-filtering hides good
+          food, and hiding a dish because the model hallucinated a smoker is the failure mode to guard
+          against (Q-E6). Safe to ship before any backfill.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Worked example · a reviewed user who owns { slow_cooker, blender }</p>
+    <h2>What the deck does</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Recipe</th><th>Detected equipment</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td>A · Sous-vide steak</td><td><span class="role req">sous_vide · required</span></td><td class="mono" style="color:var(--filter)"><strong>excluded</strong> — not owned</td></tr>
+          <tr><td>B · Air-fryer wings</td><td><span class="role rec">air_fryer · recommended</span></td><td class="mono" style="color:var(--score)">kept · −0.10 (oven)</td></tr>
+          <tr><td>C · Slow-cooker chili</td><td><span class="role own">slow_cooker · owned</span></td><td class="mono" style="color:var(--pass)">kept · no penalty</td></tr>
+          <tr><td>D · Sheet-pan salmon</td><td><span class="role na">baseline oven only</span></td><td class="mono" style="color:var(--pass)">kept · no penalty</td></tr>
+          <tr><td>E · Smoked brisket</td><td><span class="role na">smoker · complete=false</span></td><td class="mono" style="color:var(--faint)">kept · lenient (unknown)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Had the same user <code>equipment_reviewed = false</code>, <strong>all five</strong>
+      are kept and unpenalized.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Data model</p>
+    <h2>Two join tables, three flags</h2>
+    <div class="cards">
+      <div class="tbl">
+        <div class="tname">recipe_equipment <span class="card1">the set the filter reads</span></div>
+        <div class="field"><span class="fname pk">recipe_id</span><span class="ftype">text · fk cascade</span></div>
+        <div class="field"><span class="fname pk">equipment</span><span class="ftype enum">EQUIPMENT_TYPES</span></div>
+        <div class="field"><span class="fname new">essentiality</span><span class="ftype enum">required · recommended</span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">user_equipment <span class="card1">what they own</span></div>
+        <div class="field"><span class="fname pk">user_id</span><span class="ftype">text · fk cascade</span></div>
+        <div class="field"><span class="fname pk">equipment</span><span class="ftype enum">EQUIPMENT_TYPES</span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">recipe_steps <span class="card1">+ column · per-step UI</span></div>
+        <div class="field"><span class="fname new">equipment</span><span class="ftype">json Equipment[] · null</span></div>
+      </div>
+      <div class="tbl">
+        <div class="tname">flags <span class="card1">gating + coverage</span></div>
+        <div class="field"><span class="fname new">recipes.equipment_complete</span><span class="ftype">bool · detection ran</span></div>
+        <div class="field"><span class="fname new">user_preferences.equipment_reviewed</span><span class="ftype">bool · filter gate</span></div>
+      </div>
+    </div>
+    <p class="note">Mirrors <code>recipe_categories</code> / <code>user_allergens</code>. The vocab
+      <code>EQUIPMENT_TYPES</code> is a code tuple; adding an appliance is one line + a config entry
+      (aliases + default essentiality), no migration.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Decisions &amp; open questions</p>
+    <h2>What's settled, what isn't</h2>
+    <div class="chips">
+      <div class="chip resolved"><div class="h">✓ LLM-primary detection</div><div class="d">First draft chose keyword-primary; corrected — it misses implicit gear and can't reason about substitutes. Keyword scan is the fallback.</div></div>
+      <div class="chip resolved"><div class="h">✓ Per-recipe essentiality</div><div class="d">Stored on recipe_equipment; substitutability is a recipe-level judgment, not a fixed appliance property.</div></div>
+      <div class="chip resolved"><div class="h">✓ Hard filter, no weight</div><div class="d">You can't "mostly" own an air fryer — absence is binary. Gates like allergens/diet.</div></div>
+      <div class="chip resolved"><div class="h">✓ Dedicated detection step</div><div class="d">Its own EquipmentDetector LLM call with a single-purpose prompt — not folded into the categorizer — for cleaner quality and independent retries.</div></div>
+      <div class="chip"><div class="h">Q-E6 · detection accuracy</div><div class="d">We're trusting an LLM to drive a hard exclude. Needs a labeled eval set before leaning on it — start lenient, watch equipment_filtered_ratio.</div></div>
+      <div class="chip"><div class="h">Q-E1 · where users declare</div><div class="d">Onboarding vs settings vs inferred. Data model is ready either way.</div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>docs/ranking-engine/EQUIPMENT-SIGNAL.md</span>
+    <span>Harvest · Signal #9 · Kitchen Equipment</span>
+  </footer>
+
+</div>
