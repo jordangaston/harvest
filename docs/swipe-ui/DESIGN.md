@@ -92,7 +92,7 @@ the gaps** — interactions the current API cannot serve, specified as proposed 
 | 11 | Empty / cooldown state | `ranked-deck` returns `[]` | ✅ served |
 | 12 | Light "liked!" confirmation | client-only (uses the swipe response); no endpoint | ✅ served |
 | 13 | Periodic "you've liked N — plan your week?" nudge | a running like-count | ⚠️ **gap** — no count field in the contract. Client tallies session likes; a durable count needs a Liked-cookbook size read (Q-09) |
-| 14 | UP "Cook this week" super-action | none — `direction` is `like`\|`dislike` only | ⚠️ **gap** — prototype maps UP → `like`; a real "save to my week" needs `direction:'save'`/`'super_like'` + meal-plan wiring (Q-10) |
+| 14 | UP "Cook this week" super-action → **cookbook picker** (pick which cookbook to save to) | none — `direction` is `like`\|`dislike`, and no cookbook target | ⚠️ **gap** — prototype opens the picker then maps to `like`; a real "save to my week" needs `direction:'save'` **+ a cookbook id** + meal-plan wiring (Q-10) |
 | 15 | Undo the last swipe | none — no un-swipe endpoint | ⚠️ **gap** — client-side pre-commit undo only (cancels the optimistic POST inside its delay window); undoing an already-recorded swipe needs `DELETE /v1/recipes/:id/swipe` (Q-11) |
 | 16 | Settings: **view** current preferences | none documented | ⚠️ **gap** — needs `GET /v1/preferences` (Q-12) |
 | 17 | Settings: **edit** weights, targets, food prefs, filters | none documented | ⚠️ **gap** — needs `PUT /v1/preferences` (Q-12) |
@@ -199,7 +199,7 @@ sequenceDiagram
     P->>H: preferences?
     H->>API: GET /v1/preferences  %% Q-12 — proposed
     API-->>H: UserPreferences
-    H-->>P: render controls (soft vs hard, grouped)
+    H-->>P: render controls, grouped by kind (declarative — no algorithm copy)
     U->>P: adjust slider / toggle filter / add dislike
     note over P: local draft; banner "applies to your next cards"
     U->>P: Save
@@ -216,24 +216,24 @@ wiring once `GET`/`PUT /v1/preferences` exist.
 ## Card anatomy
 
 A single full-bleed card (mirroring Bumble — one interactive card, one static card flush behind it, revealed
-on drag; no scaled fan). `rounded-xl2` (20px), `bg-card`, soft shadow.
+on drag; no scaled fan). `rounded-xl2` (20px), `bg-card`, lifted with `ELEVATION.high` (§ Colour & depth).
 
 - **Hero photo** — full-bleed `expo-image`, cover, with a bottom-up scrim so overlaid text stays legible.
 - **Title** — Karla bold, large, low-left over the photo.
 - **"Why for you" line** — one plain-language sentence derived from `breakdown` + card fields, e.g.
   *"Italian + chicken you love, under budget, 25 min."* Built by ranking the top 2–3 breakdown signals and
   templating each (see § Why-line derivation).
-- **At-a-glance badge row** — pill badges for the signals a diner cares about, each an icon + short value:
-  - **Time** `⏱ 25 min` (`total_minutes`)
-  - **Cost** `$ 3.50/serv` (`cost_per_serving_cents`)
-  - **Difficulty** `● Intermediate` (`difficulty_band`)
-  - **Nutrition** `♥ Nutritious` when `nrf_score` is high (thresholded)
-  - **Meal-prep** `▣ Meal-prep` only when `meal_prep_fit === 'designed'` (per MEAL-PREP-SIGNAL badge rule)
-  - **Equipment** `▲ Air fryer` when the card requires owned-or-unowned notable equipment
-  - **Compatibility** `✓ Vegan · Nut-free` derived from `diets`/`allergens` vs. the user's filters
-- **Detail affordance** — a peeking "Recipe details" handle at the card's lower edge (Bumble's white
-  "talk about" teaser analog). Tapping or swiping it up opens the **DetailSheet**: ingredients, a 3-step
-  preview, full metadata, and the full "why" breakdown as labeled bars.
+- **Score + badges over the photo are translucent-dark pills** (`rgba(28,19,8,0.5)` + cream text), never
+  near-white — a light pill reads as pure white on a photo (Bumble's treatment). The **badge row is capped to
+  the three core signals + at most one accent**; the rest lives in the detail sheet:
+  - **Time** `⏱ 25 min` (`total_minutes`) · **Cost** `$3.50/serv` (`cost_per_serving_cents`) ·
+    **Difficulty** `Intermediate` (`difficulty_band`) — the three core.
+  - **One accent**, by priority: meal-prep (`meal_prep_fit==='designed'`) → nutritious (`nrf_score` high) →
+    unowned equipment → diet/allergen compatibility.
+- **Detail affordance** — a "Recipe details" pill at the card's lower edge (translucent-dark, cream text).
+  Opens the **DetailSheet**: **ingredients with quantities + image thumbnails**, a 3-step preview, full
+  metadata, and the "why" breakdown as labeled bars showing **raw values** ("$3.50/serving", "25 min") — not
+  percentages, which mean nothing to a diner.
 
 ### Why-line derivation (from `breakdown`)
 
@@ -420,7 +420,8 @@ All timings reference `lib/motion.ts` — never hardcoded. Opens are slower than
 | Card spring-back (below threshold) | spring | no bounce on the incoming card (already in place) |
 | Reason sheet / detail sheet open | `Modal animationType="slide"` + `DURATION.medium` (350) | native slide + scrim; **open slower** |
 | Sheet close | `DURATION.fast` (250) | gets out of the way |
-| Confirm toast | `TOAST` (in 350 / out 250, rise 16) | reuses the toast token |
+| Toast (success) | `TOAST` (in 350 / out 250, rise 16) | **green ✓, drops in from the top** |
+| Toast (error) | `TOAST` | **red !, rises from the bottom** — colour + position carry the meaning |
 | Like flourish | `DURATION.quick`–`fast` | light, non-blocking |
 | Drag ✓/✗ disc | continuous | opacity ∝ drag distance; no travel token |
 
@@ -429,10 +430,28 @@ All timings reference `lib/motion.ts` — never hardcoded. Opens are slower than
 
 ---
 
+## Colour & depth
+
+This surface uses the app-wide shade system (full spec in `AGENTS.md § Shades, depth & colour`):
+
+- **One warm-neutral ramp** `sand-50…900` carries surfaces, chips, borders and text; **`brand`** (terracotta)
+  is primary/selected, **`success`** green = positive, **`error`** red = destructive. Colour is spent only on
+  meaning.
+- **Depth via shadow, not tone** — `lib/elevation.ts` (`low` tiles/chips · `medium` cards/buttons · `high`
+  the swipe card). `bg-card` on `bg-cream` is ~1.15:1, so surfaces separate by shadow, never by colour step.
+- **Over the photo**, pills (score, badges, "Recipe details") are **translucent-dark + cream text** — a
+  light pill reads as white on an image.
+- **Selection:** segmented active = solid `brand` + white; multi-select chip = `brand-light` + `border-brand`;
+  unselected chip = `sand-200` + muted (recedes so the current settings lead).
+- **Action bar:** Pass = `error` (red) · Cook = `brand` (terracotta) · Like = `success` (green) · Undo =
+  `bg-card` (quiet). See D-09.
+
+---
+
 ## Accessibility
 
 - **Gesture ↔ button parity.** Every gesture has an `ActionBar` button with a VoiceOver label: Undo
-  ("Undo last swipe"), Pass ("Pass on {title}"), Super ("Cook this week — save {title} to your plan"), Like
+  ("Undo last swipe"), Pass ("Pass on {title}"), Super ("Cook this week — choose a cookbook for {title}"), Like
   ("Like {title}"). The card exposes `accessibilityActions` (magic-tap = like) so VoiceOver users never need
   the drag.
 - **Reason chips** are buttons with descriptive labels ("Too expensive — show fewer pricey recipes").
@@ -452,7 +471,8 @@ All timings reference `lib/motion.ts` — never hardcoded. Opens are slower than
 | Empty / cooldown | `ranked-deck` → `[]` | "You're all caught up — check back later, or tweak your preferences." CTAs → **Settings**, **Meal plan** |
 | Error | fetch fails | inline retry card ("Couldn't load recipes — Retry"); last good batch stays swipeable if present |
 | Offline | no connectivity | swipes queue locally (optimistic) and flush on reconnect; a subtle "offline — saved" chip; deck served from the persisted cache |
-| Swipe rollback | POST failed after retries | the card returns to the front; quiet toast "Didn't save — try again" |
+| Like confirmation | a `like` / super swipe | **green ✓ toast** at the top of the card ("Added to Liked", "Saved to {cookbook}") |
+| Swipe rollback | POST failed after retries | the card returns to the front with a red "Didn't save — swipe again" banner |
 
 ---
 
@@ -518,14 +538,17 @@ grey ✓/✗ disc scaling with drag, not Tinder's green/red LIKE/NOPE wash. It r
 restrained palette. **Choice:** frosted disc, opacity ∝ drag. *Alternative:* colored full-card tint (rejected
 — louder than the design system).
 
-### D-03 Per-filter hard-vs-soft is explicit grouping, not a Bumble "…if I run out" toggle
-**Framework:** Direct criterion — the backend model. Bumble auto-relaxes a hard filter when supply runs out;
-our ranking engine has **no such fallback** — allergens/strict-diets/required-equipment simply *hide*
-recipes, and the soft weights only *reorder*. Inventing a "relax if I run out" toggle would imply backend
-behavior that doesn't exist. **Choice:** mirror Bumble's *clarity* (plain-language, question-headed sections,
-values echoed in words) but express hard-vs-soft as **two visibly separated groups** — "Filters (hide
-recipes)" vs. "Preferences (reorder)" — matching the real semantics. *Alternative:* copy the "if I run out"
-toggle (rejected — misrepresents the engine; Q-13 if a fallback is ever built).
+### D-03 Declarative settings — grouping over labels, no algorithm lesson
+**Framework:** Direct criterion — the interface should be self-explanatory (design-owner review). The engine
+*does* split hard filters (allergens / strict diets / required equipment **hide** recipes) from soft weights
+(only **reorder**), and an earlier draft surfaced that split with "Filters" / "Preferences" headers and
+per-section explainer copy. Users don't care how the ranker works and shouldn't have to. **Choice:** drop the
+group headers, the "applies to next batch" banner, and every explainer subtext; convey the hard/soft grouping
+with **spacing** (allergies / diet / kitchen, then tastes) and let each control speak for itself — casual
+labels ("Allergies", "My kitchen"), the extreme value on the right (Mild·Moderate·Severe, Flexible·Strict).
+This supersedes the brief's §8 "visibly separate hard vs soft." *Alternatives:* the labelled groups
+(rejected — reads as an algorithm tutorial); Bumble's "…if I run out" toggle (rejected — our engine has no
+such fallback, so it would imply behaviour that doesn't exist; Q-13).
 
 ### D-04 Optimistic swipe with a pre-commit Undo window
 **Framework:** Direct criterion — never lose/double-count a swipe, with an accessible Undo despite no
@@ -554,6 +577,21 @@ app-wide).
 `useSwipe`/`usePreferences` wrap an in-memory mock in the studio; the same hook interface wraps the real
 endpoints in the app. *Alternative:* wire live endpoints (rejected — needs a running server + auth + seed).
 
+### D-08 One shade ramp + depth via shadow; colour = meaning
+**Framework:** Direct criterion — the palette had ~3 shades per colour and one flat cream doing every job, so
+surfaces never separated (`bg-card` on `bg-cream` ≈ 1.15:1) and there was no tertiary neutral to reach for.
+**Choice:** one 10-step warm-neutral ramp (`sand-50…900`) + a full `brand` ramp + `success`/`error`; **depth
+from `lib/elevation.ts` (shadow), not tone**; saturated colour spent only on meaning. Documented in
+`AGENTS.md § Shades, depth & colour`. *Alternative:* one-off tertiary tokens (rejected — the gap was systemic).
+
+### D-09 Semantic action colours & toasts
+**Framework:** Direct criterion — colour should signal, not decorate. **Choice:** the action bar is
+**Pass = `error` (red), Like = `success` (green), Cook = `brand` (terracotta), Undo = `bg-card` (quiet
+cream)** — three meaningful verbs + one receding utility, each captioned and icon-backed (never colour
+alone). Toasts follow: **success drops from the top in green (✓), error rises from the bottom in red (!)**.
+*Alternative:* the earlier monochrome/`sand` buttons (rejected — muddy, no signal). The drag ✓/✗ disc stays
+monochrome (D-02) — transient gesture feedback, not a committed action.
+
 ---
 
 ## Open Questions
@@ -580,3 +618,4 @@ endpoints in the app. *Alternative:* wire live endpoints (rejected — needs a r
 | 2026-08-19 | Jordan Gaston | **Settings copy → declarative.** Per review, the settings surface no longer teaches the algorithm: removed the "applies to next batch" banner, the Filters/Preferences group headers, and every explanatory subtext; renamed Allergens→Allergies, Diets→Diet, "I've reviewed my kitchen"→"My kitchen", Save button→"Save". Severity reordered Mild·Moderate·Severe and strictness Flexible·Strict (extreme on the right). Kitchen switch removed — equipment is now plain toggle chips, so `equipment_reviewed` is implicit (**follow-up: set `equipment_reviewed=true` when a user first manages their kitchen / at onboarding**, since the toggle is gone). This supersedes the brief's "visibly separate hard filters vs soft preferences" (§8) — the hard/soft split is now conveyed by grouping/spacing, not copy, at the design owner's direction. |
 | 2026-08-19 | Jordan Gaston | Toasts made semantic: success = green + drops from the **top** (✓); error = red + rises from the **bottom** (!). Shared `Toast` gains a `variant`; swipe reward toast anchored to the card top. |
 | 2026-08-19 | Jordan Gaston | **Shade-system migration (whole app).** Root cause of the recurring "everything reads white/flat": a bimodal neutral ramp with no tertiary + no shadow scale. Fixes: (1) `tailwind.config.js` — one 10-step warm-neutral ramp `sand-50…900` + full `brand` ramp + `success`/`error` `light/DEFAULT/dark`; retired the `taupe`/`umber` experiment. (2) New `lib/elevation.ts` (low/medium/high) — depth via shadow, not tone; replaced all hand-rolled shadows and lifted every flat `bg-card` surface across `components/` + `app/` (audit-driven). (3) Semantic action bar: Pass=`error`, Cook=`brand`, Like=`success`, Undo=`card` (quiet). (4) Selection rule: segmented active = solid `brand`+white, multi-chip selected = `brand-light`+border, unselected chip = `sand-200`+muted. Gated with a `/refactoring-ui` audit (strengthened elevation so warm cards actually separate; darkened banner text to AA; moved the Filters icon off red). Documented in AGENTS.md § Shades, depth & colour. Typecheck clean, 20/20 tests, verified live in-sim. |
+| 2026-08-19 | Jordan Gaston | Doc body synced to the built state: card anatomy (translucent-dark on-photo pills, badge row capped to core+1, detail sheet raw values + ingredient qty/thumbnails); new § Colour & depth; D-03 rewritten as declarative-settings; added D-08 (shade ramp + depth-via-shadow) and D-09 (semantic action colours & toasts); mapping row 14 (super → cookbook picker); motion/states updated for semantic toasts. |
