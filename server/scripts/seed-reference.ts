@@ -1,3 +1,4 @@
+import 'dotenv/config'; // load .env; inline vars (TURSO_DATABASE_URL) still take precedence
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';

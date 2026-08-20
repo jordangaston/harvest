@@ -1,3 +1,4 @@
+import 'dotenv/config'; // load .env (OPENAI_API_KEY etc.) for the enrichers; inline vars still win
 import { readFileSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 import { and, eq, isNull } from 'drizzle-orm';
