@@ -192,6 +192,7 @@ export default function OnboardingFlow() {
       key={step}
       progress={s.progress}
       showBack={step > 0}
+      onBack={step > 0 ? () => setStep((n) => Math.max(0, n - 1)) : undefined}
       onSkip={undefined}
       ctaLabel={s.ctaLabel}
       ctaDisabled={s.ctaDisabled}
