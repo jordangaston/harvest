@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
@@ -66,6 +66,9 @@ export class PreferenceRepository {
       foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment })),
       ownedEquipment: equipment.map((e) => e.equipment),
       equipmentReviewed: prefs.equipmentReviewed,
+      groceryStores: prefs.groceryStores ?? [],
+      household: { adults: prefs.householdAdults, kids: prefs.householdKids },
+      eatsLeftovers: prefs.eatsLeftovers,
     });
   }
 
@@ -90,6 +93,9 @@ export class PreferenceRepository {
       foodPrefs: [],
       ownedEquipment: [],
       equipmentReviewed: false,
+      groceryStores: [],
+      household: { adults: 2, kids: 0 },
+      eatsLeftovers: true,
     });
   }
 
@@ -162,6 +168,12 @@ export class PreferenceRepository {
   async savePreferences(userId: string, input: PreferencesUpdate): Promise<UserPreferences> {
     await this.db.transaction(async (tx) => {
       await this.ensureRow(tx, userId);
+
+      // Seed the meal-prep weight once when leftovers flip false→true (mirrors the goals
+      // cold-start seed); never lower it. Read the pre-save value inside the tx.
+      const [before] = await tx.select({ eatsLeftovers: userPreferences.eatsLeftovers }).from(userPreferences).where(eq(userPreferences.userId, userId));
+      const leftoversTurnedOn = input.eatsLeftovers && before && !before.eatsLeftovers;
+
       await tx
         .update(userPreferences)
         .set({
@@ -170,6 +182,13 @@ export class PreferenceRepository {
           timeBudgetMinutes: input.timeBudgetMinutes,
           weeklyMeals: input.weeklyMeals,
           equipmentReviewed: true,
+          // Domain model keeps stores as string[]; the wire DTO already validated them against
+          // the GROCERY_STORES enum the column types, so this widening cast is safe.
+          groceryStores: input.groceryStores as (typeof userPreferences.$inferInsert)['groceryStores'],
+          householdAdults: input.household.adults,
+          householdKids: input.household.kids,
+          eatsLeftovers: input.eatsLeftovers,
+          ...(leftoversTurnedOn ? { weightMealPrep: sql`min(3, ${userPreferences.weightMealPrep} + 1)` } : {}),
           updatedAt: new Date(),
         })
         .where(eq(userPreferences.userId, userId));
@@ -186,21 +205,22 @@ export class PreferenceRepository {
       if (input.ownedEquipment.length)
         await tx.insert(userEquipment).values(input.ownedEquipment.map((equipment) => ({ userId, equipment })));
 
-      // Replace only the two slices the settings screen owns; leave the rest (dish-type, etc.).
-      await tx.delete(userFoodPrefs).where(
-        and(
-          eq(userFoodPrefs.userId, userId),
-          or(
-            and(eq(userFoodPrefs.facet, 'cuisine'), eq(userFoodPrefs.sentiment, 'like')),
-            and(eq(userFoodPrefs.facet, 'primary_ingredient'), eq(userFoodPrefs.sentiment, 'dislike')),
-          ),
-        ),
-      );
+      // The picker fully owns the like set (rebuild it); for dislikes, replace only the values
+      // it re-supplies so a dislike-loop dislike on an untouched value survives (Test Case 2).
+      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'like')));
+      const dislikeValues = input.dislikes.map((d) => d.value);
+      if (dislikeValues.length)
+        await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'dislike'), inArray(userFoodPrefs.value, dislikeValues)));
+
       const foodRows = [
-        ...input.likedCuisines.map((value) => ({ userId, facet: 'cuisine' as const, value, sentiment: 'like' as const })),
-        ...input.dislikedIngredients.map((value) => ({ userId, facet: 'primary_ingredient' as const, value, sentiment: 'dislike' as const })),
+        ...input.likes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'like' as const })),
+        ...input.dislikes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'dislike' as const })),
       ];
-      if (foodRows.length) await tx.insert(userFoodPrefs).values(foodRows).onConflictDoNothing();
+      if (foodRows.length)
+        await tx
+          .insert(userFoodPrefs)
+          .values(foodRows)
+          .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: sql`excluded.sentiment` } });
     });
     return this.getPreferences(userId);
   }
