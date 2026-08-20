@@ -9,6 +9,7 @@ const GOALS = [
   'plan_meals',
   'meal_prepping',
   'try_new_cuisines',
+  'kid_friendly',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
@@ -69,8 +70,9 @@ export type User = z.infer<typeof UserSchema>;
 /**
  * Projects a user to the API-safe shape — never key material or nonces.
  * @param user - The domain user.
- * @returns The id, phone, and name (name null until the user provides one).
+ * @returns The id, phone, name (null until the user provides one), and the
+ *   derived `finished_onboarding` gate (Q-02: `onboardingCompletedAt` presence).
  */
-export function toPublicUser(user: User): { id: string; phone: string; name: string | null } {
-  return { id: user.id, phone: user.phone, name: user.name };
+export function toPublicUser(user: User): { id: string; phone: string; name: string | null; finished_onboarding: boolean } {
+  return { id: user.id, phone: user.phone, name: user.name, finished_onboarding: user.onboardingCompletedAt != null };
 }
