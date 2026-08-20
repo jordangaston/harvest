@@ -87,7 +87,7 @@ export function SwipeDeck({
   }, []);
 
   const commit = React.useCallback(
-    (direction: Direction, method: "gesture" | "button", cookbook?: string) => {
+    (direction: Direction, method: "gesture" | "button", cookbook?: string, reason?: DislikeReason, detail?: string) => {
       const card = deck.cards[0];
       if (!card) return;
       setShowHint(false);
@@ -98,24 +98,22 @@ export function SwipeDeck({
       if (direction === "like" || direction === "save") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         flash(direction === "save" ? `Saved to ${cookbook ?? "your week"} ♥` : "Added to Liked ♥");
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        setReasonFor({ id: card.recipe.id, title: card.recipe.title });
       }
-      deck.swipe(direction);
+      // Dislike carries the reason chosen in the sheet (opened before the card left).
+      deck.swipe(direction, reason, detail);
     },
     [deck, flash],
   );
 
   // Fling the top card off, then advance and reset. Honors Reduce Motion (skip travel).
   const fling = React.useCallback(
-    (direction: Direction, method: "gesture" | "button", cookbook?: string) => {
+    (direction: Direction, method: "gesture" | "button", cookbook?: string, reason?: DislikeReason, detail?: string) => {
       if (!deck.cards[0]) return;
       const toValue =
         direction === "save"
           ? { x: 0, y: -CARD_H * 1.3 }
           : { x: (direction === "like" ? 1 : -1) * CARD_W * 1.6, y: 0 };
-      const done = () => { commit(direction, method, cookbook); pos.setValue({ x: 0, y: 0 }); };
+      const done = () => { commit(direction, method, cookbook, reason, detail); pos.setValue({ x: 0, y: 0 }); };
       if (reduceMotion) return done();
       Animated.timing(pos, { toValue, duration: DURATION.fast, easing: EASE.smoothOut, useNativeDriver: false }).start(done);
     },
@@ -138,6 +136,16 @@ export function SwipeDeck({
     fling("save", "button", cookbook);
   }, [fling]);
 
+  // Pass opens the reason sheet BEFORE the card leaves — the card springs back and stays on
+  // screen, so it's clear the reason applies to it. It only flies off once chosen/skipped.
+  const requestDislike = React.useCallback(() => {
+    const card = deck.cards[0];
+    if (!card) return;
+    setShowHint(false);
+    springBack();
+    setReasonFor({ id: card.recipe.id, title: card.recipe.title });
+  }, [deck, springBack]);
+
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -145,13 +153,13 @@ export function SwipeDeck({
         onPanResponderMove: Animated.event([null, { dx: pos.x, dy: pos.y }], { useNativeDriver: false }),
         onPanResponderRelease: (_e, g) => {
           if (g.dx > SWIPE_THRESHOLD) fling("like", "gesture");
-          else if (g.dx < -SWIPE_THRESHOLD) fling("dislike", "gesture");
+          else if (g.dx < -SWIPE_THRESHOLD) requestDislike();
           else if (g.dy < -UP_THRESHOLD) openCookbook();
           else springBack();
         },
         onPanResponderTerminate: springBack,
       }),
-    [pos, fling, springBack, openCookbook],
+    [pos, fling, springBack, openCookbook, requestDislike],
   );
 
   const onUndo = React.useCallback(() => {
@@ -162,20 +170,24 @@ export function SwipeDeck({
     setToast(null);
   }, [deck, pos]);
 
+  // Reason chosen → close the sheet, confirm, and NOW fling the card off with the reason.
   const chooseReason = React.useCallback(
     (reason: DislikeReason, detail?: string) => {
       analytics.track("Swipe Reason Chosen", { recipeId: reasonFor?.id, reason, hadDetail: !!detail });
       const chip = REASON_CHIPS.find((c) => c.reason === reason);
       setReasonFor(null);
       flash(detail ? `We’ll avoid ${detail}.` : chip?.confirm ?? "Got it.");
+      fling("dislike", "button", undefined, reason, detail);
     },
-    [reasonFor, flash],
+    [reasonFor, flash, fling],
   );
 
+  // Skipped → still a dislike, just no reason; the card leaves now.
   const skipReason = React.useCallback(() => {
     analytics.track("Swipe Reason Skipped", { recipeId: reasonFor?.id });
     setReasonFor(null);
-  }, [reasonFor]);
+    fling("dislike", "button");
+  }, [reasonFor, fling]);
 
   const openDetail = React.useCallback((card: DeckCard) => {
     analytics.track("Card Detail Expanded", { recipeId: card.recipe.id });
@@ -234,7 +246,7 @@ export function SwipeDeck({
         <ActionBar
           canUndo={!!deck.lastSwipe}
           onUndo={onUndo}
-          onPass={() => fling("dislike", "button")}
+          onPass={requestDislike}
           onSuper={openCookbook}
           onLike={() => fling("like", "button")}
         />
