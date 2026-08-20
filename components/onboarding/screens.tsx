@@ -33,8 +33,8 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
     if (showBody) Animated.timing(fade, { toValue: 1, duration: DURATION.medium, easing: EASE.smoothOut, useNativeDriver: false }).start();
   }, [showBody, fade]);
   return (
-    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-between">
-      <View className="items-center" style={{ gap: 20, paddingTop: 28 }}>
+    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-center">
+      <View className="items-center" style={{ gap: 20 }}>
         {art ? <View className="items-center">{art}</View> : null}
         {typing ? (
           <Typewriter text={headline} haptics={haptics} onDone={() => setShowBody(true)} className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }} />
@@ -47,9 +47,13 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
           </Animated.View>
         ) : null}
       </View>
-      <Pressable onPress={onContinue} accessibilityRole="button" accessibilityLabel={ctaLabel} className="w-full items-center rounded-full bg-brand py-3.5" style={ELEVATION.medium}>
-        <Text className="text-base font-bold text-white">{ctaLabel}</Text>
-      </Pressable>
+      {/* Standalone (studio) shows its own CTA; inside the flow the OnboardingScreen shell owns the
+          pinned, lg-sized CTA, so the card renders content only (no mid-screen button). */}
+      {onContinue ? (
+        <Pressable onPress={onContinue} accessibilityRole="button" accessibilityLabel={ctaLabel} className="mt-10 w-full items-center rounded-full bg-brand py-3.5" style={ELEVATION.medium}>
+          <Text className="text-base font-bold text-white">{ctaLabel}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

@@ -82,10 +82,11 @@ export default function OnboardingFlow() {
   // The ordered steps. `commit` folds the step's answer into the draft; `next` fires on Continue.
   const steps: { progress: number; body: React.ReactNode; ctaLabel?: string; ctaDisabled?: boolean; commit?: () => void; auto?: boolean }[] = [
     { progress: 0.02, auto: true, body: <OnboardingValueCarousel slides={VALUE_CARDS.slice(0, 3).map((c) => ({ title: c.headline, caption: c.body }))} /> },
-    { progress: 0.05, body: <OnboardingValueCard headline="Welcome to Harvest" body="Let's set up a deck that's all yours." typing={false} ctaLabel="Get started" onContinue={() => advance()} /> },
+    { progress: 0.05, ctaLabel: "Get started", body: <OnboardingValueCard headline="Welcome to Harvest" body="Let's set up a deck that's all yours." typing={false} /> },
     ...VALUE_CARDS.map((c, i) => ({
       progress: 0.08 + i * 0.02,
-      body: <OnboardingValueCard key={`v${i}`} headline={c.headline} body={c.body} onContinue={() => advance()} />,
+      ctaLabel: "Continue",
+      body: <OnboardingValueCard key={`v${i}`} headline={c.headline} body={c.body} />,
     })),
     {
       progress: 0.22, ctaLabel: "Continue", ctaDisabled: goals.length === 0,
