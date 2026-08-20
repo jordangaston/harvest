@@ -9,10 +9,6 @@ export default function OnboardingLayout() {
         contentStyle: { backgroundColor: "#F1E6D2" },
         animation: "slide_from_right",
       }}
-    >
-      {/* Phone is the flow's final step, not a new place — swap it in instantly like the
-          in-flow steps do (those are internal state, so they never slide). */}
-      <Stack.Screen name="phone" options={{ animation: "none" }} />
-    </Stack>
+    />
   );
 }

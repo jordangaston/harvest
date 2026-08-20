@@ -22,6 +22,13 @@ export const createUserSchema = z.object({
   }),
 });
 
+/** `POST /v1/users/anonymous` body: an optional prior device key (resolves an
+ * existing anon user across reinstalls) and optional onboarding to persist. */
+export const anonUserSchema = z.object({
+  device_key: z.string().optional(),
+  onboarding: OnboardingSchema.optional(),
+});
+
 /** `POST /v1/imports` body: exactly one of a url, a share payload, or a photo ref. */
 export const createImportSchema = z.object({
   source: z

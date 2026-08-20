@@ -203,7 +203,9 @@ export default function OnboardingFlow() {
   function advance() {
     steps[step]?.commit?.();
     if (step >= steps.length - 1) {
-      router.push("/(onboarding)/phone");
+      // The last answer is committed; setting-up creates the anonymous account and
+      // flushes the draft (no phone step — that's linked later).
+      router.push("/(onboarding)/setting-up");
       return;
     }
     setStep((s) => s + 1);

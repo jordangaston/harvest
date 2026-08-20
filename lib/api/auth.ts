@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "./config";
 import { setSession, type Session } from "./session";
+import { getDeviceKey, setDeviceKey } from "./deviceKey";
 import { buildUserPayload, buildPreferences, resetOnboarding } from "../onboarding";
 import { updatePreferences } from "./preferences";
 import { queryClient } from "../queryClient";
@@ -7,8 +8,11 @@ import { queryKeys } from "../queryKeys";
 import { analytics } from "../analytics";
 
 type SessionResponse = {
-  user: { id: string; phone: string; name: string | null };
+  user: { id: string; phone: string | null; name: string | null };
   auth: { access_token: { jwt: string }; refresh_token: { jwt: string } };
+  isNew?: boolean;
+  // Present only on the anonymous-signup response: the key to persist for resume.
+  device_key?: string | null;
 };
 
 async function postSession(path: string, body: unknown): Promise<SessionResponse> {
@@ -24,7 +28,7 @@ async function postSession(path: string, body: unknown): Promise<SessionResponse
   return res.json();
 }
 
-function toSession(response: SessionResponse, phone: string): Session {
+function toSession(response: SessionResponse, phone: string | null): Session {
   return {
     accessJwt: response.auth.access_token.jwt,
     refreshJwt: response.auth.refresh_token.jwt,
@@ -34,10 +38,31 @@ function toSession(response: SessionResponse, phone: string): Session {
 }
 
 /** Persists a new session and drops any prior account's cached data (shared device). */
-async function establish(response: SessionResponse, phone: string): Promise<Session> {
+async function establish(response: SessionResponse, phone: string | null): Promise<Session> {
   const session = toSession(response, phone);
   await setSession(session);
   await queryClient.clear();
+  return session;
+}
+
+/**
+ * Creates (or resumes, via the stored device key) an anonymous account — no phone —
+ * persisting the onboarding draft's goals + cook-days, and establishes its session.
+ * The server returns a device key to persist so a reinstall resolves the same account.
+ * Idempotent on retry: once the key is stored, a re-run resolves the same user.
+ */
+export async function createAnonymousUser(): Promise<Session> {
+  const deviceKey = await getDeviceKey();
+  const { goals, cook_days_count } = buildUserPayload();
+  const onboarding = cook_days_count == null ? { goals } : { goals, cook_days_count };
+  const response = await postSession("/v1/users/anonymous", {
+    device_key: deviceKey ?? undefined,
+    onboarding,
+  });
+  if (response.device_key) await setDeviceKey(response.device_key);
+  const session = await establish(response, response.user.phone);
+  // Identify + "Signup Completed" fire once, on the account's first creation.
+  if (response.isNew) analytics.onSignup(session.userId, onboarding);
   return session;
 }
 
@@ -58,22 +83,6 @@ export async function flushOnboarding(): Promise<void> {
   await queryClient.invalidateQueries({ queryKey: queryKeys.preferences });
   await queryClient.invalidateQueries({ queryKey: queryKeys.deck });
   resetOnboarding();
-}
-
-/**
- * Creates the account for a verified phone (the server verifies `code` once) with the
- * collected goals + cook days (stamping onboardingCompletedAt), then persists the session.
- * The preference draft is flushed separately (flushOnboarding) so its failure surfaces a
- * retry without re-creating the user — the caller runs the flush after this resolves.
- */
-export async function createUser(phone: string, code: string): Promise<Session> {
-  const onboarding = buildUserPayload();
-  const user = { phone_number: phone, code, onboarding };
-  const session = await establish(await postSession("/v1/users", { user }), phone);
-  // This is a real signup (not an anonymous first-launch / 401-refresh re-provision),
-  // so identify + "Signup Completed" fire only here.
-  analytics.onSignup(session.userId, onboarding);
-  return session;
 }
 
 /** Signs a returning user in by verified OTP and persists the session. */

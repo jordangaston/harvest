@@ -122,7 +122,10 @@ export const users = sqliteTable(
   'users',
   {
     id: uuidPk(),
-    phone: text('phone').notNull(),
+    // Nullable: an anonymous user has no phone until they link one. A device_key
+    // (server-generated, unguessable) resolves an anon user across reinstalls.
+    phone: text('phone'),
+    deviceKey: text('device_key'),
     name: text('name'),
     jwtPrivateKey: text('jwt_private_key').notNull(),
     jwtPublicKey: text('jwt_public_key').notNull(),
@@ -140,7 +143,10 @@ export const users = sqliteTable(
     onboardingCompletedAt: integer('onboarding_completed_at', { mode: 'timestamp' }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('users_phone_uidx').on(t.phone)],
+  (t) => [
+    uniqueIndex('users_phone_uidx').on(t.phone),
+    uniqueIndex('users_device_key_uidx').on(t.deviceKey),
+  ],
 );
 
 export const recipes = sqliteTable(

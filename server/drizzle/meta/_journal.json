@@ -127,6 +127,13 @@
       "when": 1787243312056,
       "tag": "0017_cook_days_to_count",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1787250221166,
+      "tag": "0018_anon_users",
+      "breakpoints": true
     }
   ]
 }

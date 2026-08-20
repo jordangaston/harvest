@@ -51,7 +51,25 @@ export class UserService {
     const phone = normalizeE164(req.phoneNumber);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone, req.name ?? null, req.onboarding), true);
+    return this.session(await this.provision({ phone, name: req.name ?? null, onboarding: req.onboarding }), true);
+  }
+
+  /**
+   * Creates (or resolves via device key) an anonymous user with a session. The device
+   * key is a server-generated, unguessable handle the client persists to its keychain,
+   * so a reinstall resolves the same account. Onboarding, when supplied, is persisted
+   * and stamps completion — same as a phone signup.
+   *
+   * @param req - An optional prior `deviceKey` (resolves an existing anon user) and
+   *   optional onboarding to persist on first creation.
+   * @returns The user (carrying its `deviceKey`), a fresh session, and `isNew`.
+   */
+  async createAnonymousUser(req: { deviceKey?: string; onboarding?: Onboarding }): Promise<Resolution> {
+    if (req.deviceKey) {
+      const existing = await this.repo.findByDeviceKey(req.deviceKey);
+      if (existing) return this.session(existing, false);
+    }
+    return this.session(await this.provision({ deviceKey: crypto.randomUUID(), onboarding: req.onboarding }), true);
   }
 
   /**
@@ -93,7 +111,7 @@ export class UserService {
    * @param sub - The user id (a verified token's subject).
    * @returns The public user, or null if no such user.
    */
-  getMe(sub: string): Promise<{ id: string; phone: string; name: string | null; finished_onboarding: boolean } | null> {
+  getMe(sub: string): Promise<{ id: string; phone: string | null; name: string | null; finished_onboarding: boolean } | null> {
     return this.repo.findById(sub).then((user) => (user ? toPublicUser(user) : null));
   }
 
@@ -109,7 +127,7 @@ export class UserService {
     const phone = normalizeE164(otp.phone_number);
     const existing = await this.repo.findByPhone(phone);
     if (existing) return this.session(existing, false);
-    return this.session(await this.provision(phone, null), true);
+    return this.session(await this.provision({ phone }), true);
   }
 
   /**
@@ -162,19 +180,31 @@ export class UserService {
   /**
    * Provisions a new user: generates their signing keypair and inserts the row,
    * mapping the C2 onboarding enums to their columns (and stamping
-   * `onboarding_completed_at` when onboarding was supplied at signup).
+   * `onboarding_completed_at` when onboarding was supplied at signup). A user has
+   * either a `phone` (signup/sign-in) or a `deviceKey` (anonymous), never neither.
    *
-   * @param phone - E.164 phone; the caller must have normalized it.
-   * @param name - The user's name, or null when provisioned by OTP sign-in.
-   * @param onboarding - Optional typed onboarding to persist.
+   * @param opts - `phone` (normalized) and/or `deviceKey`, an optional `name`, and
+   *   optional typed onboarding to persist.
    * @returns The inserted user.
    */
-  private async provision(phone: string, name: string | null, onboarding?: Onboarding): Promise<User> {
+  private async provision(opts: {
+    phone?: string | null;
+    name?: string | null;
+    deviceKey?: string;
+    onboarding?: Onboarding;
+  }): Promise<User> {
     const { privateKey, publicKey } = this.authService.generateKeyPair();
-    const columns = onboarding
-      ? { ...onboardingColumns(onboarding), onboardingCompletedAt: new Date() }
+    const columns = opts.onboarding
+      ? { ...onboardingColumns(opts.onboarding), onboardingCompletedAt: new Date() }
       : {};
-    return this.repo.insert({ phone, name, jwtPrivateKey: privateKey, jwtPublicKey: publicKey, ...columns });
+    return this.repo.insert({
+      phone: opts.phone ?? null,
+      name: opts.name ?? null,
+      deviceKey: opts.deviceKey ?? null,
+      jwtPrivateKey: privateKey,
+      jwtPublicKey: publicKey,
+      ...columns,
+    });
   }
 }
 

@@ -48,7 +48,8 @@ export type Onboarding = z.infer<typeof OnboardingSchema>;
 // Dates via drizzle `mode: 'timestamp'`.
 export const UserSchema = z.object({
   id: z.string().uuid(),
-  phone: z.string(),
+  phone: z.string().nullable(),
+  deviceKey: z.string().nullable(),
   name: z.string().nullable(),
   jwtPrivateKey: z.string(),
   jwtPublicKey: z.string(),
@@ -70,9 +71,10 @@ export type User = z.infer<typeof UserSchema>;
 /**
  * Projects a user to the API-safe shape — never key material or nonces.
  * @param user - The domain user.
- * @returns The id, phone, name (null until the user provides one), and the
- *   derived `finished_onboarding` gate (Q-02: `onboardingCompletedAt` presence).
+ * @returns The id, phone (null for an anonymous user), name (null until the user
+ *   provides one), and the derived `finished_onboarding` gate (Q-02:
+ *   `onboardingCompletedAt` presence).
  */
-export function toPublicUser(user: User): { id: string; phone: string; name: string | null; finished_onboarding: boolean } {
+export function toPublicUser(user: User): { id: string; phone: string | null; name: string | null; finished_onboarding: boolean } {
   return { id: user.id, phone: user.phone, name: user.name, finished_onboarding: user.onboardingCompletedAt != null };
 }

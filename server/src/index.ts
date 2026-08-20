@@ -19,6 +19,7 @@ import { InvalidPhoneError } from "./util/phone.js";
 import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError } from "./errors.js";
 import {
   createUserSchema,
+  anonUserSchema,
   signInSchema,
   requestOtpSchema,
   verifyOtpSchema,
@@ -87,6 +88,14 @@ app.post("/v1/users", async (c) => {
   const { user } = createUserSchema.parse(await c.req.json());
   const resolved = await users.createUser({ phoneNumber: user.phone_number, name: user.name, onboarding: user.onboarding });
   return c.json(sessionResponse(resolved), 201);
+});
+
+/** POST /v1/users/anonymous — creates (or resolves via device_key) an anonymous user
+ * and returns a session plus the device_key to persist. Public. */
+app.post("/v1/users/anonymous", async (c) => {
+  const { device_key, onboarding } = anonUserSchema.parse(await c.req.json());
+  const resolved = await users.createAnonymousUser({ deviceKey: device_key, onboarding });
+  return c.json({ ...sessionResponse(resolved), device_key: resolved.user.deviceKey }, 201);
 });
 
 /** POST /v1/users/sign_in — exchanges an OTP or refresh token for a session. Public. */
