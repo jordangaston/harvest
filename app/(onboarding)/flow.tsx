@@ -179,6 +179,14 @@ export default function OnboardingFlow() {
   }
 
   const s = steps[step];
+
+  // The value carousel is a loader — it plays its slides, then advances itself into the flow.
+  React.useEffect(() => {
+    if (!s.auto) return;
+    const t = setTimeout(() => setStep((n) => (n === step ? n + 1 : n)), 6600);
+    return () => clearTimeout(t);
+  }, [step, s.auto]);
+
   return (
     <OnboardingScreen
       key={step}
