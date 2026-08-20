@@ -22,6 +22,9 @@ import { seedAllergenCatalog } from '../src/allergen/allergen-catalog.js';
 
 const HARVEST = join(homedir(), 'Desktop/Business/Harvest');
 const FNDDS_JSON = process.env.FNDDS_JSON ?? join(HARVEST, 'FoodData_Central_survey_food_json_2024-10-31.json');
+// PP-NAP is published as an .xlsx (USDA ERS Purchase to Plate):
+//   https://ers.usda.gov/sites/default/files/_laserfiche/DataFiles/105537/pp_national_average_prices.xlsx
+// Export its most recent sheet (PP-NAP1718) to CSV with `food_code,price_100gm,method`.
 const PP_NAP_CSV = process.env.PP_NAP_CSV ?? join(HARVEST, 'pp_national_average_prices.csv');
 
 // The reused parse helpers each read their own subset of a raw Survey food, so the
