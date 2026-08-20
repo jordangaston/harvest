@@ -45,13 +45,14 @@ export function Segmented<T extends string | number>({ options, value, onChange,
  * ~1.1:1 and vanished). Refactoring UI Ch2 (hierarchy) + Ch5 (contrast).
  */
 export function Chip({ label, active, onToggle, variant = "default" }: { label: string; active: boolean; onToggle: () => void; variant?: "default" | "add" }) {
-  // Three distinct looks: `add` = a solid brand pill (white text) — clearly a "tap to add" action;
-  // selected = brand-light tint; resting = sand-300 fill. `add` must NOT share the selected tint,
-  // or an addable chip reads as already-chosen.
+  // Three distinct looks: `add` = a lighter, secondary brand pill (brand-300 fill + ink text) — a
+  // filled "tap to add" action that recedes; selected = brand-light tint; resting = sand-300. `add`
+  // stays lighter than the full-brand selected state (segmented "Severe"), and — since a fill lighter
+  // than the full brand can't carry white text at 4.5:1 — it uses ink text to stay legible.
   const add = variant === "add";
-  const bg = add ? "bg-brand" : active ? "bg-brand-light" : "bg-sand-300";
-  const borderColor = add ? "#8A4A1E" : active ? "#A85E2B" : "#C2A678";
-  const textCls = add ? "text-white" : active ? "text-brand" : "text-ink";
+  const bg = add ? "bg-brand-200" : active ? "bg-brand-light" : "bg-sand-300";
+  const borderColor = add ? "#DDA168" : active ? "#A85E2B" : "#C2A678";
+  const textCls = active ? "text-brand" : "text-ink";
   return (
     <Pressable
       onPress={onToggle}
