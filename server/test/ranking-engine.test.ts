@@ -42,6 +42,9 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
     foodPrefs: [],
     ownedEquipment: [],
     equipmentReviewed: false,
+    groceryStores: [],
+    household: { adults: 2, kids: 0 },
+    eatsLeftovers: true,
     ...overrides,
   };
 }

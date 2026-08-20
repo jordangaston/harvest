@@ -47,11 +47,15 @@ const VALID = {
   weekly_budget_cents: 12000,
   time_budget_minutes: 45,
   weekly_meals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
-  liked_cuisines: ["italian", "mexican"],
-  disliked_ingredients: ["liver"],
+  likes: [{ facet: "cuisine", value: "italian" }, { facet: "dish_type", value: "bowls" }],
+  dislikes: [{ facet: "ingredient", value: "liver" }],
   allergens: [{ allergen: "peanut", severity: "severe" }],
   diets: [{ diet: "pescatarian", strictness: "flexible" }],
   owned_equipment: ["blender", "slow_cooker"],
+  grocery_stores: ["walmart", "kroger"],
+  household_adults: 2,
+  household_kids: 3,
+  eats_leftovers: true,
 };
 
 describe("preferences API (WI-1)", () => {
@@ -61,8 +65,15 @@ describe("preferences API (WI-1)", () => {
     expect(status).toBe(200);
     expect(body.preferences.weekly_meals).toEqual({ breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 });
     expect(body.preferences.weekly_budget_cents).toBeNull();
-    expect(body.preferences.liked_cuisines).toEqual([]);
+    expect(body.preferences.likes).toEqual([]);
     expect(body.preferences.owned_equipment).toEqual([]);
+    expect(body.preferences.grocery_stores).toEqual([]);
+    expect(body.preferences.household_adults).toBe(2);
+    expect(body.preferences.household_kids).toBe(0);
+    expect(body.preferences.eats_leftovers).toBe(true);
+    // Legacy keys are gone.
+    expect(body.preferences.liked_cuisines).toBeUndefined();
+    expect(body.preferences.disliked_ingredients).toBeUndefined();
   });
 
   it("PUT then GET round-trips the editable subset", async () => {
@@ -75,11 +86,21 @@ describe("preferences API (WI-1)", () => {
     expect(body.preferences.skill_level).toBe("advanced");
     expect(body.preferences.weekly_budget_cents).toBe(12000);
     expect(body.preferences.weekly_meals).toEqual(VALID.weekly_meals);
-    expect(body.preferences.liked_cuisines.sort()).toEqual(["italian", "mexican"]);
-    expect(body.preferences.disliked_ingredients).toEqual(["liver"]);
+    expect(body.preferences.likes).toContainEqual({ facet: "cuisine", value: "italian" });
+    expect(body.preferences.likes).toContainEqual({ facet: "dish_type", value: "bowls" });
+    expect(body.preferences.dislikes).toEqual([{ facet: "ingredient", value: "liver" }]);
     expect(body.preferences.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
     expect(body.preferences.diets).toContainEqual({ diet: "pescatarian", strictness: "flexible" });
     expect(body.preferences.owned_equipment.sort()).toEqual(["blender", "slow_cooker"]);
+    expect(body.preferences.grocery_stores.sort()).toEqual(["kroger", "walmart"]);
+    expect(body.preferences.household_kids).toBe(3);
+    expect(body.preferences.eats_leftovers).toBe(true);
+  });
+
+  it("rejects an unknown grocery store with 400 (Test Case 4)", async () => {
+    const token = await mintToken();
+    const bad = await putPrefs(token, { ...VALID, grocery_stores: ["not_a_store"] });
+    expect(bad.status).toBe(400);
   });
 
   it("PUT rejects out-of-range / unknown values with 400 (no partial write)", async () => {
