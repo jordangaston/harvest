@@ -3,7 +3,7 @@ import { getMixpanelToken } from "./config";
 import { createMixpanelBackend } from "./mixpanelBackend";
 
 /** The app-wide analytics singleton. Import and call `analytics.track(...)` anywhere. */
-export const analytics = new Analytics({ debug: __DEV__ });
+export const analytics = new Analytics({ debug: false });
 
 /**
  * Wires the live Mixpanel backend when a token is configured; otherwise the singleton stays on the

@@ -2,7 +2,8 @@ import React from "react";
 import { View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
-import { VStack, Text, Heading, Input } from "../../components/ui";
+import { VStack, Text, Input } from "../../components/ui";
+import { StepHeader } from "../../components/onboarding/screens";
 import { sendOtp } from "../../lib/api/auth";
 
 /** US-default E.164: a leading "+" is respected for other countries (Q-01). */
@@ -44,26 +45,27 @@ export default function Phone() {
       ctaDisabled={!ready}
       onCta={submit}
     >
-      <View>
-        <Heading className="text-2xl">What's your number?</Heading>
-        <Text className="mt-2 text-muted">
-          We'll text you a code to verify it. U.S. numbers by default — start with + for another country.
-        </Text>
-      </View>
-
-      <VStack className="mt-6" space={8}>
-        <Input
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="(555) 555-0123"
-          keyboardType="phone-pad"
-          autoComplete="tel"
-          autoFocus
-          returnKeyType="go"
-          onSubmitEditing={submit}
+      <View style={{ paddingTop: 8 }}>
+        <StepHeader
+          title="What's your number?"
+          subtitle="We'll text you a code to verify it. U.S. numbers by default — start with + for another country."
         />
-        {error ? <Text className="text-sm text-error">{error}</Text> : null}
-      </VStack>
+
+        <VStack space={8}>
+          <Input
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="(555) 555-0123"
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            autoFocus
+            returnKeyType="go"
+            onSubmitEditing={submit}
+            className="text-center"
+          />
+          {error ? <Text className="text-center text-sm text-error">{error}</Text> : null}
+        </VStack>
+      </View>
     </OnboardingScreen>
   );
 }
