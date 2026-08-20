@@ -18,6 +18,7 @@ export function OnboardingScreen({
   showHeader = true,
   showLogo = true,
   showBack = true,
+  onBack,
   onSkip,
   ctaLabel,
   onCta,
@@ -31,6 +32,7 @@ export function OnboardingScreen({
   showHeader?: boolean;
   showLogo?: boolean;
   showBack?: boolean;
+  onBack?: () => void;
   onSkip?: () => void;
   ctaLabel?: string;
   onCta?: () => void;
@@ -56,7 +58,7 @@ export function OnboardingScreen({
         </View>
       ) : null}
       {showHeader ? (
-        <ProgressHeader progress={progress} onSkip={onSkip} showBack={showBack} />
+        <ProgressHeader progress={progress} onSkip={onSkip} showBack={showBack} onBack={onBack} />
       ) : null}
 
       <ScrollView

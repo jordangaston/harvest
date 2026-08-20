@@ -18,6 +18,12 @@ import { MealAddRecipeSheetStudy } from "./studies/MealAddRecipeSheet.study";
 import { MealMenuStudy } from "./studies/MealMenu.study";
 import { MealPlanIntakeStudy } from "./studies/MealPlanIntake.study";
 import { NewCookbookSheetStudy } from "./studies/NewCookbookSheet.study";
+import {
+  OnboardingValueCardStudy, OnboardingValueCarouselStudy, OnboardingChipGridStudy,
+  OnboardingStorePickerStudy, OnboardingBudgetStudy, OnboardingCounterStudy,
+  OnboardingDayPickerStudy, OnboardingBinaryStudy, OnboardingSeverityPickerStudy,
+  OnboardingTasteMenuStudy, OnboardingSingleSelectListStudy,
+} from "./studies/Onboarding.study";
 import { OnboardingChecklistStudy } from "./studies/OnboardingChecklist.study";
 import { OnboardingScreenStudy } from "./studies/OnboardingScreen.study";
 import { OptionRowStudy } from "./studies/OptionRow.study";
@@ -53,6 +59,17 @@ export const studies: Study[] = [
   MealMenuStudy,
   MealPlanIntakeStudy,
   NewCookbookSheetStudy,
+  OnboardingValueCardStudy,
+  OnboardingValueCarouselStudy,
+  OnboardingChipGridStudy,
+  OnboardingStorePickerStudy,
+  OnboardingBudgetStudy,
+  OnboardingCounterStudy,
+  OnboardingDayPickerStudy,
+  OnboardingBinaryStudy,
+  OnboardingSeverityPickerStudy,
+  OnboardingTasteMenuStudy,
+  OnboardingSingleSelectListStudy,
   OnboardingChecklistStudy,
   OnboardingScreenStudy,
   OptionRowStudy,

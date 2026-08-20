@@ -18,11 +18,11 @@ analytics.setBackend(capture);
 // A user moves through onboarding, taps CTAs, signs up, then imports + saves a recipe.
 analytics.setScreen("/(onboarding)/welcome"); // S3 Screen Viewed
 analytics.track("Button Tapped", { label: "Get started" }); // S4
-analytics.setScreen("/(onboarding)/goals"); // S3
+analytics.setScreen("/(onboarding)/flow"); // S3
 analytics.track("Button Tapped", { label: "Continue" }); // S4 (the CTA)
-analytics.track("Onboarding Step Completed", { step: "/(onboarding)/goals" }); // S5
-analytics.setScreen("/(onboarding)/notifications");
-analytics.onSignup("user-42", { goals: ["eat_healthier"], how_heard: "tiktok", age: "from_25_to_34" }); // S2
+analytics.track("Onboarding Step Completed", { step: "/(onboarding)/flow" }); // S5
+analytics.setScreen("/(onboarding)/phone");
+analytics.onSignup("user-42", { goals: ["eat_healthier"], cook_days: ["mon", "wed"] }); // S2
 analytics.setScreen("/(app)/recipes"); // S3
 analytics.track("Recipe Imported", { recipe_count: 1 }); // S6
 analytics.track("Recipe Saved", { recipe_id: "r1", cookbook_count: 2 }); // S6

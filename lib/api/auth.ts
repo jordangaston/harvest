@@ -1,7 +1,9 @@
 import { API_BASE_URL } from "./config";
 import { setSession, type Session } from "./session";
-import { getOnboarding, resetOnboarding } from "../onboarding";
+import { buildUserPayload, buildPreferences, resetOnboarding } from "../onboarding";
+import { updatePreferences } from "./preferences";
 import { queryClient } from "../queryClient";
+import { queryKeys } from "../queryKeys";
 import { analytics } from "../analytics";
 
 type SessionResponse = {
@@ -45,17 +47,32 @@ export async function sendOtp(phone: string): Promise<void> {
 }
 
 /**
- * Creates the account for a verified phone (the server verifies `code` once) with
- * the collected name + onboarding, then persists the session. Signup only.
+ * Persists the onboarding preference draft to the authed account. Kept separate from
+ * account creation so a failed preference write surfaces a retry without re-creating
+ * the user (the session already exists). Clears the draft + reseeds caches on success.
+ */
+export async function flushOnboarding(): Promise<void> {
+  await updatePreferences(buildPreferences());
+  // The deck must re-rank against the just-saved preferences on first open.
+  queryClient.setQueryData(queryKeys.preferences, undefined);
+  await queryClient.invalidateQueries({ queryKey: queryKeys.preferences });
+  await queryClient.invalidateQueries({ queryKey: queryKeys.deck });
+  resetOnboarding();
+}
+
+/**
+ * Creates the account for a verified phone (the server verifies `code` once) with the
+ * collected goals + cook days (stamping onboardingCompletedAt), then persists the session.
+ * The preference draft is flushed separately (flushOnboarding) so its failure surfaces a
+ * retry without re-creating the user — the caller runs the flush after this resolves.
  */
 export async function createUser(phone: string, code: string): Promise<Session> {
-  const { name, ...onboarding } = getOnboarding() ?? {};
-  const user = { phone_number: phone, code, name, onboarding };
+  const onboarding = buildUserPayload();
+  const user = { phone_number: phone, code, onboarding };
   const session = await establish(await postSession("/v1/users", { user }), phone);
-  // A present onboarding payload means this is a real signup (not an anonymous first-launch or
-  // 401-refresh re-provision), so identify + "Signup Completed" fire only here — before the drain.
-  if (onboarding) analytics.onSignup(session.userId, onboarding);
-  resetOnboarding();
+  // This is a real signup (not an anonymous first-launch / 401-refresh re-provision),
+  // so identify + "Signup Completed" fire only here.
+  analytics.onSignup(session.userId, onboarding);
   return session;
 }
 

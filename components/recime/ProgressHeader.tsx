@@ -9,10 +9,12 @@ export function ProgressHeader({
   progress = 0.3,
   onSkip,
   showBack = true,
+  onBack,
 }: {
   progress?: number;
   onSkip?: () => void;
   showBack?: boolean;
+  onBack?: () => void;
 }) {
   const router = useRouter();
   // router.back() throws "GO_BACK was not handled" when there's no history
@@ -24,7 +26,7 @@ export function ProgressHeader({
   return (
     <HStack className="items-center px-4 pt-2" space={12}>
       {showBack ? (
-        <Pressable onPress={goBack} className="p-1">
+        <Pressable onPress={onBack ?? goBack} className="p-1">
           <Ionicons name="chevron-back" size={24} color="#2E2419" />
         </Pressable>
       ) : (

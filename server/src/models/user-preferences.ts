@@ -7,7 +7,7 @@ const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
 const SENTIMENTS = ['like', 'dislike'] as const;
 const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
@@ -49,25 +49,35 @@ export const UserPreferencesSchema = z.object({
   // only when `equipmentReviewed` is true (EQUIPMENT-SIGNAL.md § Gating).
   ownedEquipment: z.array(z.enum(EQUIPMENT_TYPES)),
   equipmentReviewed: z.boolean(),
+  // Onboarding front-loaded signals (WI-1).
+  groceryStores: z.array(z.string()),
+  household: z.object({ adults: z.number().int().min(1), kids: z.number().int().nonnegative() }),
+  eatsLeftovers: z.boolean(),
 });
 
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
+/** A like/dislike over any of the three affinity facets (domain shape). */
+const AffinitySelectionSchema = z.object({ facet: z.enum(AFFINITY_FACETS), value: z.string() });
+
 /**
- * The user-editable subset the settings surface writes. Weights are omitted on purpose —
- * they're server-owned (tuned by the dislike loop), so a settings save never clobbers them.
- * Liked cuisines / disliked ingredients map onto the `cuisine`/`primary_ingredient` food-pref
- * slices; other facets (e.g. dish-type, dislike-loop entries on other values) are preserved.
+ * The user-editable subset the settings + onboarding surfaces write. Weights are omitted on
+ * purpose — they're server-owned (tuned by the dislike loop), so a save never clobbers them.
+ * `likes`/`dislikes` carry {facet,value} over all three affinity facets; the repo rebuilds the
+ * full food-pref set from them (dislike-loop weight tuning stays untouched).
  */
 export const PreferencesUpdateSchema = z.object({
   skillLevel: z.enum(SKILL_LEVELS),
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
   weeklyMeals: WeeklyMealsSchema,
-  likedCuisines: z.array(z.string()),
-  dislikedIngredients: z.array(z.string()),
+  likes: z.array(AffinitySelectionSchema),
+  dislikes: z.array(AffinitySelectionSchema),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
   diets: z.array(z.object({ dietId: z.string(), strictness: z.enum(DIET_STRICTNESS) })),
   ownedEquipment: z.array(z.enum(EQUIPMENT_TYPES)),
+  groceryStores: z.array(z.string()),
+  household: z.object({ adults: z.number().int().min(1), kids: z.number().int().nonnegative() }),
+  eatsLeftovers: z.boolean(),
 });
 export type PreferencesUpdate = z.infer<typeof PreferencesUpdateSchema>;

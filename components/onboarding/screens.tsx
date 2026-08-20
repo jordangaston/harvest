@@ -1,0 +1,355 @@
+import React from "react";
+import { View, Animated, AccessibilityInfo, Image } from "react-native";
+import { VStack, HStack, Text, Pressable, Icon } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
+import { DURATION, EASE } from "../../lib/motion";
+import { money } from "../swipe/mock";
+import {
+  Chip, Segmented, Slider, Stepper, MoreChip, SearchAddSheet, Card, Typewriter,
+  GROCERY_STORES, ALL_GROCERY_STORES, STORE_ID_TO_LABEL, STORE_LABEL_TO_ID, STORE_LOGOS,
+} from "./primitives";
+
+/**
+ * The onboarding screen-body archetypes — controlled, presentational, and shell-free.
+ * Each is the *body* of one screen (the Phase-2 flow wraps it in the existing
+ * components/recime/OnboardingScreen shell). They compose the shared primitives so the
+ * onboarding chips/sliders/steppers are the exact ones Settings ships. Golden-hour system
+ * throughout: bg-card surfaces, depth via ELEVATION (never tone), one accent = one meaning,
+ * Reduce Motion honoured in every animated archetype.
+ */
+
+type IoniconName = React.ComponentProps<typeof Icon>["name"];
+const SELECTED_TILE = { borderWidth: 2, borderColor: "#A85E2B", backgroundColor: "#F3E0CC" } as const;
+const RESTING_TILE = { borderWidth: 1, borderColor: "#E4D6BC" } as const;
+
+/* ── 1. Informational value card — typing + haptics (info screens only) ────────── */
+
+export function OnboardingValueCard({ headline, body, art, typing = true, haptics = true, ctaLabel = "Continue", onContinue }: {
+  headline: string; body?: string; art?: React.ReactNode; typing?: boolean; haptics?: boolean; ctaLabel?: string; onContinue?: () => void;
+}) {
+  const [showBody, setShowBody] = React.useState(!typing);
+  const fade = React.useRef(new Animated.Value(typing ? 0 : 1)).current;
+  React.useEffect(() => {
+    if (showBody) Animated.timing(fade, { toValue: 1, duration: DURATION.medium, easing: EASE.smoothOut, useNativeDriver: false }).start();
+  }, [showBody, fade]);
+  return (
+    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-between">
+      <View className="items-center" style={{ gap: 20, paddingTop: 28 }}>
+        {art ? <View className="items-center">{art}</View> : null}
+        {typing ? (
+          <Typewriter text={headline} haptics={haptics} onDone={() => setShowBody(true)} className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }} />
+        ) : (
+          <Text className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }}>{headline}</Text>
+        )}
+        {body ? (
+          <Animated.View style={{ opacity: fade }}>
+            <Text className="text-center text-base text-muted" style={{ lineHeight: 22 }}>{body}</Text>
+          </Animated.View>
+        ) : null}
+      </View>
+      <Pressable onPress={onContinue} accessibilityRole="button" accessibilityLabel={ctaLabel} className="w-full items-center rounded-full bg-brand py-3.5" style={ELEVATION.medium}>
+        <Text className="text-base font-bold text-white">{ctaLabel}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/* ── 2. Auto-advancing 3-slide value carousel (loader) ─────────────────────────── */
+
+export function OnboardingValueCarousel({ slides, intervalMs = 2200 }: { slides: { title: string; caption?: string; art?: React.ReactNode }[]; intervalMs?: number }) {
+  const [i, setI] = React.useState(0);
+  const [reduce, setReduce] = React.useState(false);
+  const fade = React.useRef(new Animated.Value(1)).current;
+  React.useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setReduce).catch(() => {}); }, []);
+  React.useEffect(() => {
+    if (slides.length <= 1) return;
+    const t = setInterval(() => setI((n) => (n + 1) % slides.length), intervalMs);
+    return () => clearInterval(t);
+  }, [slides.length, intervalMs]);
+  React.useEffect(() => {
+    if (reduce) return;
+    fade.setValue(0);
+    Animated.timing(fade, { toValue: 1, duration: DURATION.medium, easing: EASE.smoothOut, useNativeDriver: false }).start();
+  }, [i, reduce, fade]);
+  const s = slides[i] ?? { title: "" };
+  return (
+    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-between">
+      <View className="flex-1 items-center justify-center">
+        <Animated.View className="items-center" style={{ opacity: reduce ? 1 : fade, gap: 16 }}>
+          {s.art ? <View className="items-center">{s.art}</View> : null}
+          <Text className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }}>{s.title}</Text>
+          {s.caption ? <Text className="text-center text-base text-muted">{s.caption}</Text> : null}
+        </Animated.View>
+      </View>
+      <HStack space={8} className="items-center">
+        {slides.map((_, k) => <View key={k} className={`rounded-full ${k === i ? "bg-brand" : "bg-sand-300"}`} style={{ width: k === i ? 20 : 8, height: 8 }} />)}
+      </HStack>
+    </View>
+  );
+}
+
+/* ── 3. Chip grid — multi or single select (goals, time-bands, equipment) ───────── */
+
+export function OnboardingChipGrid({ title, subtitle, options, value, onChange, multi = true, moreCorpus, moreTitle }: {
+  title: string; subtitle?: string; options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void;
+  multi?: boolean; moreCorpus?: string[]; moreTitle?: string;
+}) {
+  const [search, setSearch] = React.useState(false);
+  const toggle = (v: string) => {
+    if (multi) onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+    else onChange(value.includes(v) ? [] : [v]);
+  };
+  const labelFor = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const extra = value.filter((v) => !options.some((o) => o.value === v));
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
+      </VStack>
+      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+        {options.map((o) => <Chip key={o.value} label={o.label} active={value.includes(o.value)} onToggle={() => toggle(o.value)} />)}
+        {extra.map((v) => <Chip key={v} label={labelFor(v)} active onToggle={() => toggle(v)} />)}
+        {moreCorpus ? <MoreChip onPress={() => setSearch(true)} /> : null}
+      </View>
+      {moreCorpus ? (
+        <SearchAddSheet visible={search} title={moreTitle ?? "Add more"} corpus={moreCorpus} selected={value} onToggle={toggle} onClose={() => setSearch(false)} />
+      ) : null}
+    </View>
+  );
+}
+
+/* ── 4. Store picker — real-brand tiles, our accent marks the choice ───────────── */
+
+export function OnboardingStorePicker({ value, onChange, onSkip }: { value: string[]; onChange: (v: string[]) => void; onSkip?: () => void }) {
+  const [search, setSearch] = React.useState(false);
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Where do you shop?</Text>
+        <Text className="text-sm text-muted">We’ll tailor prices to your stores.</Text>
+      </VStack>
+      <View className="flex-row flex-wrap" style={{ gap: 10, marginTop: 16 }}>
+        {GROCERY_STORES.map((store) => {
+          const active = value.includes(store.id);
+          return (
+            <Pressable key={store.id} onPress={() => toggle(store.id)} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={store.label}
+              className="rounded-2xl bg-card"
+              style={[{ width: "31%", paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", gap: 8 }, ELEVATION.low, active ? SELECTED_TILE : RESTING_TILE]}>
+              {STORE_LOGOS[store.id] ? (
+                <Image source={STORE_LOGOS[store.id]} resizeMode="contain" style={{ width: 40, height: 40 }} />
+              ) : (
+                <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: store.color, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: "white", fontFamily: "Karla_700Bold", fontSize: 20 }}>{store.label.charAt(0)}</Text>
+                </View>
+              )}
+              <Text className={`text-xs font-semibold text-center ${active ? "text-brand" : "text-ink"}`} numberOfLines={1}>{store.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <HStack space={8} style={{ marginTop: 12 }}>
+        <MoreChip onPress={() => setSearch(true)} />
+        {onSkip ? <Chip label="I shop elsewhere" active={false} onToggle={onSkip} /> : null}
+      </HStack>
+      <SearchAddSheet visible={search} title="Add a store" corpus={ALL_GROCERY_STORES.map((store) => store.label)} selected={value.map((id) => STORE_ID_TO_LABEL[id]).filter(Boolean)} onToggle={(label) => toggle(STORE_LABEL_TO_ID[label])} onClose={() => setSearch(false)} />
+    </View>
+  );
+}
+
+/* ── 5. Budget — big numeral hero + slider ─────────────────────────────────────── */
+
+export function OnboardingBudget({ cents, onChange, min = 3000, max = 40000, step = 1000 }: { cents: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
+  const atMax = cents >= max;
+  return (
+    <View style={{ padding: 24, minHeight: 360 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>What’s your weekly budget?</Text>
+        <Text className="text-sm text-muted">We’ll keep your plan under it.</Text>
+      </VStack>
+      <View className="items-center" style={{ paddingVertical: 36, gap: 4 }}>
+        <Text className="text-ink" style={{ fontFamily: "Karla_700Bold", fontSize: 56, lineHeight: 60 }}>{money(cents)}{atMax ? "+" : ""}</Text>
+        <Text className="text-sm text-muted">this week</Text>
+      </View>
+      <Slider value={cents} min={min} max={max} step={step} hideValue format={(c) => money(c)} onChange={onChange} />
+      <HStack className="justify-between" style={{ marginTop: 4 }}>
+        <Text className="text-xs text-muted">{money(min)}</Text>
+        <Text className="text-xs text-muted">{money(max)}+</Text>
+      </HStack>
+    </View>
+  );
+}
+
+/* ── 6. Household counter — adults + kids ──────────────────────────────────────── */
+
+export type Household = { adults: number; kids: number };
+
+export function OnboardingCounter({ value, onChange }: { value: Household; onChange: (v: Household) => void }) {
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>How many are you cooking for?</Text>
+        <Text className="text-sm text-muted">We’ll size every portion right.</Text>
+      </VStack>
+      <View style={{ marginTop: 16 }}>
+        <Card>
+          <HStack className="items-center justify-between">
+            <VStack space={2}><Text className="text-base font-bold text-ink">Adults</Text><Text className="text-xs text-muted">13 and older</Text></VStack>
+            <Stepper big value={value.adults} min={1} max={12} label="adults" onChange={(v) => onChange({ ...value, adults: v })} />
+          </HStack>
+          <HStack className="items-center justify-between">
+            <VStack space={2}><Text className="text-base font-bold text-ink">Kids</Text><Text className="text-xs text-muted">12 and under</Text></VStack>
+            <Stepper big value={value.kids} min={0} max={12} label="kids" onChange={(v) => onChange({ ...value, kids: v })} />
+          </HStack>
+        </Card>
+      </View>
+    </View>
+  );
+}
+
+/* ── 7. Day picker — weekday chips + live count ────────────────────────────────── */
+
+const WEEKDAYS = [
+  { v: "mon", l: "Mon" }, { v: "tue", l: "Tue" }, { v: "wed", l: "Wed" }, { v: "thu", l: "Thu" },
+  { v: "fri", l: "Fri" }, { v: "sat", l: "Sat" }, { v: "sun", l: "Sun" },
+];
+
+export function OnboardingDayPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const toggle = (d: string) => onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d]);
+  const n = value.length;
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Which days do you cook?</Text>
+        <Text className="text-sm text-muted">We’ll only plan for these days.</Text>
+      </VStack>
+      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+        {WEEKDAYS.map((d) => <Chip key={d.v} label={d.l} active={value.includes(d.v)} onToggle={() => toggle(d.v)} />)}
+      </View>
+      <Text className={`text-sm ${n === 0 ? "text-error" : "text-muted"}`} style={{ marginTop: 16 }}>
+        {n === 0 ? "Pick at least one day" : `${n} ${n === 1 ? "day" : "days"} a week`}
+      </Text>
+    </View>
+  );
+}
+
+/* ── 8. Binary — two lifted option cards (leftovers) ───────────────────────────── */
+
+export function OnboardingBinary({ title, subtitle, value, onChange, yes = { label: "Yes" }, no = { label: "No" } }: {
+  title: string; subtitle?: string; value: boolean | null; onChange: (v: boolean) => void;
+  yes?: { label: string; caption?: string }; no?: { label: string; caption?: string };
+}) {
+  const Option = ({ on, opt, sel }: { on: boolean; opt: { label: string; caption?: string }; sel: boolean }) => (
+    <Pressable onPress={() => onChange(on)} accessibilityRole="button" accessibilityState={{ selected: sel }} accessibilityLabel={opt.label}
+      className="rounded-2xl bg-card" style={[{ padding: 18, gap: 4 }, ELEVATION.low, sel ? SELECTED_TILE : RESTING_TILE]}>
+      <Text className={`text-base font-bold ${sel ? "text-brand" : "text-ink"}`}>{opt.label}</Text>
+      {opt.caption ? <Text className="text-sm text-muted">{opt.caption}</Text> : null}
+    </Pressable>
+  );
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
+      </VStack>
+      <VStack space={12} style={{ marginTop: 16 }}>
+        <Option on opt={yes} sel={value === true} />
+        <Option on={false} opt={no} sel={value === false} />
+      </VStack>
+    </View>
+  );
+}
+
+/* ── 9. Severity picker — allergens / diets with a per-item level ──────────────── */
+
+export type LeveledPref = { name: string; level: string };
+
+export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defaultLevel, value, onChange, confirm }: {
+  title: string; subtitle?: string; corpus: string[]; levels: { label: string; value: string }[]; defaultLevel: string;
+  value: LeveledPref[]; onChange: (v: LeveledPref[]) => void; confirm?: (p: LeveledPref) => string;
+}) {
+  const add = (name: string) => onChange([...value, { name, level: defaultLevel }]);
+  const remove = (name: string) => onChange(value.filter((x) => x.name !== name));
+  const setLevel = (name: string, level: string) => onChange(value.map((x) => x.name === name ? { ...x, level } : x));
+  const available = corpus.filter((c) => !value.some((x) => x.name === c));
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
+      </VStack>
+      <VStack space={12} style={{ marginTop: 16 }}>
+        {value.map((pref) => (
+          <Card key={pref.name}>
+            <HStack className="items-center justify-between">
+              <Text className="text-base capitalize text-ink">{pref.name}</Text>
+              <Pressable onPress={() => remove(pref.name)} accessibilityLabel={`Remove ${pref.name}`}><Icon name="trash-outline" size={18} color="#6E5B48" /></Pressable>
+            </HStack>
+            <Segmented label={`${pref.name} level`} value={pref.level} onChange={(l) => setLevel(pref.name, l)} options={levels} />
+            {confirm ? <Text className="text-xs text-muted">{confirm(pref)}</Text> : null}
+          </Card>
+        ))}
+      </VStack>
+      {available.length ? (
+        <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 12 }}>
+          {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} onToggle={() => add(c)} />)}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/* ── 10. Taste menu — chips + search (cuisines / disliked ingredients) ─────────── */
+
+export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTitle, value, onChange }: {
+  title: string; subtitle?: string; presets: string[]; corpus: string[]; searchTitle: string; value: string[]; onChange: (v: string[]) => void;
+}) {
+  const [search, setSearch] = React.useState(false);
+  const toggle = (item: string) => onChange(value.includes(item) ? value.filter((x) => x !== item) : [...value, item]);
+  const chips = Array.from(new Set([...presets, ...value]));
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
+      </VStack>
+      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+        {chips.map((c) => <Chip key={c} label={c} active={value.includes(c)} onToggle={() => toggle(c)} />)}
+        <MoreChip onPress={() => setSearch(true)} />
+      </View>
+      <SearchAddSheet visible={search} title={searchTitle} corpus={corpus} selected={value} onToggle={toggle} onClose={() => setSearch(false)} />
+    </View>
+  );
+}
+
+/* ── 11. Single-select list — rows with contextual microcopy (confidence) ──────── */
+
+export function OnboardingSingleSelectList({ title, subtitle, options, value, onSelect }: {
+  title: string; subtitle?: string; options: { value: string; label: string; icon?: IoniconName; microcopy?: string }[];
+  value: string | null; onSelect: (v: string) => void;
+}) {
+  return (
+    <View style={{ padding: 20 }}>
+      <VStack space={8}>
+        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
+        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
+      </VStack>
+      <VStack space={10} style={{ marginTop: 16 }}>
+        {options.map((o) => {
+          const sel = o.value === value;
+          return (
+            <Pressable key={o.value} onPress={() => onSelect(o.value)} accessibilityRole="radio" accessibilityState={{ selected: sel }} accessibilityLabel={o.label}
+              className="rounded-2xl bg-card" style={[{ padding: 16, gap: 6 }, ELEVATION.low, sel ? SELECTED_TILE : RESTING_TILE]}>
+              <HStack className="items-center" space={12}>
+                {o.icon ? <Icon name={o.icon} size={20} color={sel ? "#A85E2B" : "#6E5B48"} /> : null}
+                <Text className={`text-base font-bold ${sel ? "text-brand" : "text-ink"}`}>{o.label}</Text>
+              </HStack>
+              {sel && o.microcopy ? <Text className="text-sm text-muted">{o.microcopy}</Text> : null}
+            </Pressable>
+          );
+        })}
+      </VStack>
+    </View>
+  );
+}

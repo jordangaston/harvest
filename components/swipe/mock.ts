@@ -58,18 +58,24 @@ export interface AllergenPref { allergen: string; severity: "severe" | "moderate
 export interface DietPref { diet: string; strictness: "strict" | "flexible" }
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "kids";
 export type WeeklyMeals = Record<MealType, number>; // how many of each meal type to plan per week
+/** A taste preference tagged by which corpus the value came from (WI-1 wire facet). */
+export type TasteFacet = "cuisine" | "dish_type" | "ingredient";
+export interface TastePref { facet: TasteFacet; value: string }
 export interface Preferences {
   skillLevel: DifficultyBand;
   weeklyBudgetCents: number; // max weekly grocery spend (per-serving cost is calculated, not input)
   timeBudgetMin: number;
   weeklyMeals: WeeklyMeals;
   weights: Weights;
-  likedCuisines: string[];
-  dislikedIngredients: string[];
+  likes: TastePref[];
+  dislikes: TastePref[];
   allergens: AllergenPref[];
   diets: DietPref[];
   ownedEquipment: string[];
   equipmentReviewed: boolean;
+  groceryStores: string[];
+  household: { adults: number; kids: number };
+  eatsLeftovers: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -78,12 +84,22 @@ export const DEFAULT_PREFERENCES: Preferences = {
   timeBudgetMin: 35,
   weeklyMeals: { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 },
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
-  likedCuisines: ["Italian", "Thai", "Mexican"],
-  dislikedIngredients: ["liver", "olives"],
+  likes: [
+    { facet: "cuisine", value: "Italian" },
+    { facet: "cuisine", value: "Thai" },
+    { facet: "cuisine", value: "Mexican" },
+  ],
+  dislikes: [
+    { facet: "ingredient", value: "Liver" },
+    { facet: "ingredient", value: "Olives" },
+  ],
   allergens: [{ allergen: "peanut", severity: "severe" }],
   diets: [{ diet: "Pescatarian", strictness: "flexible" }],
   ownedEquipment: ["blender", "slow_cooker"],
   equipmentReviewed: true,
+  groceryStores: [],
+  household: { adults: 2, kids: 0 },
+  eatsLeftovers: true,
 };
 
 /* ---------- Reason chips (mirror the contract's dislike reasons) ---------- */

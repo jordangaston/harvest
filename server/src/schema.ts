@@ -32,6 +32,19 @@ const GOALS = [
   'plan_meals',
   'meal_prepping',
   'try_new_cuisines',
+  'kid_friendly',
+] as const;
+// Canonical grocery-store vocab (onboarding E1). Mirrors the client's
+// GROCERY_STORES + MORE_STORES ids (components/onboarding/primitives.tsx); a
+// JSON-array column on user_preferences, not a join table.
+export const GROCERY_STORES = [
+  'walmart', 'target', 'kroger', 'costco', 'aldi', 'safeway', 'publix', 'whole_foods', 'trader_joes', 'wegmans',
+  'heb', 'albertsons', 'meijer', 'food_lion', 'harris_teeter', 'sprouts', 'sams_club', 'lidl', 'giant_food',
+  'giant_eagle', 'stop_shop', 'shoprite', 'winco', 'ralphs', 'vons', 'hyvee', 'fred_meyer', 'winn_dixie', 'acme',
+  'jewel_osco', 'hannaford', 'price_chopper', 'market_basket', 'raleys', 'king_soopers', 'frys', 'food_4_less',
+  'smiths', 'dillons', 'weis', 'bjs', 'grocery_outlet', 'natural_grocers', 'schnucks', 'tom_thumb', 'cub_foods',
+  'save_mart', 'stater_bros', 'ingles', 'lowes_foods', 'brookshires', 'food_city', 'piggly_wiggly', 'kwik_trip',
+  'wakefern', 'sprouts_farmers',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
@@ -466,6 +479,12 @@ export const userPreferences = sqliteTable('user_preferences', {
   // their kitchen (onboarding/settings), even if they own nothing. Inert until then, the
   // same "no data → no filter" stance as allergens.
   equipmentReviewed: integer('equipment_reviewed', { mode: 'boolean' }).notNull().default(false),
+  // Onboarding front-loaded signals (WI-1). Grocery stores as a JSON array (like `users.goals`),
+  // not a join table. Household size + eats-leftovers seed the meal-prep weight and planning.
+  groceryStores: text('grocery_stores', { mode: 'json' }).$type<(typeof GROCERY_STORES)[number][]>(),
+  householdAdults: integer('household_adults').notNull().default(2),
+  householdKids: integer('household_kids').notNull().default(0),
+  eatsLeftovers: integer('eats_leftovers', { mode: 'boolean' }).notNull().default(true),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

@@ -120,27 +120,34 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     await expect(PreferenceRepository.create(db).getPreferences(userId)).rejects.toThrow();
   });
 
-  it("savePreferences upserts the editable subset, preserves weights, and replaces only its food-pref slices", async () => {
+  /** The non-food-pref fields of a save (defaults for the fields a case doesn't exercise). */
+  const baseSave = {
+    skillLevel: "advanced" as const,
+    weeklyBudgetCents: 12000,
+    timeBudgetMinutes: 45,
+    weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
+    likes: [],
+    dislikes: [],
+    allergens: [{ allergen: "peanut" as const, severity: "severe" as const }],
+    diets: [{ dietId: "pescatarian", strictness: "flexible" as const }],
+    ownedEquipment: ["blender" as const, "slow_cooker" as const],
+    groceryStores: [],
+    household: { adults: 2, kids: 0 },
+    eatsLeftovers: true,
+  };
+
+  it("savePreferences upserts the editable subset, preserves weights, and rebuilds food-prefs over all facets", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
     // Pre-existing server-owned state the settings save must NOT clobber: a dislike-tuned weight,
-    // a cuisine *dislike*, and a dish-type pref on other facets.
+    // and a dislike-loop dislike on a value the picker doesn't touch.
     await repo.bumpWeight(userId, "cost");
-    await db.insert(userFoodPrefs).values([
-      { userId, facet: "cuisine", value: "thai", sentiment: "dislike" },
-      { userId, facet: "dish_type", value: "soup", sentiment: "like" },
-    ]);
+    await db.insert(userFoodPrefs).values({ userId, facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
 
     const saved = await repo.savePreferences(userId, {
-      skillLevel: "advanced",
-      weeklyBudgetCents: 12000,
-      timeBudgetMinutes: 45,
-      weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
-      likedCuisines: ["italian", "mexican"],
-      dislikedIngredients: ["liver"],
-      allergens: [{ allergen: "peanut", severity: "severe" }],
-      diets: [{ dietId: "pescatarian", strictness: "flexible" }],
-      ownedEquipment: ["blender", "slow_cooker"],
+      ...baseSave,
+      likes: [{ facet: "cuisine", value: "italian" }, { facet: "dish_type", value: "bowls" }],
+      dislikes: [{ facet: "primary_ingredient", value: "liver" }],
     });
 
     // Editable subset round-trips.
@@ -155,11 +162,59 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     // Weights (dislike-tuned) survive the save.
     expect(saved.weights.cost).toBe(2);
 
-    // The cuisine/like + primary_ingredient/dislike slices are replaced…
+    // The picker's likes/dislikes are persisted across all facets…
     expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like" });
+    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "bowls", sentiment: "like" });
     expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
-    // …but other facets/sentiments are preserved.
-    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "thai", sentiment: "dislike" });
-    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "soup", sentiment: "like" });
+    // …and a dislike-loop dislike on an untouched value survives.
+    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
+  });
+
+  it("persists and round-trips grocery stores, household, and eats-leftovers (Test Case 1)", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+
+    const saved = await repo.savePreferences(userId, {
+      ...baseSave,
+      groceryStores: ["walmart", "kroger"],
+      household: { adults: 2, kids: 3 },
+      eatsLeftovers: true,
+    });
+
+    expect(saved.groceryStores).toEqual(["walmart", "kroger"]);
+    expect(saved.household).toEqual({ adults: 2, kids: 3 });
+    expect(saved.eatsLeftovers).toBe(true);
+
+    const reread = await repo.getPreferences(userId);
+    expect(reread.groceryStores).toEqual(["walmart", "kroger"]);
+    expect(reread.household).toEqual({ adults: 2, kids: 3 });
+  });
+
+  it("cold-start getPreferences returns the documented household/leftovers defaults", async () => {
+    const userId = await makeUser();
+    const prefs = await PreferenceRepository.create(db).getPreferences(userId);
+    expect(prefs.groceryStores).toEqual([]);
+    expect(prefs.household).toEqual({ adults: 2, kids: 0 });
+    expect(prefs.eatsLeftovers).toBe(true);
+  });
+
+  it("seeds mealPrep weight once on the eatsLeftovers false→true transition (Test Case 3)", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+    // Establish leftovers=false at a mealPrep baseline below the cap.
+    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: false });
+    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(1);
+
+    // false→true bumps once.
+    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: true });
+    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
+
+    // A second true save does not bump again.
+    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: true });
+    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
+
+    // A save back to false never lowers it.
+    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: false });
+    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
   });
 });

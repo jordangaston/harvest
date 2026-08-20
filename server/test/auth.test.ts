@@ -84,6 +84,27 @@ describe("UserService", () => {
     expect(row?.onboardingCompletedAt).toBeInstanceOf(Date);
   });
 
+  it("accepts and persists the kid_friendly goal (Test Case 5)", async () => {
+    const users = UserService.create(db);
+    const { user } = await users.createUser({
+      phoneNumber: "+15555550130",
+      onboarding: { goals: ["kid_friendly", "save_money"] },
+    });
+    const row = await UserRepository.create(db).findById(user.id);
+    expect(row?.goals).toEqual(["kid_friendly", "save_money"]);
+  });
+
+  it("derives finished_onboarding from onboardingCompletedAt (Test Case 6)", async () => {
+    const users = UserService.create(db);
+    // Onboarding supplied → completion stamped → true.
+    const finished = await users.createUser({ phoneNumber: "+15555550131", onboarding: { goals: ["save_money"] } });
+    // Onboarding omitted → null timestamp → false.
+    const midFlow = await users.createUser({ phoneNumber: "+15555550132" });
+
+    expect((await users.getMe(finished.user.id))?.finished_onboarding).toBe(true);
+    expect((await users.getMe(midFlow.user.id))?.finished_onboarding).toBe(false);
+  });
+
   it("signs in by OTP (fixed stub code), and by refresh_token", async () => {
     const users = UserService.create(db);
     const created = await users.createUser({ phoneNumber: "+15555550125" });

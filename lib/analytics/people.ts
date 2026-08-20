@@ -6,12 +6,7 @@ import type { Props } from "./backend";
  */
 export type OnboardingPayload = {
   goals?: string[];
-  recipe_sources?: string[];
   cook_days?: string[];
-  when_cook?: string;
-  cook_time?: string;
-  how_heard?: string;
-  age?: string;
 };
 
 /**

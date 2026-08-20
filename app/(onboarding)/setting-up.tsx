@@ -12,7 +12,7 @@ export default function SettingUp() {
     // The account was already created + verified at the code step; this is just
     // the closing loader before the app opens.
     const timeout = setTimeout(() => {
-      router.replace("/(app)/recipes");
+      router.replace("/(app)/discover");
     }, 2500);
     return () => clearTimeout(timeout);
   }, [router]);

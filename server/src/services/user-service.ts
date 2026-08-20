@@ -93,7 +93,7 @@ export class UserService {
    * @param sub - The user id (a verified token's subject).
    * @returns The public user, or null if no such user.
    */
-  getMe(sub: string): Promise<{ id: string; phone: string; name: string | null } | null> {
+  getMe(sub: string): Promise<{ id: string; phone: string; name: string | null; finished_onboarding: boolean } | null> {
     return this.repo.findById(sub).then((user) => (user ? toPublicUser(user) : null));
   }
 
