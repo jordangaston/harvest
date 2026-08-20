@@ -127,9 +127,17 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
           );
         })}
       </View>
-      <HStack space={8} style={{ marginTop: 12 }}>
-        <MoreChip onPress={() => setSearch(true)} />
-        {onSkip ? <Chip label="I shop elsewhere" active={false} onToggle={onSkip} /> : null}
+      {/* Actions match the store tiles — cards, not chips — so the row reads as one family. */}
+      <HStack space={10} style={{ marginTop: 12 }}>
+        <Pressable onPress={() => setSearch(true)} accessibilityRole="button" accessibilityLabel="Search for more stores" className="flex-1 flex-row items-center justify-center rounded-2xl bg-card" style={[{ paddingVertical: 14, gap: 6 }, ELEVATION.low, RESTING_TILE]}>
+          <Icon name="search" size={16} color="#8A4A1E" />
+          <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More stores</Text>
+        </Pressable>
+        {onSkip ? (
+          <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="I shop elsewhere" className="flex-1 items-center justify-center rounded-2xl bg-card" style={[{ paddingVertical: 14 }, ELEVATION.low, RESTING_TILE]}>
+            <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>I shop elsewhere</Text>
+          </Pressable>
+        ) : null}
       </HStack>
       <SearchAddSheet visible={search} title="Add a store" corpus={ALL_GROCERY_STORES.map((store) => store.label)} selected={value.map((id) => STORE_ID_TO_LABEL[id]).filter(Boolean)} onToggle={(label) => toggle(STORE_LABEL_TO_ID[label])} onClose={() => setSearch(false)} />
     </View>
