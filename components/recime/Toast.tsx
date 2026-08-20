@@ -1,12 +1,19 @@
 import React from "react";
-import { Animated, AccessibilityInfo } from "react-native";
-import { Box, Text } from "../ui";
+import { Animated, AccessibilityInfo, View } from "react-native";
+import { Text, Icon } from "../ui";
 import { TOAST, EASE } from "../../lib/motion";
+import { ELEVATION } from "../../lib/elevation";
 
-/** A brief bottom toast — rises slower than it drops (motion tokens); honors Reduce
- * Motion (no travel/fade when enabled). Colour is set inline because NativeWind's
- * colour class doesn't resolve inside an `Animated.View`. */
-export function Toast({ message, bottom = 96 }: { message: string; bottom?: number }) {
+type ToastVariant = "success" | "error";
+
+/**
+ * A brief semantic toast. **Success** drops in from the **top** (green, ✓);
+ * **error** rises from the **bottom** (red, !) — position + colour + icon all carry
+ * the meaning, not colour alone. Honors Reduce Motion (no travel when enabled).
+ * Colour is set inline (NativeWind's colour class doesn't resolve in an `Animated.View`).
+ * `top`/`bottom` override the variant's default placement.
+ */
+export function Toast({ message, variant = "success", top, bottom }: { message: string; variant?: ToastVariant; top?: number; bottom?: number }) {
   const anim = React.useRef(new Animated.Value(0)).current;
   React.useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
@@ -14,6 +21,13 @@ export function Toast({ message, bottom = 96 }: { message: string; bottom?: numb
       else Animated.timing(anim, { toValue: 1, duration: TOAST.inMs, easing: EASE.smoothOut, useNativeDriver: false }).start();
     });
   }, [anim, message]);
+
+  const isSuccess = variant === "success";
+  const placeTop = top ?? (isSuccess && bottom == null ? 64 : undefined);
+  const placeBottom = bottom ?? (!isSuccess && top == null ? 96 : undefined);
+  const enterFrom = placeTop != null ? -TOAST.rise : TOAST.rise; // top drops down, bottom rises up
+  const bg = isSuccess ? "#4E7A3F" : "#B23A2E"; // success / error
+
   return (
     <Animated.View
       pointerEvents="none"
@@ -21,14 +35,16 @@ export function Toast({ message, bottom = 96 }: { message: string; bottom?: numb
         position: "absolute",
         left: 20,
         right: 20,
-        bottom,
+        top: placeTop,
+        bottom: placeBottom,
         opacity: anim,
-        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [TOAST.rise, 0] }) }],
+        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [enterFrom, 0] }) }],
       }}
     >
-      <Box className="rounded-2xl bg-ink px-4 py-3">
+      <View className="flex-row items-center justify-center rounded-2xl px-4 py-3" style={[{ backgroundColor: bg, gap: 8 }, ELEVATION.medium]}>
+        <Icon name={isSuccess ? "checkmark-circle" : "alert-circle"} size={18} color="#FBF6EC" />
         <Text style={{ color: "#FBF6EC" }} className="text-center font-semibold">{message}</Text>
-      </Box>
+      </View>
     </Animated.View>
   );
 }

@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { RECIPES_BY_ID, SAMPLE_RECIPE } from "../../components/recime/recipes";
 import { Box, VStack, HStack, Center, Text, Heading, Pressable } from "../../components/ui";
+import { ELEVATION } from "../../lib/elevation";
 
 // Where to go after each recipe's success screen: the social import chains into
 // the website demo; the website import continues to the age step.
@@ -32,7 +33,7 @@ export default function RecipeImported() {
           <Text className="mt-1 text-muted">✨ Just like magic ✨</Text>
         </View>
 
-        <Box className="mt-4 rounded-2xl border border-hairline bg-card p-4">
+        <Box className="mt-4 rounded-2xl border border-hairline bg-card p-4" style={ELEVATION.low}>
           {/* recipe header */}
           <HStack className="items-center" space={12}>
             <Image source={recipe.image} resizeMode="cover" style={{ width: 60, height: 60, borderRadius: 12 }} />

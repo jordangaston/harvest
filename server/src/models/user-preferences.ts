@@ -12,13 +12,27 @@ const SENTIMENTS = ['like', 'dislike'] as const;
 const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
 const weight = () => z.number().int().min(0).max(3);
+const mealCount = () => z.number().int().min(0).max(21);
+
+/** How many of each meal type to plan per week (meal-count intake). */
+export const WeeklyMealsSchema = z.object({
+  breakfast: mealCount(),
+  lunch: mealCount(),
+  dinner: mealCount(),
+  snack: mealCount(),
+  kids: mealCount(),
+});
+export type WeeklyMeals = z.infer<typeof WeeklyMealsSchema>;
+export const ZERO_MEALS: WeeklyMeals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
 
 /** The fully-resolved per-user ranking preferences, with the child tables folded in. */
 export const UserPreferencesSchema = z.object({
   userId: z.string(),
   skillLevel: z.enum(SKILL_LEVELS),
   budgetCentsPerServing: z.number().int().positive().nullable(),
+  weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
+  weeklyMeals: WeeklyMealsSchema,
   weights: z.object({
     cost: weight(),
     difficulty: weight(),
@@ -38,3 +52,22 @@ export const UserPreferencesSchema = z.object({
 });
 
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+
+/**
+ * The user-editable subset the settings surface writes. Weights are omitted on purpose —
+ * they're server-owned (tuned by the dislike loop), so a settings save never clobbers them.
+ * Liked cuisines / disliked ingredients map onto the `cuisine`/`primary_ingredient` food-pref
+ * slices; other facets (e.g. dish-type, dislike-loop entries on other values) are preserved.
+ */
+export const PreferencesUpdateSchema = z.object({
+  skillLevel: z.enum(SKILL_LEVELS),
+  weeklyBudgetCents: z.number().int().nonnegative().nullable(),
+  timeBudgetMinutes: z.number().int().positive().nullable(),
+  weeklyMeals: WeeklyMealsSchema,
+  likedCuisines: z.array(z.string()),
+  dislikedIngredients: z.array(z.string()),
+  allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
+  diets: z.array(z.object({ dietId: z.string(), strictness: z.enum(DIET_STRICTNESS) })),
+  ownedEquipment: z.array(z.enum(EQUIPMENT_TYPES)),
+});
+export type PreferencesUpdate = z.infer<typeof PreferencesUpdateSchema>;

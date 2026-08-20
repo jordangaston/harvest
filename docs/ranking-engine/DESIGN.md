@@ -895,7 +895,7 @@ learning later.
 | --- | --- | --- | --- |
 | user_id | text | fk → users.id, cascade | |
 | recipe_id | text | fk → recipes.id, cascade | |
-| direction | text (enum) | not null | `like` / `dislike` (extensible: `super_like`, `save`…) |
+| direction | text (enum) | not null | `like` / `dislike` / `save` (`save` = "cook this week" → Saved cookbook) |
 | reason | text (enum) | null | dislike only: `too_expensive` / `too_hard` / `too_slow` / `disliked_ingredient` / `not_nutritious` / `other` |
 | score | real | not null | the recipe's rank score at swipe time |
 | weights | text (json) | not null | snapshot of the six weights used to rank it |

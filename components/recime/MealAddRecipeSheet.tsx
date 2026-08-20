@@ -3,6 +3,7 @@ import { Modal, View, ScrollView } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, HStack, VStack, Text, Pressable, Icon, Input, Center, Spinner } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { IngredientFilterSheet } from "./IngredientFilterSheet";
 import { TotalTimeSheet } from "./TotalTimeSheet";
 import { useLibraryCards, useCookbooks, useAddMealPlanEntry } from "../../lib/api/hooks";
@@ -128,6 +129,7 @@ export function MealAddRecipeSheet({
                             key={r.id}
                             onPress={() => pickRecipe(r)}
                             className="mb-2 flex-row items-center rounded-2xl border border-hairline bg-card p-2.5"
+                            style={ELEVATION.low}
                           >
                             <Thumb uri={r.image_url} />
                             <VStack className="ml-3 flex-1">

@@ -450,6 +450,11 @@ export class RecipeRepository {
     ]);
     return rows.map((row) => {
       const recipe = RecipeSchema.parse(row);
+      const equip = equipment.get(recipe.id) ?? [];
+      const nrf = recipe.nrfScore == null ? null : Number(recipe.nrfScore);
+      const dietFit = diets.get(recipe.id) ?? {};
+      const compatibleDiets = Object.entries(dietFit).filter(([, v]) => v === 'compatible').map(([d]) => d);
+      const allergensContains = recipe.allergens?.contains ?? [];
       return {
         recipe: {
           id: recipe.id,
@@ -457,19 +462,22 @@ export class RecipeRepository {
           costPerServingCents: recipe.costPerServingCents,
           difficultyBand: recipe.difficultyBand,
           mealPrepFit: recipe.mealPrepFit,
-          nrfScore: recipe.nrfScore == null ? null : Number(recipe.nrfScore),
+          nrfScore: nrf,
           totalMinutes: recipe.totalMinutes,
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
           allergens: {
-            contains: recipe.allergens?.contains ?? [],
+            contains: allergensContains,
             mayContain: recipe.allergens?.mayContain ?? [],
             complete: recipe.allergensComplete,
           },
-          dietFit: diets.get(recipe.id) ?? {},
-          equipment: equipment.get(recipe.id) ?? [],
+          dietFit,
+          equipment: equip,
           equipmentComplete: recipe.equipmentComplete,
           popularity: null,
         },
+        // The deck card carries the accent-badge signals (nutrition / meal-prep / equipment) plus the
+        // recipe's allergens + compatible diets, so the swipe card renders its accent + compat chips
+        // (the client derives compat vs the user's filters) without a detail fetch.
         card: toPublicRecipeCard({
           id: recipe.id,
           title: recipe.title,
@@ -478,6 +486,11 @@ export class RecipeRepository {
           difficultyBand: recipe.difficultyBand,
           costPerServingCents: recipe.costPerServingCents,
           costCoverage: recipe.costCoverage == null ? null : Number(recipe.costCoverage),
+          nrfScore: nrf,
+          mealPrepFit: recipe.mealPrepFit,
+          equipment: equip,
+          allergens: allergensContains,
+          compatibleDiets,
         }),
       };
     });

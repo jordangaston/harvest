@@ -5,6 +5,8 @@ import {
   recipes,
   recipeCategories,
   recipeSwipes,
+  recipeEquipment,
+  recipeDiets,
   cookbooks,
   cookbookRecipes,
   userPreferences,
@@ -78,6 +80,11 @@ async function swipe(
   return { status: res.status, body: await res.json() };
 }
 
+async function unswipe(token: string, recipeId: string): Promise<number> {
+  const res = await app.request(`/v1/recipes/${recipeId}/swipe`, { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
+  return res.status;
+}
+
 describe("swipe deck & feedback (WI-RANK-4)", () => {
   it("TC1: deck returns ranked unswiped cards", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
@@ -129,6 +136,33 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
       .where(and(eq(recipeSwipes.userId, userId), eq(recipeSwipes.recipeId, r1)));
     const { body } = await getDeck(token);
     expect(body.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
+  });
+
+  it("TC3b: save adds to the Saved cookbook (permanent exclusion, distinct from Liked)", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const r1 = await seedRecipe(userId, { title: "High", nrfScore: 90 });
+    await seedRecipe(userId, { title: "Mid", nrfScore: 60 });
+
+    const { status, body } = await swipe(token, r1, { direction: "save" });
+    expect(status).toBe(200);
+    expect(body.swipe.direction).toBe("save");
+
+    const saved = await db
+      .select()
+      .from(cookbooks)
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, "saved")));
+    expect(saved.length).toBe(1);
+    expect(saved[0]!.name).toBe("Saved");
+    const members = await db.select().from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, saved[0]!.id));
+    expect(members.map((m) => m.recipeId)).toEqual([r1]);
+
+    // Permanent exclusion: even past the cooldown, a saved recipe never resurfaces.
+    await db
+      .update(recipeSwipes)
+      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .where(and(eq(recipeSwipes.userId, userId), eq(recipeSwipes.recipeId, r1)));
+    const { body: deck } = await getDeck(token);
+    expect(deck.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
   });
 
   it("TC4: snapshot captures score + current weights", async () => {
@@ -217,6 +251,51 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     const { status, body } = await getDeck(token);
     expect(status).toBe(200);
     expect(body).toEqual({ recipes: [] });
+  });
+
+  it("TC10: un-swipe deletes the swipe, un-files it, and the recipe returns to the deck", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const r1 = await seedRecipe(userId, { title: "High", nrfScore: 90 });
+
+    await swipe(token, r1, { direction: "like" });
+    expect((await getDeck(token)).body.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
+
+    expect(await unswipe(token, r1)).toBe(204);
+    expect(await db.select().from(recipeSwipes).where(eq(recipeSwipes.recipeId, r1))).toHaveLength(0);
+    // Un-filed from Liked.
+    const liked = await db.select().from(cookbooks).where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, "liked")));
+    const members = await db.select().from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, liked[0]!.id));
+    expect(members.map((m) => m.recipeId)).not.toContain(r1);
+    // Deck-eligible again.
+    expect((await getDeck(token)).body.recipes.map((x: any) => x.recipe.id)).toContain(r1);
+
+    // Idempotent (204 with no prior swipe) + 401 without a bearer.
+    expect(await unswipe(token, r1)).toBe(204);
+    expect((await app.request(`/v1/recipes/${r1}/swipe`, { method: "DELETE" })).status).toBe(401);
+  });
+
+  it("TC11: deck card carries the accent signals + compat data (nutrition, meal-prep, equipment, allergens, diets)", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const [row] = await db
+      .insert(recipes)
+      .values({
+        userId, title: "Prep Star", sourceType: "website", nrfScore: "88", mealPrepFit: "designed",
+        allergens: { contains: ["peanut"], mayContain: [] }, allergensComplete: true,
+      })
+      .returning({ id: recipes.id });
+    await db.insert(recipeEquipment).values({ recipeId: row!.id, equipment: "air_fryer", essentiality: "required" });
+    await db.insert(recipeDiets).values([
+      { recipeId: row!.id, dietId: "vegetarian", verdict: "compatible" },
+      { recipeId: row!.id, dietId: "vegan", verdict: "incompatible" }, // only compatible diets surface
+    ]);
+
+    const { body } = await getDeck(token);
+    const card = body.recipes.find((x: any) => x.recipe.id === row!.id).recipe;
+    expect(card.nrf_score).toBe(88);
+    expect(card.meal_prep_fit).toBe("designed");
+    expect(card.equipment).toEqual([{ equipment: "air_fryer", essentiality: "required" }]);
+    expect(card.allergens).toEqual(["peanut"]);
+    expect(card.diets).toEqual(["vegetarian"]);
   });
 });
 

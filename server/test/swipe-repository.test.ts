@@ -49,25 +49,40 @@ describe("SwipeRepository (WI-RANK-4)", () => {
     expect(rows[0].direction).toBe("like");
   });
 
-  it("excludes likes-ever and within-cooldown swipes, resurfaces older dislikes", async () => {
+  it("excludes likes/saves-ever and within-cooldown swipes, resurfaces older dislikes", async () => {
     const userId = await makeUser();
-    const [liked, recentDislike, oldDislike] = await Promise.all([makeRecipe(userId), makeRecipe(userId), makeRecipe(userId)]);
+    const [liked, saved, recentDislike, oldDislike] = await Promise.all([makeRecipe(userId), makeRecipe(userId), makeRecipe(userId), makeRecipe(userId)]);
     const repo = SwipeRepository.create(db);
     const now = new Date();
     const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     await repo.upsert(userId, { recipeId: liked, direction: "like", score: 90, weights: WEIGHTS });
+    await repo.upsert(userId, { recipeId: saved, direction: "save", score: 85, weights: WEIGHTS });
     await repo.upsert(userId, { recipeId: recentDislike, direction: "dislike", reason: "too_hard", score: 20, weights: WEIGHTS });
     await repo.upsert(userId, { recipeId: oldDislike, direction: "dislike", reason: "too_hard", score: 20, weights: WEIGHTS });
-    // Backdate the old dislike before the cooldown cutoff.
-    await db
-      .update(recipeSwipes)
-      .set({ createdAt: new Date(cutoff.getTime() - 60_000) })
-      .where(eq(recipeSwipes.recipeId, oldDislike));
+    // Backdate the old dislike AND the save past the cooldown cutoff — likes/saves are permanent.
+    const stale = new Date(cutoff.getTime() - 60_000);
+    await db.update(recipeSwipes).set({ createdAt: stale }).where(eq(recipeSwipes.recipeId, oldDislike));
+    await db.update(recipeSwipes).set({ createdAt: stale }).where(eq(recipeSwipes.recipeId, saved));
 
     const excluded = await repo.excludedRecipeIds(userId, cutoff);
     expect(excluded.has(liked)).toBe(true); // permanent
+    expect(excluded.has(saved)).toBe(true); // permanent (save, even past cooldown)
     expect(excluded.has(recentDislike)).toBe(true); // within cooldown
     expect(excluded.has(oldDislike)).toBe(false); // resurfaced
+  });
+
+  it("delete removes the row and returns it; null when there was none", async () => {
+    const userId = await makeUser();
+    const recipeId = await makeRecipe(userId);
+    const repo = SwipeRepository.create(db);
+
+    await repo.upsert(userId, { recipeId, direction: "like", score: 90, weights: WEIGHTS });
+    const removed = await repo.delete(userId, recipeId);
+    expect(removed?.direction).toBe("like");
+    expect(await db.select().from(recipeSwipes).where(eq(recipeSwipes.userId, userId))).toHaveLength(0);
+
+    // Idempotent: deleting again returns null, no throw.
+    expect(await repo.delete(userId, recipeId)).toBeNull();
   });
 });

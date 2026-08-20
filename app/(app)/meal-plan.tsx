@@ -12,6 +12,7 @@ import { mealChip, mealLabel } from "../../components/recime/meals";
 import { useMealPlanWeek, useRemoveMealPlanEntry } from "../../lib/api/hooks";
 import { mondayOf, addDays, weekDates, toISO, todayISO, formatWeekRange, weekdayName } from "../../lib/week";
 import type { ApiMealPlanEntry, MealSlot } from "../../lib/api/types";
+import { ELEVATION } from "../../lib/elevation";
 
 export default function MealPlan() {
   const router = useRouter();
@@ -63,6 +64,7 @@ export default function MealPlan() {
         <Pressable
           onPress={() => showToast("Groceries coming soon")}
           className="flex-row items-center justify-center rounded-2xl border border-hairline bg-card py-3"
+          style={ELEVATION.low}
         >
           <Icon name="cart-outline" size={18} color="#2E2419" />
           <Text className="ml-2 font-semibold text-ink">Add to groceries</Text>
@@ -135,7 +137,7 @@ export default function MealPlan() {
 
 function EntryRow({ entry, onOpen, onRemove }: { entry: ApiMealPlanEntry; onOpen: () => void; onRemove: () => void }) {
   return (
-    <HStack className="items-center rounded-2xl border border-hairline bg-card p-2.5" space={0}>
+    <HStack className="items-center rounded-2xl border border-hairline bg-card p-2.5" space={0} style={ELEVATION.low}>
       <Pressable onPress={onOpen} className="flex-1 flex-row items-center">
         {entry.recipe.image_url ? (
           <Image source={{ uri: entry.recipe.image_url }} contentFit="cover" style={{ width: 52, height: 52, borderRadius: 12 }} />

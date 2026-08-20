@@ -3,6 +3,7 @@ import { Modal, View, Animated, Dimensions, AccessibilityInfo } from "react-nati
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Box, VStack, HStack, Text, Pressable, Icon } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { DURATION, EASE } from "../../lib/motion";
 import { SOCIAL_PLATFORMS, PLATFORM_ICON, type SocialPlatform } from "../../lib/sampleRecipes";
 
@@ -108,6 +109,7 @@ export function AddRecipeSheet({
                         router.push("/import");
                       }}
                       className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-4"
+                      style={ELEVATION.low}
                     >
                       <Ionicons name="link" size={20} color="#A85E2B" />
                       <VStack className="ml-3 flex-1">
@@ -123,6 +125,7 @@ export function AddRecipeSheet({
                         onNewCookbook();
                       }}
                       className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-4"
+                      style={ELEVATION.low}
                     >
                       <Ionicons name="book-outline" size={20} color="#A85E2B" />
                       <Text className="ml-3 flex-1 text-base font-semibold text-ink">New cookbook</Text>
@@ -145,6 +148,7 @@ export function AddRecipeSheet({
                         key={p}
                         onPress={() => pickPlatform(p)}
                         className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-3.5"
+                        style={ELEVATION.low}
                       >
                         <Ionicons name={PLATFORM_ICON[p]} size={24} color={PLATFORM_TINT[p]} />
                         <Text className="ml-3 flex-1 text-base font-semibold text-ink">{p}</Text>

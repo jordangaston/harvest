@@ -119,4 +119,47 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
 
     await expect(PreferenceRepository.create(db).getPreferences(userId)).rejects.toThrow();
   });
+
+  it("savePreferences upserts the editable subset, preserves weights, and replaces only its food-pref slices", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+    // Pre-existing server-owned state the settings save must NOT clobber: a dislike-tuned weight,
+    // a cuisine *dislike*, and a dish-type pref on other facets.
+    await repo.bumpWeight(userId, "cost");
+    await db.insert(userFoodPrefs).values([
+      { userId, facet: "cuisine", value: "thai", sentiment: "dislike" },
+      { userId, facet: "dish_type", value: "soup", sentiment: "like" },
+    ]);
+
+    const saved = await repo.savePreferences(userId, {
+      skillLevel: "advanced",
+      weeklyBudgetCents: 12000,
+      timeBudgetMinutes: 45,
+      weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
+      likedCuisines: ["italian", "mexican"],
+      dislikedIngredients: ["liver"],
+      allergens: [{ allergen: "peanut", severity: "severe" }],
+      diets: [{ dietId: "pescatarian", strictness: "flexible" }],
+      ownedEquipment: ["blender", "slow_cooker"],
+    });
+
+    // Editable subset round-trips.
+    expect(saved.skillLevel).toBe("advanced");
+    expect(saved.weeklyBudgetCents).toBe(12000);
+    expect(saved.weeklyMeals).toEqual({ breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 });
+    expect(saved.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
+    expect(saved.diets).toContainEqual({ dietId: "pescatarian", strictness: "flexible" });
+    expect(saved.ownedEquipment.sort()).toEqual(["blender", "slow_cooker"]);
+    expect(saved.equipmentReviewed).toBe(true); // implicit — they managed their kitchen
+
+    // Weights (dislike-tuned) survive the save.
+    expect(saved.weights.cost).toBe(2);
+
+    // The cuisine/like + primary_ingredient/dislike slices are replaced…
+    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like" });
+    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
+    // …but other facets/sentiments are preserved.
+    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "thai", sentiment: "dislike" });
+    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "soup", sentiment: "like" });
+  });
 });

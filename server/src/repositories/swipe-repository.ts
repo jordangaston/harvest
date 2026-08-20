@@ -1,4 +1,4 @@
-import { and, eq, gte, or } from 'drizzle-orm';
+import { and, eq, gte, inArray, or } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { recipeSwipes } from '../schema.js';
 import { RecipeSwipeSchema, type RecipeSwipe } from '../models/recipe-swipe.js';
@@ -47,7 +47,19 @@ export class SwipeRepository {
   }
 
   /**
-   * Recipe ids to exclude from the user's deck: every `like` (permanent) plus any
+   * Removes the `(user, recipe)` swipe if present, returning the removed row (or null) so the
+   * caller can reverse any cookbook filing. Idempotent — deleting a non-existent swipe is a no-op.
+   */
+  async delete(userId: string, recipeId: string): Promise<RecipeSwipe | null> {
+    const [row] = await this.db
+      .delete(recipeSwipes)
+      .where(and(eq(recipeSwipes.userId, userId), eq(recipeSwipes.recipeId, recipeId)))
+      .returning();
+    return row ? RecipeSwipeSchema.parse(row) : null;
+  }
+
+  /**
+   * Recipe ids to exclude from the user's deck: every `like`/`save` (permanent) plus any
    * swipe at/after `cooldownCutoff` (recent dislikes rest before resurfacing).
    * @param cooldownCutoff - Swipes on/after this instant are still on cooldown.
    */
@@ -55,7 +67,7 @@ export class SwipeRepository {
     const rows = await this.db
       .select({ recipeId: recipeSwipes.recipeId })
       .from(recipeSwipes)
-      .where(and(eq(recipeSwipes.userId, userId), or(eq(recipeSwipes.direction, 'like'), gte(recipeSwipes.createdAt, cooldownCutoff))));
+      .where(and(eq(recipeSwipes.userId, userId), or(inArray(recipeSwipes.direction, ['like', 'save']), gte(recipeSwipes.createdAt, cooldownCutoff))));
     return new Set(rows.map((r) => r.recipeId));
   }
 }

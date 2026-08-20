@@ -4,6 +4,7 @@ import { Backdrop } from "../../components/recime/Backdrop";
 import { ScrollView, VStack, Text, Pressable, Heading } from "../../components/ui";
 import { studies } from "../../design/registry";
 import type { Study } from "../../design/types";
+import { ELEVATION } from "../../lib/elevation";
 
 function groupStudies(all: Study[]): [string, Study[]][] {
   const groups: Record<string, Study[]> = {};
@@ -32,6 +33,7 @@ export default function StudioList() {
                   key={study.name}
                   onPress={() => router.push(`/studio/${study.name}`)}
                   className="rounded-2xl border border-hairline bg-card px-4 py-4"
+                  style={ELEVATION.low}
                 >
                   <Text className="text-base font-bold text-ink">{study.name}</Text>
                 </Pressable>

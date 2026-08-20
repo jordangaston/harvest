@@ -2,6 +2,7 @@ import React from "react";
 import { Modal, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, HStack, VStack, Text, Pressable, Icon, Center } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { MEALS } from "./meals";
 import type { MealSlot } from "../../lib/api/types";
 
@@ -35,6 +36,7 @@ export function MealMenu({
                     key={m.key}
                     onPress={() => onPick(m.key)}
                     className="flex-row items-center rounded-2xl border border-hairline bg-card px-4 py-3.5"
+                    style={ELEVATION.low}
                   >
                     <Center className={`mr-3 h-9 w-9 rounded-full ${m.chip}`}>
                       <Icon name={m.icon} size={20} color="#2E2419" />

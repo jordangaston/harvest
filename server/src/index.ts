@@ -11,6 +11,8 @@ import { CookbookService } from "./services/cookbook-service.js";
 import { MealPlanService } from "./services/meal-plan-service.js";
 import { GroceryService } from "./services/grocery-service.js";
 import { toPublicGroceryItem } from "./models/grocery-item.js";
+import { PreferenceRepository } from "./repositories/preference-repository.js";
+import { preferencesBodySchema, toPreferencesDTO, fromPreferencesDTO } from "./preferences-dto.js";
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
 import { InvalidPhoneError } from "./util/phone.js";
@@ -56,6 +58,7 @@ export function buildApp(db: Database) {
   const cookbooks = CookbookService.create(db);
   const mealPlan = MealPlanService.create(db);
   const groceries = GroceryService.create(db);
+  const preferences = PreferenceRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -146,8 +149,8 @@ app.get("/v1/recipes/deck", guard, async (c) => {
   return c.json(await recipes.deck(c.get("authUserId")!, { limit }));
 });
 
-/** POST /v1/recipes/:id/swipe — records a like/dislike swipe and applies its side-effect
- * (like → Liked cookbook; reasoned dislike → preference tuning). Requires bearer token;
+/** POST /v1/recipes/:id/swipe — records a like/dislike/save swipe and applies its side-effect
+ * (like → Liked cookbook; save → Saved cookbook; reasoned dislike → preference tuning). Requires bearer token;
  * 404 if the recipe isn't visible to the caller. Registered before `/:id`. */
 app.post("/v1/recipes/:id/swipe", guard, async (c) => {
   const { direction, reason, reason_detail } = swipeBodySchema.parse(await c.req.json());
@@ -155,11 +158,39 @@ app.post("/v1/recipes/:id/swipe", guard, async (c) => {
   return c.json({ swipe });
 });
 
+/** DELETE /v1/recipes/:id/swipe — un-swipes: removes the swipe and reverses its cookbook
+ * filing (like → un-file from Liked, save → Saved), so the recipe re-enters the deck.
+ * Idempotent (204 even if there was no swipe). Requires bearer token. */
+app.delete("/v1/recipes/:id/swipe", guard, async (c) => {
+  await recipes.unswipe(c.get("authUserId")!, c.req.param("id")!);
+  return c.body(null, 204);
+});
+
+/** GET /v1/preferences — the caller's full preference model (weekly meals, budget, time,
+ * skill, tastes, and hard filters). Cold-start defaults if never saved. Requires bearer token. */
+app.get("/v1/preferences", guard, async (c) => {
+  return c.json({ preferences: toPreferencesDTO(await preferences.getPreferences(c.get("authUserId")!)) });
+});
+
+/** PUT /v1/preferences — upserts the user-editable subset (weights stay server-owned).
+ * Requires bearer token; 400 on an invalid value (ZodError). */
+app.put("/v1/preferences", guard, async (c) => {
+  const body = preferencesBodySchema.parse(await c.req.json());
+  const saved = await preferences.savePreferences(c.get("authUserId")!, fromPreferencesDTO(body));
+  return c.json({ preferences: toPreferencesDTO(saved) });
+});
+
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer
  * token. Not owner-scoped — recipes are shared, so any authenticated caller can open
- * one while browsing. 404 if the id is unknown. */
+ * one while browsing. 404 if the id is unknown. Optional `?fields=a,b,c` projects the
+ * response to `id` + exactly those fields (e.g. `fields=ingredients,steps`); absent
+ * returns the full recipe. */
 app.get("/v1/recipes/:id", guard, async (c) => {
-  const recipe = await recipes.get(c.req.param("id")!);
+  const fields = c.req.query("fields");
+  const id = c.req.param("id")!;
+  const recipe = fields
+    ? await recipes.get(id, new Set(fields.split(",").map((s) => s.trim()).filter(Boolean)))
+    : await recipes.get(id);
   return c.json({ recipe });
 });
 

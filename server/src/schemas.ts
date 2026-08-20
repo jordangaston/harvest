@@ -95,9 +95,9 @@ export const deckQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(DECK_DEFAULT_LIMIT),
 });
 
-/** `POST /v1/recipes/:id/swipe` body: like/dislike + an optional dislike reason and its detail. */
+/** `POST /v1/recipes/:id/swipe` body: like/dislike/save + an optional dislike reason and its detail. */
 export const swipeBodySchema = z.object({
-  direction: z.enum(["like", "dislike"]),
+  direction: z.enum(["like", "dislike", "save"]),
   reason: z.enum(SWIPE_REASONS).optional(),
   reason_detail: z.string().optional(),
 });

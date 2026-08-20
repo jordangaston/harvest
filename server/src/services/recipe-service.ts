@@ -11,6 +11,7 @@ import type { SWIPE_REASONS } from "../schema.js";
 import {
   toPublicRecipe,
   toPublicRecipeCard,
+  projectRecipe,
   type PublicRecipe,
   type PublicRecipeCard,
 } from "../models/recipe.js";
@@ -27,7 +28,7 @@ type SwipeReason = (typeof SWIPE_REASONS)[number];
 
 /** A swipe request: direction, plus a dislike reason and its free-text detail (the ingredient). */
 export interface SwipeInput {
-  direction: "like" | "dislike";
+  direction: "like" | "dislike" | "save";
   reason?: SwipeReason;
   reasonDetail?: string;
 }
@@ -112,8 +113,9 @@ export class RecipeService {
   /**
    * Records a swipe and applies its side-effect (WI-RANK-4). Snapshots the pre-tune
    * score+weights (what produced the card the user saw), then: a `like` files the recipe
-   * into the caller's "Liked" system cookbook; a reasoned `dislike` tunes preferences
-   * (bump a weight, or add a food-pref dislike when a `reasonDetail` names the ingredient).
+   * into the caller's "Liked" system cookbook; a `save` ("cook this week") files it into
+   * "Saved"; a reasoned `dislike` tunes preferences (bump a weight, or add a food-pref
+   * dislike when a `reasonDetail` names the ingredient).
    * @param userId - The caller.
    * @param recipeId - The swiped recipe (must be visible to the caller).
    * @param input - Direction + optional dislike reason and its detail.
@@ -123,7 +125,7 @@ export class RecipeService {
     userId: string,
     recipeId: string,
     input: SwipeInput,
-  ): Promise<{ direction: "like" | "dislike"; reason: SwipeReason | null; score: number }> {
+  ): Promise<{ direction: "like" | "dislike" | "save"; reason: SwipeReason | null; score: number }> {
     const rankable = await this.recipes.getRankable(userId, recipeId);
     if (!rankable) throw new NotFoundError();
 
@@ -132,13 +134,29 @@ export class RecipeService {
     const reason = input.reason ?? null;
     await this.swipes.upsert(userId, { recipeId, direction: input.direction, reason, score, weights: prefs.weights });
 
-    if (input.direction === "like") {
-      const cb = await this.cookbooks.ensureSystemCookbook(userId, "liked", "Liked");
+    if (input.direction === "like" || input.direction === "save") {
+      const [slug, name] = input.direction === "like" ? ["liked", "Liked"] : ["saved", "Saved"];
+      const cb = await this.cookbooks.ensureSystemCookbook(userId, slug, name);
       await this.cookbooks.addRecipe(userId, cb, recipeId);
     } else if (input.reason) {
       await this.applyDislikeTuning(userId, input.reason, input.reasonDetail);
     }
     return { direction: input.direction, reason, score };
+  }
+
+  /**
+   * Un-swipes: removes the `(user, recipe)` swipe and reverses its cookbook filing, so the
+   * recipe becomes deck-eligible again. Idempotent — a no-op if there was no swipe. A `like`
+   * un-files from Liked, a `save` from Saved; a dislike just clears the row.
+   */
+  async unswipe(userId: string, recipeId: string): Promise<void> {
+    const removed = await this.swipes.delete(userId, recipeId);
+    if (!removed) return;
+    if (removed.direction === "like" || removed.direction === "save") {
+      const [slug, name] = removed.direction === "like" ? ["liked", "Liked"] : ["saved", "Saved"];
+      const cb = await this.cookbooks.ensureSystemCookbook(userId, slug, name);
+      await this.cookbooks.removeRecipe(userId, cb, recipeId);
+    }
   }
 
   /** Tunes preferences for a reasoned dislike: bump a weight, add a food-pref dislike, or nothing. */
@@ -152,10 +170,13 @@ export class RecipeService {
    * Returns a recipe by id.
    * @throws {NotFoundError} If no recipe has that id (404).
    */
-  async get(recipeId: string): Promise<PublicRecipe> {
+  async get(recipeId: string): Promise<PublicRecipe>;
+  async get(recipeId: string, fields: Set<string>): Promise<Partial<PublicRecipe> & { id: string }>;
+  async get(recipeId: string, fields?: Set<string>): Promise<Partial<PublicRecipe> & { id: string }> {
     const detail = await this.recipes.findById(recipeId);
     if (!detail) throw new NotFoundError();
-    return toPublicRecipe(detail);
+    const full = toPublicRecipe(detail);
+    return fields && fields.size ? projectRecipe(full, fields) : full;
   }
 
   /**

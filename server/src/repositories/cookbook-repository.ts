@@ -130,6 +130,13 @@ export class CookbookRepository {
     await this.db.insert(cookbookRecipes).values({ cookbookId, recipeId }).onConflictDoNothing();
   }
 
+  /** Idempotently un-files a recipe from a cookbook (no-op if not a member). */
+  async removeRecipe(userId: string, cookbookId: string, recipeId: string): Promise<void> {
+    await this.db
+      .delete(cookbookRecipes)
+      .where(and(eq(cookbookRecipes.cookbookId, cookbookId), eq(cookbookRecipes.recipeId, recipeId)));
+  }
+
   /**
    * Sets the caller's cookbook membership for a recipe: makes membership exactly
    * `cookbookIds` (restricted to the caller's own cookbooks — ids they don't own are

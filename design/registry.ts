@@ -16,6 +16,7 @@ import { LoadingScreenStudy } from "./studies/LoadingScreen.study";
 import { LogoStudy } from "./studies/Logo.study";
 import { MealAddRecipeSheetStudy } from "./studies/MealAddRecipeSheet.study";
 import { MealMenuStudy } from "./studies/MealMenu.study";
+import { MealPlanIntakeStudy } from "./studies/MealPlanIntake.study";
 import { NewCookbookSheetStudy } from "./studies/NewCookbookSheet.study";
 import { OnboardingChecklistStudy } from "./studies/OnboardingChecklist.study";
 import { OnboardingScreenStudy } from "./studies/OnboardingScreen.study";
@@ -23,6 +24,8 @@ import { OptionRowStudy } from "./studies/OptionRow.study";
 import { ProgressHeaderStudy } from "./studies/ProgressHeader.study";
 import { RecipeCardStudy } from "./studies/RecipeCard.study";
 import { StepTextStudy } from "./studies/StepText.study";
+import { SwipeDeckStudy } from "./studies/SwipeDeck.study";
+import { SwipeSettingsStudy } from "./studies/SwipeSettings.study";
 import { ToastStudy } from "./studies/Toast.study";
 import { TotalTimeSheetStudy } from "./studies/TotalTimeSheet.study";
 import { TypographyStudy } from "./studies/Typography.study";
@@ -48,6 +51,7 @@ export const studies: Study[] = [
   LogoStudy,
   MealAddRecipeSheetStudy,
   MealMenuStudy,
+  MealPlanIntakeStudy,
   NewCookbookSheetStudy,
   OnboardingChecklistStudy,
   OnboardingScreenStudy,
@@ -55,6 +59,8 @@ export const studies: Study[] = [
   ProgressHeaderStudy,
   RecipeCardStudy,
   StepTextStudy,
+  SwipeDeckStudy,
+  SwipeSettingsStudy,
   ToastStudy,
   TotalTimeSheetStudy,
   TypographyStudy,

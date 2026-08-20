@@ -11,6 +11,8 @@ import {
   deleteGroceryItem,
   listCommonIngredients,
 } from "./groceries";
+import { getDeck, recordSwipe, unswipe, type SwipeBody } from "./swipe";
+import { getPreferences, updatePreferences, type ApiPreferences } from "./preferences";
 import type { ApiMealPlanEntry, MealSlot, NewGroceryItem } from "./types";
 
 /**
@@ -76,6 +78,45 @@ export function useLibraryCards() {
 /** The Popular common-ingredient list (endpoint + hard-coded fallback). */
 export function useCommonIngredients() {
   return useQuery({ queryKey: queryKeys.commonIngredients, queryFn: listCommonIngredients });
+}
+
+/* ---------- Swipe deck & preferences ---------- */
+
+/** The caller's ranked swipe deck (top `limit`). Re-fetches after a preferences save invalidates it. */
+export function useDeck(limit = 5) {
+  return useQuery({ queryKey: queryKeys.deck, queryFn: () => getDeck(limit) });
+}
+
+/**
+ * Records a swipe. Success doesn't invalidate the deck — the in-hand batch is never reshuffled
+ * (design O-02); the swiped recipe is excluded at the next fetch. The screen drives optimistic UI.
+ */
+export function useSwipe() {
+  return useMutation({
+    mutationFn: ({ recipeId, ...body }: { recipeId: string } & SwipeBody) => recordSwipe(recipeId, body),
+  });
+}
+
+/** Durable un-swipe (backtrack). */
+export function useUnswipe() {
+  return useMutation({ mutationFn: (recipeId: string) => unswipe(recipeId) });
+}
+
+/** The caller's full preference model (cold-start defaults if never saved). */
+export function usePreferences() {
+  return useQuery({ queryKey: queryKeys.preferences, queryFn: getPreferences });
+}
+
+/** Persists preferences; invalidates `preferences` (reseed) and `deck` (next fetch re-ranks). */
+export function useUpdatePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ApiPreferences) => updatePreferences(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.preferences });
+      qc.invalidateQueries({ queryKey: queryKeys.deck });
+    },
+  });
 }
 
 /** Every grocery write invalidates the one list key, so mounted lists refetch. */

@@ -105,6 +105,14 @@ export type RecipeCard = {
   title: string;
   image_url?: string;
   total_minutes?: number;
+  // Deck-card badge fields (present on GET /v1/recipes/deck; absent on the plain library list).
+  difficulty_band?: "beginner" | "intermediate" | "advanced";
+  cost_per_serving_cents?: number | null;
+  nrf_score?: number;
+  meal_prep_fit?: "unsuitable" | "suitable" | "designed";
+  equipment?: { equipment: string; essentiality: string }[];
+  allergens?: string[];
+  diets?: string[];
   ingredient_names?: string[];
   cookbook_ids?: string[];
 };
