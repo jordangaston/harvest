@@ -45,7 +45,7 @@ export function SwipeCard({ card, dimmed, onOpenDetail }: { card: DeckCard; dimm
       {/* Top-left: the "for you" score — quiet, not a loud stamp. */}
       <View className="absolute left-4 top-4 flex-row items-center rounded-full px-3 py-1.5" style={{ gap: 5, backgroundColor: OVERLAY }}>
         <Icon name="sparkles" size={13} color="#E9C77E" />
-        <Text className="text-xs font-bold" style={{ color: OVERLAY_TEXT }}>{card.score} for you</Text>
+        <Text className="text-xs font-bold" style={{ color: OVERLAY_TEXT }}>For you</Text>
       </View>
 
       {/* Bottom content block, over the scrim. */}

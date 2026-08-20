@@ -58,7 +58,7 @@ export function OnboardingChecklist({
   ];
 
   return (
-    <View className="mb-4 overflow-hidden rounded-3xl border border-hairline bg-cream">
+    <View className="mb-4 rounded-3xl bg-card" style={ELEVATION.medium}>
       <Pressable onPress={toggle} className="flex-row items-center justify-between px-5 pt-4">
         <VStack>
           <Text className="text-sm text-muted">Welcome —</Text>
