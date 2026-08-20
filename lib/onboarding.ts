@@ -22,17 +22,14 @@ const GOALS = makeMap({
   "Meal prepping": "meal_prepping",
 });
 
-// The day picker emits the wire enums directly ("mon"…); this map validates/passes them through.
-const COOK_DAYS = makeMap({ mon: "mon", tue: "tue", wed: "wed", thu: "thu", fri: "fri", sat: "sat", sun: "sun" });
-
 const enums = (map: Map<string, string>, labels: string[]): string[] =>
   labels.map((l) => map.get(norm(l))).filter((v): v is string => v !== undefined);
 
 /** The `POST /v1/users` payload — the two answers the users record owns. */
-export type UserPayload = { goals: string[]; cook_days: string[] };
+export type UserPayload = { goals: string[]; cook_days_count: number | null };
 
-type Draft = { goals: string[]; cookDays: string[]; prefs: Partial<Preferences> };
-const empty = (): Draft => ({ goals: [], cookDays: [], prefs: {} });
+type Draft = { goals: string[]; cookDaysCount: number | null; prefs: Partial<Preferences> };
+const empty = (): Draft => ({ goals: [], cookDaysCount: null, prefs: {} });
 let draft: Draft = empty();
 
 /** Merge a slice of preference answers into the draft (called per screen). */
@@ -43,9 +40,9 @@ export function setPreferences(patch: Partial<Preferences>): void {
 export function setGoals(labels: string[]): void {
   draft.goals = enums(GOALS, labels);
 }
-/** Cook days — weekday chip values ("mon"…) pass straight through the map. */
-export function setCookDays(values: string[]): void {
-  draft.cookDays = enums(COOK_DAYS, values);
+/** Cook days — how many days a week the user cooks (1–7). */
+export function setCookDaysCount(count: number): void {
+  draft.cookDaysCount = count;
 }
 
 /** Snapshot of the collected preference answers, atop the model defaults. */
@@ -53,9 +50,9 @@ export function getPreferencesDraft(): Preferences {
   return { ...DEFAULT_PREFERENCES, ...draft.prefs };
 }
 
-/** The `POST /v1/users` body — goals + cook days (server enums). */
+/** The `POST /v1/users` body — goals + how many days a week the user cooks. */
 export function buildUserPayload(): UserPayload {
-  return { goals: draft.goals, cook_days: draft.cookDays };
+  return { goals: draft.goals, cook_days_count: draft.cookDaysCount };
 }
 
 /** The `PUT /v1/preferences` body — the full ranking model mapped to the wire DTO. */

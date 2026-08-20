@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
-  setGoals, setCookDays, setPreferences, buildUserPayload, buildPreferences, resetOnboarding,
+  setGoals, setCookDaysCount, setPreferences, buildUserPayload, buildPreferences, resetOnboarding,
 } from "../lib/onboarding.ts";
 import { gateRoute, DECK_ROUTE, ONBOARDING_ROUTE } from "../lib/onboardingGate.ts";
 import type { ApiPreferences } from "../lib/api/preferences.ts";
@@ -13,7 +13,7 @@ beforeEach(() => resetOnboarding());
 test("draft holds the LATEST answer after a back-nav edit; flush builds each payload once", async () => {
   // Walk the flow, recording answers.
   setGoals(["Healthy meals", "Kid friendly meals"]);
-  setCookDays(["mon", "wed", "fri"]);
+  setCookDaysCount(3);
   setPreferences({ weeklyBudgetCents: 20000 });
   setPreferences({ groceryStores: ["walmart"] });
   setPreferences({ likes: [{ facet: "cuisine", value: "Thai" }] });
@@ -33,7 +33,7 @@ test("draft holds the LATEST answer after a back-nav edit; flush builds each pay
 
   assert.equal(userCalls.length, 1, "exactly one POST /v1/users");
   assert.equal(prefCalls.length, 1, "exactly one PUT /v1/preferences");
-  assert.deepEqual(userCalls[0], { goals: ["eat_healthier", "kid_friendly"], cook_days: ["mon", "wed", "fri"] });
+  assert.deepEqual(userCalls[0], { goals: ["eat_healthier", "kid_friendly"], cook_days_count: 3 });
   assert.equal(prefCalls[0].weekly_budget_cents, 8000, "carries the CHANGED budget, not 20000");
   assert.deepEqual(prefCalls[0].grocery_stores, ["walmart"]);
   assert.deepEqual(prefCalls[0].likes, [{ facet: "cuisine", value: "Thai" }]);
@@ -58,7 +58,7 @@ test("a rejected flush leaves the draft intact and reports the error", async () 
 
   // Draft survived — a retry rebuilds the same payload.
   assert.equal(buildPreferences().weekly_budget_cents, 9000);
-  assert.deepEqual(buildUserPayload(), { goals: ["save_money"], cook_days: [] });
+  assert.deepEqual(buildUserPayload(), { goals: ["save_money"], cook_days_count: null });
 });
 
 test("default draft supplies model defaults for untouched fields", () => {

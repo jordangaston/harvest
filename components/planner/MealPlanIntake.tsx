@@ -21,12 +21,13 @@ export const mealTotal = (m: WeeklyMeals) => MEALS.reduce((n, x) => n + m[x.key]
  * so it drops into the intake screen and the swipe settings alike (both own the WeeklyMeals state).
  * Styled to match the settings cards (bg-card + ELEVATION) so it slots in seamlessly.
  */
-export function MealCounts({ value, onChange }: { value: WeeklyMeals; onChange: (m: MealType, v: number) => void }) {
+export function MealCounts({ value, onChange, showTitle = true, types }: { value: WeeklyMeals; onChange: (m: MealType, v: number) => void; showTitle?: boolean; types?: MealType[] }) {
+  const rows = types ? MEALS.filter((m) => types.includes(m.key)) : MEALS;
   return (
     <View className="rounded-2xl bg-card p-4" style={[{ gap: 16 }, ELEVATION.medium]}>
-      <Text className="text-sm font-bold text-ink">How many meals each week?</Text>
+      {showTitle ? <Text className="text-sm font-bold text-ink">How many meals each week?</Text> : null}
       <VStack space={14}>
-        {MEALS.map((m) => (
+        {rows.map((m) => (
           <HStack key={m.key} className="items-center justify-between">
             <Text className="text-base text-ink">{m.label}</Text>
             <Stepper value={value[m.key]} onChange={(v) => onChange(m.key, v)} label={m.label.toLowerCase()} />

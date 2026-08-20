@@ -38,18 +38,24 @@ export function Segmented<T extends string | number>({ options, value, onChange,
   );
 }
 
-/** Multi-select chip — selected = brand-light + brand border + brand text. */
-export function Chip({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+/**
+ * Multi-select chip. Selected (or the `add` variant, for "+ tap to add" affordances) = brand-light +
+ * brand border + brand text. Unselected = a darker sand fill (`sand-300`) with a defined border and
+ * ink text, so a resting chip actually reads off the cream canvas (the old `sand-200`/muted was
+ * ~1.1:1 and vanished). Refactoring UI Ch2 (hierarchy) + Ch5 (contrast).
+ */
+export function Chip({ label, active, onToggle, variant = "default" }: { label: string; active: boolean; onToggle: () => void; variant?: "default" | "add" }) {
+  const branded = active || variant === "add";
   return (
     <Pressable
       onPress={onToggle}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
-      className={`rounded-full px-3.5 py-2 ${active ? "bg-brand-light" : "bg-sand-200"}`}
-      style={active ? { borderWidth: 1, borderColor: "#A85E2B" } : undefined}
+      className={`rounded-full px-3.5 py-2 ${branded ? "bg-brand-light" : "bg-sand-300"}`}
+      style={{ borderWidth: 1, borderColor: branded ? "#A85E2B" : "#C2A678" }}
     >
-      <Text className={`text-sm font-semibold ${active ? "text-brand" : "text-muted"}`}>{label}</Text>
+      <Text className={`text-sm font-semibold ${branded ? "text-brand" : "text-ink"}`}>{label}</Text>
     </Pressable>
   );
 }

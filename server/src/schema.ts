@@ -70,8 +70,7 @@ export const ESSENTIALITY = ['required', 'recommended'] as const;
 // `save` ("cook this week") files the recipe into the caller's Saved cookbook (like `like` → Liked).
 export const SWIPE_DIRECTIONS = ['like', 'dislike', 'save'] as const;
 export const SWIPE_REASONS = ['too_expensive', 'too_hard', 'too_slow', 'disliked_ingredient', 'not_nutritious', 'other'] as const;
-const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
+const WHEN_COOK =['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
 const HOW_HEARD = [
   'tiktok',
@@ -133,7 +132,7 @@ export const users = sqliteTable(
     // single-selects are plain enum-text columns. All nullable — a user may skip a screen.
     goals: text('goals', { mode: 'json' }).$type<(typeof GOALS)[number][]>(),
     recipeSources: text('recipe_sources', { mode: 'json' }).$type<(typeof RECIPE_SOURCES)[number][]>(),
-    cookDays: text('cook_days', { mode: 'json' }).$type<(typeof WEEKDAYS)[number][]>(),
+    cookDaysCount: integer('cook_days_count'),
     whenCook: text('when_cook', { enum: WHEN_COOK }),
     cookTime: text('cook_time', { enum: COOK_TIME }),
     howHeard: text('how_heard', { enum: HOW_HEARD }),

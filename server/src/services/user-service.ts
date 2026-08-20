@@ -183,7 +183,7 @@ function onboardingColumns(o: Onboarding) {
   return {
     goals: o.goals,
     recipeSources: o.recipe_sources,
-    cookDays: o.cook_days,
+    cookDaysCount: o.cook_days_count,
     whenCook: o.when_cook,
     cookTime: o.cook_time,
     howHeard: o.how_heard,

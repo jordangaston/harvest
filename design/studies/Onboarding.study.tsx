@@ -2,14 +2,15 @@ import React from "react";
 import { View } from "react-native";
 import type { Study } from "../types.ts";
 import {
-  OnboardingValueCard, OnboardingValueCarousel, OnboardingChipGrid, OnboardingStorePicker,
-  OnboardingBudget, OnboardingCounter, OnboardingDayPicker, OnboardingBinary,
+  OnboardingValueCard, OnboardingChipGrid, OnboardingStorePicker,
+  OnboardingSliderStep, OnboardingCounter, OnboardingDayPicker, OnboardingBinary,
   OnboardingSeverityPicker, OnboardingTasteMenu, OnboardingSingleSelectList,
   type Household, type LeveledPref,
 } from "../../components/onboarding/screens";
 import {
   ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, TASTE_PRESETS, TASTE_CORPUS,
 } from "../../components/onboarding/primitives";
+import { money } from "../../components/swipe/mock";
 
 // Every onboarding archetype is rendered INLINE in a cream frame (like SwipeSettings) so the
 // studio's CommentLayer can pin reviews to it. Each view holds its own draft state, matching how
@@ -36,20 +37,6 @@ export const OnboardingValueCardStudy: Study = {
   render: (v) => <ValueCardView headline={String(v.headline)} body={String(v.body)} typing={Boolean(v.typing)} haptics={Boolean(v.haptics)} />,
 };
 
-/* 2. Value carousel (3-slide loader) */
-export const OnboardingValueCarouselStudy: Study = {
-  name: "OnboardingValueCarousel", group: GROUP,
-  render: () => (
-    <Frame>
-      <OnboardingValueCarousel slides={[
-        { title: "Custom meal plans", caption: "Built around what you actually like." },
-        { title: "For your family", caption: "Portioned for everyone at your table." },
-        { title: "Every week", caption: "A fresh plan and a ready shopping list." },
-      ]} />
-    </Frame>
-  ),
-};
-
 /* 3. Chip grid (goals / time-bands / equipment) */
 const GOALS = ["Eat healthier", "Save money", "Improve cooking skills", "Organize recipes", "Plan out meals", "Meal prepping", "Try new cuisines", "Kid-friendly meals"].map((l) => ({ value: l, label: l }));
 const TIME_BANDS = ["Under 20 min", "20–35 min", "35–45 min", "45–60 min", "60+ min"].map((l) => ({ value: l, label: l }));
@@ -73,10 +60,10 @@ function StorePickerView() {
 }
 export const OnboardingStorePickerStudy: Study = { name: "OnboardingStorePicker", group: GROUP, render: () => <StorePickerView /> };
 
-/* 5. Budget */
+/* 5. Slider step (budget / time) */
 function BudgetView() {
   const [cents, setCents] = React.useState(15500);
-  return <Frame><OnboardingBudget cents={cents} onChange={setCents} /></Frame>;
+  return <Frame><OnboardingSliderStep title="What’s your weekly budget?" subtitle="We’ll keep your plan under it." value={cents} min={3000} max={40000} step={1000} format={money} caption="this week" onChange={setCents} /></Frame>;
 }
 export const OnboardingBudgetStudy: Study = { name: "OnboardingBudget", group: GROUP, render: () => <BudgetView /> };
 

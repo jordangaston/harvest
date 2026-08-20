@@ -75,11 +75,11 @@ describe("UserService", () => {
     const users = UserService.create(db);
     const { user } = await users.createUser({
       phoneNumber: "+15555550124",
-      onboarding: { goals: ["eat_healthier"], cook_days: ["mon", "wed"], age: "from_25_to_34" },
+      onboarding: { goals: ["eat_healthier"], cook_days_count: 3, age: "from_25_to_34" },
     });
     const row = await UserRepository.create(db).findById(user.id);
     expect(row?.goals).toEqual(["eat_healthier"]);
-    expect(row?.cookDays).toEqual(["mon", "wed"]);
+    expect(row?.cookDaysCount).toEqual(3);
     expect(row?.age).toBe("from_25_to_34");
     expect(row?.onboardingCompletedAt).toBeInstanceOf(Date);
   });

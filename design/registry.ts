@@ -19,7 +19,7 @@ import { MealMenuStudy } from "./studies/MealMenu.study";
 import { MealPlanIntakeStudy } from "./studies/MealPlanIntake.study";
 import { NewCookbookSheetStudy } from "./studies/NewCookbookSheet.study";
 import {
-  OnboardingValueCardStudy, OnboardingValueCarouselStudy, OnboardingChipGridStudy,
+  OnboardingValueCardStudy, OnboardingChipGridStudy,
   OnboardingStorePickerStudy, OnboardingBudgetStudy, OnboardingCounterStudy,
   OnboardingDayPickerStudy, OnboardingBinaryStudy, OnboardingSeverityPickerStudy,
   OnboardingTasteMenuStudy, OnboardingSingleSelectListStudy,
@@ -60,7 +60,6 @@ export const studies: Study[] = [
   MealPlanIntakeStudy,
   NewCookbookSheetStudy,
   OnboardingValueCardStudy,
-  OnboardingValueCarouselStudy,
   OnboardingChipGridStudy,
   OnboardingStorePickerStudy,
   OnboardingBudgetStudy,

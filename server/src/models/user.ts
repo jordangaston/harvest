@@ -13,7 +13,6 @@ const GOALS = [
   'quick_meals',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
-const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
 const HOW_HEARD = [
@@ -35,7 +34,7 @@ const AGE_BANDS = ['under_24', 'from_25_to_34', 'from_35_to_44', 'from_45_to_54'
 export const OnboardingSchema = z.object({
   goals: z.array(z.enum(GOALS)).optional(),
   recipe_sources: z.array(z.enum(RECIPE_SOURCES)).optional(),
-  cook_days: z.array(z.enum(WEEKDAYS)).optional(),
+  cook_days_count: z.number().int().min(1).max(7).optional(),
   when_cook: z.enum(WHEN_COOK).optional(),
   cook_time: z.enum(COOK_TIME).optional(),
   how_heard: z.enum(HOW_HEARD).optional(),
@@ -57,7 +56,7 @@ export const UserSchema = z.object({
   refreshTokenNonce: z.number().int(),
   goals: z.array(z.enum(GOALS)).nullable(),
   recipeSources: z.array(z.enum(RECIPE_SOURCES)).nullable(),
-  cookDays: z.array(z.enum(WEEKDAYS)).nullable(),
+  cookDaysCount: z.number().int().min(1).max(7).nullable(),
   whenCook: z.enum(WHEN_COOK).nullable(),
   cookTime: z.enum(COOK_TIME).nullable(),
   howHeard: z.enum(HOW_HEARD).nullable(),

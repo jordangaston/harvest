@@ -1,9 +1,8 @@
 import React from "react";
-import { View, Animated, AccessibilityInfo, Image } from "react-native";
+import { View, Animated, Image } from "react-native";
 import { VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { ELEVATION } from "../../lib/elevation";
 import { DURATION, EASE } from "../../lib/motion";
-import { money } from "../swipe/mock";
 import {
   Chip, Segmented, Slider, Stepper, MoreChip, SearchAddSheet, Card, Typewriter,
   GROCERY_STORES, ALL_GROCERY_STORES, STORE_ID_TO_LABEL, STORE_LABEL_TO_ID, STORE_LOGOS,
@@ -52,9 +51,9 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
       <View className="items-center" style={{ gap: 20 }}>
         {art ? <View className="items-center">{art}</View> : null}
         {typing ? (
-          <Typewriter text={headline} haptics={haptics} onDone={() => setShowBody(true)} className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }} />
+          <Typewriter text={headline} haptics={haptics} onDone={() => setShowBody(true)} className="text-center text-3xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 40 }} />
         ) : (
-          <Text className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }}>{headline}</Text>
+          <Text className="text-center text-3xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 40 }}>{headline}</Text>
         )}
         {body ? (
           <Animated.View style={{ opacity: fade }}>
@@ -69,40 +68,6 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
           <Text className="text-base font-bold text-white">{ctaLabel}</Text>
         </Pressable>
       ) : null}
-    </View>
-  );
-}
-
-/* ── 2. Auto-advancing 3-slide value carousel (loader) ─────────────────────────── */
-
-export function OnboardingValueCarousel({ slides, intervalMs = 2200 }: { slides: { title: string; caption?: string; art?: React.ReactNode }[]; intervalMs?: number }) {
-  const [i, setI] = React.useState(0);
-  const [reduce, setReduce] = React.useState(false);
-  const fade = React.useRef(new Animated.Value(1)).current;
-  React.useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setReduce).catch(() => {}); }, []);
-  React.useEffect(() => {
-    if (slides.length <= 1) return;
-    const t = setInterval(() => setI((n) => (n + 1) % slides.length), intervalMs);
-    return () => clearInterval(t);
-  }, [slides.length, intervalMs]);
-  React.useEffect(() => {
-    if (reduce) return;
-    fade.setValue(0);
-    Animated.timing(fade, { toValue: 1, duration: DURATION.medium, easing: EASE.smoothOut, useNativeDriver: false }).start();
-  }, [i, reduce, fade]);
-  const s = slides[i] ?? { title: "" };
-  return (
-    <View style={{ paddingVertical: 24, minHeight: 440 }} className="items-center justify-between">
-      <View className="flex-1 items-center justify-center">
-        <Animated.View className="items-center" style={{ opacity: reduce ? 1 : fade, gap: 16 }}>
-          {s.art ? <View className="items-center">{s.art}</View> : null}
-          <Text className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 32 }}>{s.title}</Text>
-          {s.caption ? <Text className="text-center text-base text-muted">{s.caption}</Text> : null}
-        </Animated.View>
-      </View>
-      <HStack space={8} className="items-center">
-        {slides.map((_, k) => <View key={k} className={`rounded-full ${k === i ? "bg-brand" : "bg-sand-300"}`} style={{ width: k === i ? 20 : 8, height: 8 }} />)}
-      </HStack>
     </View>
   );
 }
@@ -171,21 +136,24 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
   );
 }
 
-/* ── 5. Budget — big numeral hero + slider ─────────────────────────────────────── */
+/* ── 5. Slider step — big numeral hero + slider (budget, time) ──────────────────── */
 
-export function OnboardingBudget({ cents, onChange, min = 3000, max = 40000, step = 1000 }: { cents: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
-  const atMax = cents >= max;
+export function OnboardingSliderStep({ title, subtitle, value, min, max, step, format, caption, onChange }: {
+  title: string; subtitle?: string; value: number; min: number; max: number; step: number;
+  format: (v: number) => string; caption?: string; onChange: (v: number) => void;
+}) {
+  const atMax = value >= max;
   return (
     <View style={{ paddingTop: 8 }}>
-      <StepHeader title="What’s your weekly budget?" subtitle="We’ll keep your plan under it." />
-      <View className="items-center" style={{ paddingVertical: 24, gap: 4 }}>
-        <Text className="text-ink" style={{ fontFamily: "Karla_700Bold", fontSize: 56, lineHeight: 60 }}>{money(cents)}{atMax ? "+" : ""}</Text>
-        <Text className="text-sm text-muted">this week</Text>
+      <StepHeader title={title} subtitle={subtitle} />
+      <View className="items-center" style={{ paddingVertical: 28, gap: 4 }}>
+        <Text className="text-ink" style={{ fontFamily: "Karla_700Bold", fontSize: 56, lineHeight: 60 }}>{format(value)}{atMax ? "+" : ""}</Text>
+        {caption ? <Text className="text-lg text-muted" style={{ fontFamily: "Karla_600SemiBold" }}>{caption}</Text> : null}
       </View>
-      <Slider value={cents} min={min} max={max} step={step} hideValue format={(c) => money(c)} onChange={onChange} />
+      <Slider value={value} min={min} max={max} step={step} hideValue format={format} onChange={onChange} />
       <HStack className="justify-between" style={{ marginTop: 4 }}>
-        <Text className="text-xs text-muted">{money(min)}</Text>
-        <Text className="text-xs text-muted">{money(max)}+</Text>
+        <Text className="text-xs text-muted">{format(min)}</Text>
+        <Text className="text-xs text-muted">{format(max)}+</Text>
       </HStack>
     </View>
   );
@@ -288,8 +256,8 @@ export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defa
         ))}
       </VStack>
       {available.length ? (
-        <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: value.length ? 12 : 0 }}>
-          {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} onToggle={() => add(c)} />)}
+        <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: value.length ? 24 : 4 }}>
+          {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} variant="add" onToggle={() => add(c)} />)}
         </View>
       ) : null}
     </View>

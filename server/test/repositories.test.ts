@@ -52,13 +52,13 @@ describe('UserRepository', () => {
       jwtPrivateKey: 'k',
       jwtPublicKey: 'p',
       goals: ['eat_healthier', 'save_money'],
-      cookDays: ['mon', 'wed'],
+      cookDaysCount: 3,
       whenCook: 'evening_ready',
       age: 'from_25_to_34',
     });
     // JSON-mode arrays and single-select enums round-trip through the DB.
     expect(created.goals).toEqual(['eat_healthier', 'save_money']);
-    expect(created.cookDays).toEqual(['mon', 'wed']);
+    expect(created.cookDaysCount).toEqual(3);
     expect(created.whenCook).toBe('evening_ready');
     expect(created.recipeSources).toBeNull();
     expect(created.createdAt).toBeInstanceOf(Date);
