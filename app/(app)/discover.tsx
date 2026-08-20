@@ -5,6 +5,7 @@ import { Backdrop } from "../../components/recime/Backdrop";
 import { SwipeDeck } from "../../components/swipe/SwipeDeck";
 import { useRealDeck } from "../../components/swipe/useRealDeck";
 import { usePreferences, useUpdatePreferences } from "../../lib/api/hooks";
+import { getRecipeFields } from "../../lib/api/recipes";
 import { apiToClient, clientToApi } from "../../lib/api/preferences-map";
 import type { Preferences } from "../../components/swipe/mock";
 
@@ -16,15 +17,28 @@ import type { Preferences } from "../../components/swipe/mock";
 export default function Discover() {
   const prefs = usePreferences();
   const updatePrefs = useUpdatePreferences();
-  const controller = useRealDeck({ ownedEquipment: prefs.data?.owned_equipment ?? [] });
+  const controller = useRealDeck({
+    ownedEquipment: prefs.data?.owned_equipment ?? [],
+    allergens: prefs.data?.allergens.map((a) => a.allergen) ?? [],
+    diets: prefs.data?.diets.map((d) => d.diet) ?? [],
+  });
   const settingsInitial = prefs.data ? apiToClient(prefs.data) : undefined;
   const onSaveSettings = React.useCallback((p: Preferences) => updatePrefs.mutate(clientToApi(p)), [updatePrefs]);
+
+  // Lazily fill the DetailSheet's ingredients/steps via the field-projected recipe fetch.
+  const hydrateDetail = React.useCallback(async (id: string) => {
+    const r = await getRecipeFields(id, ["ingredients", "steps"]);
+    return {
+      ingredients: (r.ingredients ?? []).map((i) => ({ qty: i.quantity_text ?? [i.amount, i.unit].filter(Boolean).join(" "), name: i.name })),
+      steps: r.steps ?? [],
+    };
+  }, []);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={["top"]}>
       <Backdrop />
       <View className="flex-1 justify-center">
-        <SwipeDeck controller={controller} settingsInitial={settingsInitial} onSaveSettings={onSaveSettings} />
+        <SwipeDeck controller={controller} settingsInitial={settingsInitial} onSaveSettings={onSaveSettings} hydrateDetail={hydrateDetail} />
       </View>
     </SafeAreaView>
   );

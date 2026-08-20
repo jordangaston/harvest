@@ -20,15 +20,14 @@ const EQUIPMENT = [
   { type: "pressure_cooker", label: "Pressure cooker" }, { type: "blender", label: "Blender" },
   { type: "stand_mixer", label: "Stand mixer" }, { type: "grill", label: "Grill" },
 ];
-// The preset chips + the long tail the "More…" search draws from.
+// The preset chips + the long tail the "More…" search draws from. These are the server's canonical
+// EQUIPMENT_TYPES (server/src/schema.ts) — the client no longer offers types the server can't store.
 const ALL_EQUIPMENT = [
   ...EQUIPMENT,
-  { type: "wok", label: "Wok" }, { type: "cast_iron", label: "Cast-iron skillet" },
-  { type: "dutch_oven", label: "Dutch oven" }, { type: "food_processor", label: "Food processor" },
-  { type: "rice_cooker", label: "Rice cooker" }, { type: "sous_vide", label: "Sous-vide" },
-  { type: "waffle_iron", label: "Waffle iron" }, { type: "immersion_blender", label: "Immersion blender" },
-  { type: "mandoline", label: "Mandoline" }, { type: "microwave", label: "Microwave" },
-  { type: "toaster_oven", label: "Toaster oven" }, { type: "smoker", label: "Smoker" },
+  { type: "food_processor", label: "Food processor" }, { type: "dutch_oven", label: "Dutch oven" },
+  { type: "deep_fryer", label: "Deep fryer" }, { type: "wok", label: "Wok" },
+  { type: "sous_vide", label: "Sous-vide" }, { type: "smoker", label: "Smoker" },
+  { type: "ice_cream_maker", label: "Ice cream maker" }, { type: "waffle_iron", label: "Waffle iron" },
 ];
 const EQUIP_TYPE_TO_LABEL = Object.fromEntries(ALL_EQUIPMENT.map((e) => [e.type, e.label]));
 const EQUIP_LABEL_TO_TYPE = Object.fromEntries(ALL_EQUIPMENT.map((e) => [e.label, e.type]));

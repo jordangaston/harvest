@@ -15,8 +15,8 @@ const ALLERGEN_TO_CLIENT: Record<string, string> = {
   tree_nut: "tree nut", soybean: "soy", crustacean_shellfish: "shellfish",
 };
 
-// The equipment the server enum models. Client-only extras (cast_iron, rice_cooker, …) are dropped
-// on save so a PUT never 422s; reconciling the two lists is a follow-up (docs/specs/swipe-wiring-specs.md).
+// The equipment the server enum models. The settings list is reconciled to exactly this set, so the
+// filter below is a no-op safety net (a stray unknown type would be dropped rather than 422 a PUT).
 const SERVER_EQUIPMENT = new Set([
   "air_fryer", "slow_cooker", "pressure_cooker", "stand_mixer", "blender", "food_processor",
   "grill", "dutch_oven", "deep_fryer", "wok", "sous_vide", "smoker", "ice_cream_maker", "waffle_iron",

@@ -27,7 +27,7 @@ type StartState = "deck" | "empty" | "error";
  * for the real useDeck/useSwipe to go live (docs/swipe-ui/DESIGN.md).
  */
 export function SwipeDeck({
-  initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings,
+  initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings, hydrateDetail,
 }: {
   initial?: StartState;
   failSaves?: boolean;
@@ -36,6 +36,8 @@ export function SwipeDeck({
   controller?: DeckController;
   settingsInitial?: Preferences;
   onSaveSettings?: (p: Preferences) => void;
+  /** Lazily fetches a card's ingredients/steps when the DetailSheet opens (real deck only). */
+  hydrateDetail?: (recipeId: string) => Promise<{ ingredients: DeckCard["recipe"]["ingredients"]; steps: string[] }>;
 }) {
   const mock = useMockDeck(initial, failSaves);
   const deck = controller ?? mock;
@@ -169,7 +171,14 @@ export function SwipeDeck({
   const openDetail = React.useCallback((card: DeckCard) => {
     analytics.track("Card Detail Expanded", { recipeId: card.recipe.id });
     setDetail(card);
-  }, []);
+    // Lazily hydrate ingredients/steps when they're not already on the card (real deck; the mock
+    // ships them). Merge into the open sheet only if it's still the same card.
+    if (hydrateDetail && (card.recipe.ingredients.length === 0 || card.recipe.steps.length === 0)) {
+      hydrateDetail(card.recipe.id)
+        .then((extra) => setDetail((d) => (d && d.recipe.id === card.recipe.id ? { ...d, recipe: { ...d.recipe, ...extra } } : d)))
+        .catch(() => {});
+    }
+  }, [hydrateDetail]);
 
   const rotate = pos.x.interpolate({ inputRange: [-CARD_W / 2, 0, CARD_W / 2], outputRange: ["-8deg", "0deg", "8deg"] });
   const likeOpacity = pos.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: "clamp" });

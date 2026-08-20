@@ -11,6 +11,7 @@ import type { SWIPE_REASONS } from "../schema.js";
 import {
   toPublicRecipe,
   toPublicRecipeCard,
+  projectRecipe,
   type PublicRecipe,
   type PublicRecipeCard,
 } from "../models/recipe.js";
@@ -169,10 +170,13 @@ export class RecipeService {
    * Returns a recipe by id.
    * @throws {NotFoundError} If no recipe has that id (404).
    */
-  async get(recipeId: string): Promise<PublicRecipe> {
+  async get(recipeId: string): Promise<PublicRecipe>;
+  async get(recipeId: string, fields: Set<string>): Promise<Partial<PublicRecipe> & { id: string }>;
+  async get(recipeId: string, fields?: Set<string>): Promise<Partial<PublicRecipe> & { id: string }> {
     const detail = await this.recipes.findById(recipeId);
     if (!detail) throw new NotFoundError();
-    return toPublicRecipe(detail);
+    const full = toPublicRecipe(detail);
+    return fields && fields.size ? projectRecipe(full, fields) : full;
   }
 
   /**

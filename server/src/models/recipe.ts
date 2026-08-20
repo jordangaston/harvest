@@ -178,6 +178,8 @@ export interface RecipeCard {
   nrfScore?: number | null;
   mealPrepFit?: MealPrepFit | null;
   equipment?: { equipment: string; essentiality: string }[];
+  allergens?: string[]; // the allergens the recipe contains
+  compatibleDiets?: string[]; // diet ids the recipe is compatible with
   ingredientNames?: string[];
   cookbookIds?: string[];
 }
@@ -203,6 +205,8 @@ export interface PublicRecipeCard {
   nrf_score?: number;
   meal_prep_fit?: MealPrepFit;
   equipment?: { equipment: string; essentiality: string }[];
+  allergens?: string[]; // allergens the recipe contains — the client derives "X-free" compat chips
+  diets?: string[]; // diet ids the recipe is compatible with — the client derives diet compat chips
   ingredient_names?: string[];
   cookbook_ids?: string[];
 }
@@ -217,6 +221,8 @@ export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
   if (card.nrfScore != null) out.nrf_score = card.nrfScore;
   if (card.mealPrepFit) out.meal_prep_fit = card.mealPrepFit;
   if (card.equipment && card.equipment.length) out.equipment = card.equipment;
+  if (card.allergens && card.allergens.length) out.allergens = card.allergens;
+  if (card.compatibleDiets && card.compatibleDiets.length) out.diets = card.compatibleDiets;
   if (card.ingredientNames) out.ingredient_names = card.ingredientNames;
   if (card.cookbookIds) out.cookbook_ids = card.cookbookIds;
   return out;
@@ -233,6 +239,26 @@ const NUTRITION_COLUMN: Record<(typeof LABEL_CORE_KEYS)[number], keyof Recipe> =
   grams_of_protein: 'gramsOfProtein',
   milligrams_of_sodium: 'milligramsOfSodium',
 };
+
+/** The selectable top-level fields of a public recipe (everything but the always-present `id`). */
+export const RECIPE_FIELDS = [
+  'title', 'source_type', 'source_url', 'servings', 'servings_estimated', 'total_minutes', 'image_url',
+  'ingredients', 'steps', 'nutrition', 'nrf_score', 'difficulty', 'cost_per_serving_cents', 'cost_coverage',
+  'allergens', 'categories', 'diets',
+] as const;
+const RECIPE_FIELD_SET = new Set<string>(RECIPE_FIELDS);
+
+/**
+ * Projects a recipe to `id` plus the requested fields, so a caller fetches exactly what it needs
+ * (e.g. the DetailSheet asks for `ingredients,steps`). Unknown field names are ignored.
+ */
+export function projectRecipe(recipe: PublicRecipe, fields: Set<string>): Partial<PublicRecipe> & { id: string } {
+  const out: Partial<PublicRecipe> & { id: string } = { id: recipe.id };
+  for (const f of fields) {
+    if (RECIPE_FIELD_SET.has(f) && f in recipe) (out as Record<string, unknown>)[f] = (recipe as unknown as Record<string, unknown>)[f];
+  }
+  return out;
+}
 
 /**
  * Maps a recipe aggregate to its public shape, dropping internal columns and

@@ -86,6 +86,21 @@ describe("GET /v1/recipes/:id", () => {
     });
   });
 
+  it("projects to id + exactly the requested ?fields (unknown names ignored)", async () => {
+    const owner = await mintBearer();
+    const recipeId = await RecipeRepository.create(db).persist(RECIPE, owner.userId);
+
+    const res = await app.request(`/v1/recipes/${recipeId}?fields=ingredients,steps,bogus`, {
+      headers: { authorization: `Bearer ${owner.token}` },
+    });
+    expect(res.status).toBe(200);
+    const { recipe } = await res.json();
+    expect(Object.keys(recipe).sort()).toEqual(["id", "ingredients", "steps"]);
+    expect(recipe.id).toBe(recipeId);
+    expect(recipe.steps).toEqual(["Mix", "Bake"]);
+    expect(recipe.title).toBeUndefined(); // not requested
+  });
+
   it("persists diet verdicts + blocker and surfaces them on the read (WI-DS-1)", async () => {
     const owner = await mintBearer();
     const repo = RecipeRepository.create(db);

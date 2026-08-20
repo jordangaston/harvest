@@ -6,6 +6,7 @@ import {
   recipeCategories,
   recipeSwipes,
   recipeEquipment,
+  recipeDiets,
   cookbooks,
   cookbookRecipes,
   userPreferences,
@@ -273,19 +274,28 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect((await app.request(`/v1/recipes/${r1}/swipe`, { method: "DELETE" })).status).toBe(401);
   });
 
-  it("TC11: deck card carries the accent-badge signals (nutrition, meal-prep, equipment)", async () => {
+  it("TC11: deck card carries the accent signals + compat data (nutrition, meal-prep, equipment, allergens, diets)", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
     const [row] = await db
       .insert(recipes)
-      .values({ userId, title: "Prep Star", sourceType: "website", nrfScore: "88", mealPrepFit: "designed", allergensComplete: true })
+      .values({
+        userId, title: "Prep Star", sourceType: "website", nrfScore: "88", mealPrepFit: "designed",
+        allergens: { contains: ["peanut"], mayContain: [] }, allergensComplete: true,
+      })
       .returning({ id: recipes.id });
     await db.insert(recipeEquipment).values({ recipeId: row!.id, equipment: "air_fryer", essentiality: "required" });
+    await db.insert(recipeDiets).values([
+      { recipeId: row!.id, dietId: "vegetarian", verdict: "compatible" },
+      { recipeId: row!.id, dietId: "vegan", verdict: "incompatible" }, // only compatible diets surface
+    ]);
 
     const { body } = await getDeck(token);
     const card = body.recipes.find((x: any) => x.recipe.id === row!.id).recipe;
     expect(card.nrf_score).toBe(88);
     expect(card.meal_prep_fit).toBe("designed");
     expect(card.equipment).toEqual([{ equipment: "air_fryer", essentiality: "required" }]);
+    expect(card.allergens).toEqual(["peanut"]);
+    expect(card.diets).toEqual(["vegetarian"]);
   });
 });
 

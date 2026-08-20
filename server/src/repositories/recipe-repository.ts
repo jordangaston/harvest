@@ -452,6 +452,9 @@ export class RecipeRepository {
       const recipe = RecipeSchema.parse(row);
       const equip = equipment.get(recipe.id) ?? [];
       const nrf = recipe.nrfScore == null ? null : Number(recipe.nrfScore);
+      const dietFit = diets.get(recipe.id) ?? {};
+      const compatibleDiets = Object.entries(dietFit).filter(([, v]) => v === 'compatible').map(([d]) => d);
+      const allergensContains = recipe.allergens?.contains ?? [];
       return {
         recipe: {
           id: recipe.id,
@@ -463,17 +466,18 @@ export class RecipeRepository {
           totalMinutes: recipe.totalMinutes,
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
           allergens: {
-            contains: recipe.allergens?.contains ?? [],
+            contains: allergensContains,
             mayContain: recipe.allergens?.mayContain ?? [],
             complete: recipe.allergensComplete,
           },
-          dietFit: diets.get(recipe.id) ?? {},
+          dietFit,
           equipment: equip,
           equipmentComplete: recipe.equipmentComplete,
           popularity: null,
         },
-        // The deck card carries the accent-badge signals (nutrition / meal-prep / equipment)
-        // in addition to the core badges, so the swipe card renders without a detail fetch.
+        // The deck card carries the accent-badge signals (nutrition / meal-prep / equipment) plus the
+        // recipe's allergens + compatible diets, so the swipe card renders its accent + compat chips
+        // (the client derives compat vs the user's filters) without a detail fetch.
         card: toPublicRecipeCard({
           id: recipe.id,
           title: recipe.title,
@@ -485,6 +489,8 @@ export class RecipeRepository {
           nrfScore: nrf,
           mealPrepFit: recipe.mealPrepFit,
           equipment: equip,
+          allergens: allergensContains,
+          compatibleDiets,
         }),
       };
     });

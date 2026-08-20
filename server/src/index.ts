@@ -182,9 +182,15 @@ app.put("/v1/preferences", guard, async (c) => {
 
 /** GET /v1/recipes/:id — a recipe with its ingredients and steps. Requires bearer
  * token. Not owner-scoped — recipes are shared, so any authenticated caller can open
- * one while browsing. 404 if the id is unknown. */
+ * one while browsing. 404 if the id is unknown. Optional `?fields=a,b,c` projects the
+ * response to `id` + exactly those fields (e.g. `fields=ingredients,steps`); absent
+ * returns the full recipe. */
 app.get("/v1/recipes/:id", guard, async (c) => {
-  const recipe = await recipes.get(c.req.param("id")!);
+  const fields = c.req.query("fields");
+  const id = c.req.param("id")!;
+  const recipe = fields
+    ? await recipes.get(id, new Set(fields.split(",").map((s) => s.trim()).filter(Boolean)))
+    : await recipes.get(id);
   return c.json({ recipe });
 });
 

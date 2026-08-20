@@ -7,6 +7,14 @@ export async function getRecipe(id: string): Promise<ApiRecipe> {
   return recipe;
 }
 
+/** Fetches just the requested recipe fields (`id` always included). For the deck DetailSheet's
+ * lazy ingredients/steps hydration — the deck card omits them to stay light. */
+export async function getRecipeFields(id: string, fields: string[]): Promise<Partial<ApiRecipe> & { id: string }> {
+  const qs = fields.length ? `?fields=${fields.join(",")}` : "";
+  const { recipe } = await apiFetch<{ recipe: Partial<ApiRecipe> & { id: string } }>(`/v1/recipes/${id}${qs}`);
+  return recipe;
+}
+
 /**
  * The caller's whole library as cards (owned ∪ cookbook recipes), following the
  * `page_token` cursor to the end. `expand` adds ingredient names + cookbook ids so

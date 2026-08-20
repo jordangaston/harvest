@@ -111,6 +111,8 @@ export type RecipeCard = {
   nrf_score?: number;
   meal_prep_fit?: "unsuitable" | "suitable" | "designed";
   equipment?: { equipment: string; essentiality: string }[];
+  allergens?: string[];
+  diets?: string[];
   ingredient_names?: string[];
   cookbook_ids?: string[];
 };
