@@ -45,17 +45,23 @@ export function Segmented<T extends string | number>({ options, value, onChange,
  * ~1.1:1 and vanished). Refactoring UI Ch2 (hierarchy) + Ch5 (contrast).
  */
 export function Chip({ label, active, onToggle, variant = "default" }: { label: string; active: boolean; onToggle: () => void; variant?: "default" | "add" }) {
-  const branded = active || variant === "add";
+  // Three distinct looks: `add` = a solid brand pill (white text) — clearly a "tap to add" action;
+  // selected = brand-light tint; resting = sand-300 fill. `add` must NOT share the selected tint,
+  // or an addable chip reads as already-chosen.
+  const add = variant === "add";
+  const bg = add ? "bg-brand" : active ? "bg-brand-light" : "bg-sand-300";
+  const borderColor = add ? "#8A4A1E" : active ? "#A85E2B" : "#C2A678";
+  const textCls = add ? "text-white" : active ? "text-brand" : "text-ink";
   return (
     <Pressable
       onPress={onToggle}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
-      className={`rounded-full px-3.5 py-2 ${branded ? "bg-brand-light" : "bg-sand-300"}`}
-      style={{ borderWidth: 1, borderColor: branded ? "#A85E2B" : "#C2A678" }}
+      className={`rounded-full px-3.5 py-2 ${bg}`}
+      style={{ borderWidth: 1, borderColor }}
     >
-      <Text className={`text-sm font-semibold ${branded ? "text-brand" : "text-ink"}`}>{label}</Text>
+      <Text className={`text-sm font-semibold ${textCls}`}>{label}</Text>
     </Pressable>
   );
 }
