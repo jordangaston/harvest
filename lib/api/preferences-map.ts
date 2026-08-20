@@ -30,12 +30,15 @@ export function apiToClient(a: ApiPreferences): Preferences {
     timeBudgetMin: a.time_budget_minutes ?? DEFAULT_PREFERENCES.timeBudgetMin,
     weeklyMeals: a.weekly_meals,
     weights: DEFAULT_PREFERENCES.weights, // server-owned (D-10); not surfaced in settings
-    likedCuisines: a.liked_cuisines,
-    dislikedIngredients: a.disliked_ingredients,
+    likes: a.likes.map((t) => ({ facet: t.facet, value: t.value })),
+    dislikes: a.dislikes.map((t) => ({ facet: t.facet, value: t.value })),
     allergens: a.allergens.map((x) => ({ allergen: ALLERGEN_TO_CLIENT[x.allergen] ?? x.allergen, severity: x.severity })),
     diets: a.diets.map((d) => ({ diet: d.diet, strictness: d.strictness })),
     ownedEquipment: a.owned_equipment,
     equipmentReviewed: true,
+    groceryStores: a.grocery_stores,
+    household: { adults: a.household_adults, kids: a.household_kids },
+    eatsLeftovers: a.eats_leftovers,
   };
 }
 
@@ -46,10 +49,14 @@ export function clientToApi(p: Preferences): ApiPreferences {
     weekly_budget_cents: p.weeklyBudgetCents,
     time_budget_minutes: p.timeBudgetMin,
     weekly_meals: p.weeklyMeals,
-    liked_cuisines: p.likedCuisines,
-    disliked_ingredients: p.dislikedIngredients,
+    likes: p.likes.map((t) => ({ facet: t.facet, value: t.value })),
+    dislikes: p.dislikes.map((t) => ({ facet: t.facet, value: t.value })),
     allergens: p.allergens.map((x) => ({ allergen: ALLERGEN_TO_SERVER[x.allergen] ?? x.allergen, severity: x.severity })),
     diets: p.diets.map((d) => ({ diet: d.diet, strictness: d.strictness })),
     owned_equipment: p.ownedEquipment.filter((e) => SERVER_EQUIPMENT.has(e)),
+    grocery_stores: p.groceryStores,
+    household_adults: p.household.adults,
+    household_kids: p.household.kids,
+    eats_leftovers: p.eatsLeftovers,
   };
 }

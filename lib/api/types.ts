@@ -95,6 +95,7 @@ export type ApiMe = {
   id: string;
   phone: string;
   name?: string | null;
+  finished_onboarding: boolean;
 };
 
 export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
