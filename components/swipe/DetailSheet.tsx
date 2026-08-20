@@ -73,6 +73,8 @@ export function DetailSheet({ card, visible, onClose }: { card: DeckCard | null;
                 {bars.map(([sig, v]) => <WhyBar key={sig} label={SIGNAL_LABEL[sig] ?? sig} raw={RAW[sig]?.(r) ?? ""} value={v} />)}
               </View>
 
+              {r.macros ? <NutritionCard macros={r.macros} /> : null}
+
               <VStack space={10}>
                 <Text className="text-xs font-bold uppercase tracking-wide text-muted">Ingredients</Text>
                 <View className="rounded-2xl bg-card" style={ELEVATION.medium}>
@@ -109,6 +111,49 @@ export function DetailSheet({ card, visible, onClose }: { card: DeckCard | null;
         </View>
       </View>
     </Modal>
+  );
+}
+
+// FDA Daily Values (grams) for the per-serving %DV shown on each macro bar.
+const DV = { protein: 50, carbs: 275, fat: 78 };
+
+/** Per-serving nutrition: calories + Protein/Carbs/Fat, each a %-daily-value bar. Light theme. */
+function NutritionCard({ macros }: { macros: NonNullable<DeckCard["recipe"]["macros"]> }) {
+  const items = [
+    { label: "Protein", g: macros.protein, dv: DV.protein },
+    { label: "Carbs", g: macros.carbs, dv: DV.carbs },
+    { label: "Fat", g: macros.fat, dv: DV.fat },
+  ].filter((m): m is { label: string; g: number; dv: number } => m.g != null);
+  if (macros.calories == null && !items.length) return null;
+  return (
+    <View className="rounded-2xl bg-card p-4" style={[{ gap: 12 }, ELEVATION.medium]}>
+      <HStack className="items-baseline justify-between">
+        <Text className="text-xs font-bold uppercase tracking-wide text-muted">Nutrition</Text>
+        <Text className="text-xs text-muted">per serving</Text>
+      </HStack>
+      {macros.calories != null ? (
+        <HStack className="items-baseline" space={6}>
+          <Text className="text-3xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{Math.round(macros.calories)}</Text>
+          <Text className="text-base text-muted">calories</Text>
+        </HStack>
+      ) : null}
+      <VStack space={10}>
+        {items.map((m) => {
+          const pct = Math.min(1, m.g / m.dv);
+          return (
+            <View key={m.label} style={{ gap: 4 }}>
+              <HStack className="items-baseline justify-between">
+                <Text className="text-sm font-semibold text-ink">{m.label}</Text>
+                <Text className="text-sm text-muted">{Math.round(m.g)}g · {Math.round(pct * 100)}% DV</Text>
+              </HStack>
+              <View className="h-2 rounded-full bg-sand-200">
+                <View className="h-2 rounded-full bg-brand" style={{ width: `${pct * 100}%` }} />
+              </View>
+            </View>
+          );
+        })}
+      </VStack>
+    </View>
   );
 }
 

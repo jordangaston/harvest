@@ -91,8 +91,8 @@ function MealFilterBar({ selected, onToggle }: { selected: string[]; onToggle: (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      className="max-h-14 flex-none"
-      contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
+      style={{ flexGrow: 0, flexShrink: 0, height: 56 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: "center" }}
     >
       {MEAL_FILTERS.map((m) => {
         const on = selected.includes(m.label);
