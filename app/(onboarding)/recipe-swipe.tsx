@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Backdrop } from "../../components/recime/Backdrop";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
-import { CookingLoaderText } from "../../components/recime/CookingLoaderText";
+import { OnboardingValueCard } from "../../components/onboarding/screens";
 import { SwipeDeck } from "../../components/swipe/SwipeDeck";
 import { useRealDeck } from "../../components/swipe/useRealDeck";
 import { getRecipeFields } from "../../lib/api/recipes";
@@ -12,15 +12,16 @@ import { VStack, Heading, Text } from "../../components/ui";
 import { createAnonymousUser, flushOnboarding } from "../../lib/api/auth";
 
 /**
- * The first-run warm-up deck: a short, bounded swipe deck ranked to the answers just
- * given, so the ranking has real like/dislike signal before the first meal plan. The
- * account is created + preferences flushed here (the deck needs an authed session);
- * once the batch is exhausted we hand off to the setting-up loader.
+ * The first-run warm-up deck: a typing intro ("swipe right on what you like") over a short,
+ * bounded swipe deck ranked to the answers just given, so the ranking has real like/dislike
+ * signal before the first meal plan. The account is created + preferences flushed while the
+ * intro types (masking that latency); once the batch is swiped we hand off to setting-up.
  */
 export default function RecipeSwipe() {
   const router = useRouter();
   const [ready, setReady] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
+  const [started, setStarted] = React.useState(false);
 
   const finalize = React.useCallback(async () => {
     setFailed(false);
@@ -48,13 +49,19 @@ export default function RecipeSwipe() {
     );
   }
 
-  if (!ready) {
+  if (!started) {
     return (
-      <OnboardingScreen progress={1} showBack={false}>
-        <VStack className="mt-12 items-center" space={24}>
-          <Heading className="text-center text-2xl">Finding recipes you'll love</Heading>
-          <CookingLoaderText size={22} />
-        </VStack>
+      <OnboardingScreen
+        progress={1}
+        showBack={false}
+        ctaLabel={ready ? "Start" : "Getting things ready…"}
+        ctaDisabled={!ready}
+        onCta={() => setStarted(true)}
+      >
+        <OnboardingValueCard
+          headline="Swipe right on the recipes you like."
+          body="Swipe left to pass. We'll use these to build your first meal plan."
+        />
       </OnboardingScreen>
     );
   }
