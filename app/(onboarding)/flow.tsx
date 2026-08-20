@@ -149,7 +149,7 @@ export default function OnboardingFlow() {
       ctaLabel: "Continue", ctaDisabled: leftovers === null,
       commit: () => setPreferences({ eatsLeftovers: leftovers === true }),
       body: <OnboardingBinary title="Do you eat leftovers?" subtitle="We’ll plan bigger batches if so." value={leftovers} onChange={setLeftovers}
-        yes={{ label: "Yes, love them", caption: "Cook once, eat twice." }} no={{ label: "No, fresh each time", caption: "We’ll keep portions tight." }} />,
+        yes={{ label: "I don’t mind them", caption: "Cook once, eat twice." }} no={{ label: "No, fresh each time", caption: "We’ll keep portions tight." }} />,
     },
     {
       ctaLabel: "Continue",
