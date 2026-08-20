@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { VStack, HStack, Text, Heading, Input, Pressable } from "../../components/ui";
-import { createUser, signIn, sendOtp } from "../../lib/api/auth";
+import { createUser, flushOnboarding, signIn, sendOtp } from "../../lib/api/auth";
 
 const RESEND_COOLDOWN = 30;
 
@@ -15,6 +15,10 @@ export default function VerifyCode() {
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [cooldown, setCooldown] = React.useState(RESEND_COOLDOWN);
+  // Set once the account is created but the preference flush failed: the account is authed,
+  // so the retry re-runs only the flush (never re-creates the user) and must not drop the
+  // user into an empty deck with lost answers.
+  const [needsFlushRetry, setNeedsFlushRetry] = React.useState(false);
 
   React.useEffect(() => {
     if (cooldown <= 0) return;
@@ -31,13 +35,34 @@ export default function VerifyCode() {
         await signIn(phone, value);
         router.replace("/(app)/recipes");
       } else {
+        // Account first, then flush the preference draft. A flush failure surfaces a retry
+        // (below) rather than proceeding into an empty deck with the answers lost.
         await createUser(phone, value);
+        await flushOnboarding();
         router.replace("/(onboarding)/setting-up");
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      setError(msg === "INVALID_OTP" ? "That code isn't right. Try again." : "Something went wrong. Try again.");
-      setCode("");
+      if (msg === "INVALID_OTP") {
+        setError("That code isn't right. Try again.");
+        setCode("");
+      } else {
+        // Past OTP: the account exists but the preference flush failed — offer a retry.
+        setNeedsFlushRetry(true);
+        setError("We couldn't save your preferences. Tap to try again.");
+      }
+      setBusy(false);
+    }
+  };
+
+  const retryFlush = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await flushOnboarding();
+      router.replace("/(onboarding)/setting-up");
+    } catch {
+      setError("Still couldn't save your preferences. Check your connection and try again.");
       setBusy(false);
     }
   };
@@ -58,6 +83,26 @@ export default function VerifyCode() {
       setError("Couldn't resend the code. Try again in a moment.");
     }
   };
+
+  // Post-OTP flush failure: the account is created, so we only offer the flush retry (not the
+  // code input) — re-entering a code would fail (the OTP is already consumed).
+  if (needsFlushRetry) {
+    return (
+      <OnboardingScreen
+        progress={0.94}
+        showBack={false}
+        ctaLabel={busy ? "Saving…" : "Save and continue"}
+        ctaDisabled={busy}
+        onCta={retryFlush}
+      >
+        <View>
+          <Heading className="text-2xl">Almost there</Heading>
+          <Text className="mt-2 text-muted">Your account is ready — we just need to save your preferences.</Text>
+        </View>
+        {error ? <Text className="mt-4 text-sm text-error">{error}</Text> : null}
+      </OnboardingScreen>
+    );
+  }
 
   return (
     <OnboardingScreen

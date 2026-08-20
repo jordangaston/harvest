@@ -48,12 +48,12 @@ test("S2: onSignup identifies, sets people-properties, then tracks Signup Comple
   const a = new Analytics({ now: () => "2026-08-07T00:00:00.000Z" });
   const { backend, calls } = spyBackend();
   a.setBackend(backend);
-  a.onSignup("user-42", { goals: ["eat_healthier"], how_heard: "tiktok" });
+  a.onSignup("user-42", { goals: ["eat_healthier"], cook_days: ["mon"] });
   assert.deepEqual(calls, [
     { method: "identify", args: ["user-42"] },
     {
       method: "setPeople",
-      args: [{ signup_at: "2026-08-07T00:00:00.000Z", goals: ["eat_healthier"], how_heard: "tiktok" }],
+      args: [{ signup_at: "2026-08-07T00:00:00.000Z", goals: ["eat_healthier"], cook_days: ["mon"] }],
     },
     { method: "track", args: ["Signup Completed", {}] },
   ]);

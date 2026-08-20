@@ -62,7 +62,7 @@ export default function Welcome() {
 
           {/* CTA pinned to the bottom */}
           <VStack className="mt-auto px-6 pb-3" space={16}>
-            <Button className="w-full" onPress={() => router.push("/(onboarding)/goals")}>
+            <Button className="w-full" onPress={() => router.push("/(onboarding)/flow")}>
               <ButtonText>Get started</ButtonText>
             </Button>
             <Pressable
