@@ -138,8 +138,10 @@ export function Slider({ value, min, max, step, format, onChange, hideValue = fa
       {hideValue ? null : <Text className="text-base font-bold text-brand" style={{ alignSelf: "flex-end" }}>{format(value)}</Text>}
       <View {...pan.panHandlers} onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height: 40, justifyContent: "center" }} accessibilityRole="adjustable">
         <View className="rounded-full bg-sand" style={{ height: 8 }} />
-        <View className="absolute rounded-full bg-brand" style={{ left: 0, top: 16, height: 8, width: `${pct * 100}%` }} />
-        <View className="absolute rounded-full bg-brand" style={[{ top: 8, left: `${pct * 100}%`, marginLeft: -12, height: 24, width: 24 }, ELEVATION.low]} />
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ position: "absolute", left: 0, top: 16, height: 8, borderRadius: 999, width: `${pct * 100}%` }} />
+        <View className="absolute" style={[{ top: 8, left: `${pct * 100}%`, marginLeft: -12, height: 24, width: 24, borderRadius: 999 }, ELEVATION.low]}>
+          <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ height: 24, width: 24, borderRadius: 999 }} />
+        </View>
       </View>
     </VStack>
   );
