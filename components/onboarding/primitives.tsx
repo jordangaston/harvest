@@ -59,8 +59,8 @@ export function Chip({ label, active, onToggle }: { label: string; active: boole
   const tap = () => { Haptics.selectionAsync().catch(() => {}); onToggle(); };
   if (active) {
     return (
-      <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: true }} accessibilityLabel={label} className="overflow-hidden rounded-full" style={ELEVATION.low}>
-        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingHorizontal: 14, paddingVertical: 8 }}>
+      <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: true }} accessibilityLabel={label} className="rounded-full" style={ELEVATION.medium}>
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 }}>
           <Text className="text-sm font-semibold text-white">{label}</Text>
         </LinearGradient>
       </Pressable>

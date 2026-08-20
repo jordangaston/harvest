@@ -1,6 +1,7 @@
 import React from "react";
 import { Image, ImageSourcePropType } from "react-native";
 import { HStack, Pressable, Text, Checkbox } from "../ui";
+import { ELEVATION } from "../../lib/elevation";
 import { Ionicons } from "@expo/vector-icons";
 
 /**
@@ -28,8 +29,9 @@ export function OptionRow({
   return (
     <Pressable
       onPress={onPress}
-      className={`mb-3 flex-row items-center rounded-2xl border px-4 py-4 ${
-        selected ? "border-brand bg-brand-light" : "border-hairline bg-card"
+      style={ELEVATION.low}
+      className={`mb-3 flex-row items-center rounded-2xl px-4 py-4 ${
+        selected ? "border border-brand bg-brand-light" : "bg-card"
       }`}
     >
       <HStack className="flex-1 items-center" space={12}>

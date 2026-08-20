@@ -282,7 +282,7 @@ export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTi
   return (
     <View style={{ paddingTop: 8 }}>
       <StepHeader title={title} subtitle={subtitle} />
-      <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+      <View className="flex-row flex-wrap justify-center" style={{ gap: 8 }}>
         {chips.map((c) => <Chip key={c} label={c} active={value.includes(c)} onToggle={() => toggle(c)} />)}
         <MoreChip onPress={() => setSearch(true)} />
       </View>

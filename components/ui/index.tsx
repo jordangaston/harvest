@@ -32,6 +32,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { analytics } from "../../lib/analytics";
 import { extractLabel } from "../../lib/analytics/label";
 import { BRAND_GRADIENT } from "../../lib/gradient";
+import { ELEVATION } from "../../lib/elevation";
 
 type WithClass<T> = T & { className?: string };
 
@@ -152,17 +153,22 @@ export function Button({
   };
   // The primary (solid brand) button carries the shared brand gradient behind its label; the
   // bg-brand class stays underneath as a fallback. Other actions/variants render flat. A press
-  // dims + shrinks it slightly so the tap always reads.
+  // dims + shrinks it slightly so the tap always reads. Solid buttons lift with ELEVATION.medium —
+  // the gradient self-clips via borderRadius (no overflow-hidden, which would clip the shadow).
   const gradient = (action ?? "brand") === "brand" && (variant ?? "solid") === "solid";
+  const solid = (variant ?? "solid") === "solid";
   return (
     <RNPressable
-      className={button({ action, variant, size, className }) + (gradient ? " overflow-hidden" : "")}
-      style={({ pressed }) => (pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : undefined)}
+      className={button({ action, variant, size, className })}
+      style={({ pressed }) => [
+        solid ? ELEVATION.medium : null,
+        pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : null,
+      ]}
       onPress={handlePress}
       {...props}
     >
       {gradient ? (
-        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} pointerEvents="none" />
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 9999 }]} pointerEvents="none" />
       ) : null}
       {children as React.ReactNode}
     </RNPressable>
