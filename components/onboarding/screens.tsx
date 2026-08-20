@@ -126,19 +126,18 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
             </Pressable>
           );
         })}
-      </View>
-      {/* Actions match the store tiles — cards, not chips — so the row reads as one family. */}
-      <HStack space={10} style={{ marginTop: 12 }}>
-        <Pressable onPress={() => setSearch(true)} accessibilityRole="button" accessibilityLabel="Search for more stores" className="flex-1 flex-row items-center justify-center rounded-2xl bg-card" style={[{ paddingVertical: 14, gap: 6 }, ELEVATION.low, RESTING_TILE]}>
-          <Icon name="search" size={16} color="#8A4A1E" />
-          <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More stores</Text>
+        {/* Actions share the store-tile shape, so the whole grid reads as one card family. */}
+        <Pressable onPress={() => setSearch(true)} accessibilityRole="button" accessibilityLabel="Search for more stores" className="rounded-2xl bg-card" style={[{ width: "31%", paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", gap: 8 }, ELEVATION.low, RESTING_TILE]}>
+          <View style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}><Icon name="search" size={26} color="#8A4A1E" /></View>
+          <Text className="text-xs font-semibold text-center" style={{ color: "#8A4A1E" }} numberOfLines={1}>More</Text>
         </Pressable>
         {onSkip ? (
-          <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="I shop elsewhere" className="flex-1 items-center justify-center rounded-2xl bg-card" style={[{ paddingVertical: 14 }, ELEVATION.low, RESTING_TILE]}>
-            <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>I shop elsewhere</Text>
+          <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="I shop elsewhere" className="rounded-2xl bg-card" style={[{ width: "31%", paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", gap: 8 }, ELEVATION.low, RESTING_TILE]}>
+            <View style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}><Icon name="ellipsis-horizontal" size={26} color="#8A4A1E" /></View>
+            <Text className="text-xs font-semibold text-center" style={{ color: "#8A4A1E" }} numberOfLines={1}>Elsewhere</Text>
           </Pressable>
         ) : null}
-      </HStack>
+      </View>
       <SearchAddSheet visible={search} title="Add a store" corpus={ALL_GROCERY_STORES.map((store) => store.label)} selected={value.map((id) => STORE_ID_TO_LABEL[id]).filter(Boolean)} onToggle={(label) => toggle(STORE_LABEL_TO_ID[label])} onClose={() => setSearch(false)} />
     </View>
   );
