@@ -7,6 +7,8 @@ import {
   OnboardingSeverityPicker, OnboardingTasteMenu, OnboardingSingleSelectList, type Household,
 } from "../../components/onboarding/screens";
 import { MealCounts } from "../../components/planner/MealPlanIntake";
+import { OptionRow } from "../../components/recime/OptionRow";
+import { VStack, Center, Text, Heading } from "../../components/ui";
 import {
   ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, EQUIP_LABEL_TO_TYPE,
   TASTE_PRESETS, TASTE_CORPUS, tasteFacet,
@@ -22,10 +24,19 @@ import type { WeeklyMeals, MealType, AllergenPref, DietPref, TastePref } from ".
  * Screens compose the approved archetypes (components/onboarding/*) inside the OnboardingScreen shell.
  */
 
-const GOAL_OPTIONS = [
-  "Eat healthier", "Save money", "Improve cooking skills", "Organize recipes",
-  "Plan out meals", "Meal prepping", "Try new cuisines", "Kid-friendly meals",
-].map((label) => ({ value: label, label }));
+// The original list-of-rows goals screen (painterly icon left, checkbox right). Kid-friendly has no
+// painterly icon yet (Nano Banana credits depleted) — interim Ionicon; swap to a matching PNG later.
+type GoalRow = { label: string; image?: React.ComponentProps<typeof OptionRow>["image"]; icon?: React.ComponentProps<typeof OptionRow>["icon"] };
+const GOALS: GoalRow[] = [
+  { image: require("../../assets/goal-healthier.png"), label: "Eat healthier" },
+  { image: require("../../assets/goal-money.png"), label: "Save money" },
+  { image: require("../../assets/goal-skills.png"), label: "Improve cooking skills" },
+  { image: require("../../assets/goal-organize.png"), label: "Organize recipes" },
+  { image: require("../../assets/goal-plan.png"), label: "Plan out meals" },
+  { image: require("../../assets/goal-prep.png"), label: "Meal prepping" },
+  { image: require("../../assets/goal-cuisines.png"), label: "Try new cuisines" },
+  { icon: "happy-outline", label: "Kid-friendly meals" },
+];
 
 const TIME_OPTIONS = [
   { value: "15", label: "15 min" }, { value: "30", label: "30 min" },
@@ -71,6 +82,7 @@ export default function OnboardingFlow() {
   const [equipment, setEquipment] = React.useState<string[]>(draft.ownedEquipment);
 
   const setMeal = (m: MealType, v: number) => setMeals((s) => ({ ...s, [m]: v }));
+  const toggleGoal = (label: string) => setGoalsState((prev) => (prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]));
 
   // Severity/diet pickers speak LeveledPref ({name, level}); adapt to the draft's shape.
   const allergenLeveled = allergens.map((a) => ({ name: a.allergen, level: a.severity }));
@@ -91,7 +103,19 @@ export default function OnboardingFlow() {
     {
       progress: 0.22, ctaLabel: "Continue", ctaDisabled: goals.length === 0,
       commit: () => setGoals(goals),
-      body: <OnboardingChipGrid title="What are your goals?" subtitle="Select all that apply" options={GOAL_OPTIONS} value={goals} onChange={setGoalsState} />,
+      body: (
+        <VStack space={8}>
+          <Center>
+            <Heading className="text-2xl">What are your goals?</Heading>
+            <Text className="mt-1 text-base text-muted">Select all that apply</Text>
+          </Center>
+          <VStack className="mt-4">
+            {GOALS.map((g) => (
+              <OptionRow key={g.label} label={g.label} image={g.image} icon={g.icon} variant="check" selected={goals.includes(g.label)} onPress={() => toggleGoal(g.label)} />
+            ))}
+          </VStack>
+        </VStack>
+      ),
     },
     {
       progress: 0.28, ctaLabel: "Continue",
