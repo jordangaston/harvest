@@ -3,9 +3,9 @@
 // completion the draft drains ONCE into two writes — POST /v1/users (goals + cook
 // days, which stamps onboardingCompletedAt) and PUT /v1/preferences (the ranking
 // model). Same read-once idiom as savedToast.ts.
-import { DEFAULT_PREFERENCES, type Preferences } from "../components/swipe/mock";
-import type { ApiPreferences } from "./api/preferences";
-import { clientToApi } from "./api/preferences-map";
+import { DEFAULT_PREFERENCES, type Preferences } from "../components/swipe/mock.ts";
+import type { ApiPreferences } from "./api/preferences.ts";
+import { clientToApi } from "./api/preferences-map.ts";
 
 // Screens map their DISPLAY labels to the server's snake_case enums here, so no
 // screen ever hardcodes a wire value.
@@ -24,7 +24,8 @@ const GOALS = makeMap({
   "Kid-friendly meals": "kid_friendly",
 });
 
-const COOK_DAYS = makeMap({ Mon: "mon", Tue: "tue", Wed: "wed", Thu: "thu", Fri: "fri", Sat: "sat", Sun: "sun" });
+// The day picker emits the wire enums directly ("mon"…); this map validates/passes them through.
+const COOK_DAYS = makeMap({ mon: "mon", tue: "tue", wed: "wed", thu: "thu", fri: "fri", sat: "sat", sun: "sun" });
 
 const enums = (map: Map<string, string>, labels: string[]): string[] =>
   labels.map((l) => map.get(norm(l))).filter((v): v is string => v !== undefined);

@@ -1,5 +1,5 @@
-import type { ApiPreferences } from "./preferences";
-import { DEFAULT_PREFERENCES, type Preferences } from "../../components/swipe/mock";
+import type { ApiPreferences } from "./preferences.ts";
+import { DEFAULT_PREFERENCES, type Preferences } from "../../components/swipe/mock.ts";
 
 /**
  * Maps between the client `Preferences` (display labels the settings UI uses) and the server's
