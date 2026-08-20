@@ -57,7 +57,15 @@ function toDeckCard(api: ApiDeckCard, f: Filters): DeckCard {
  * `useMockDeck`. Fetches a ranked batch, appends re-ranked batches when the hand runs low (the
  * server excludes swiped recipes), swipes optimistically with rollback, and un-swipes on undo.
  */
-export function useRealDeck(opts?: { ownedEquipment?: string[]; allergens?: string[]; diets?: string[] }): DeckController {
+export function useRealDeck(opts?: {
+  ownedEquipment?: string[];
+  allergens?: string[];
+  diets?: string[];
+  /** Discover refills the hand as it runs low; the onboarding warm-up sets this false to
+   * cap at one batch, going `empty` (→ done) once the last card is swiped. */
+  refill?: boolean;
+}): DeckController {
+  const refill = opts?.refill !== false;
   const filtersRef = React.useRef<Filters>({ owned: new Set(), allergens: new Set(), diets: new Set() });
   filtersRef.current = {
     owned: new Set(opts?.ownedEquipment ?? []),
@@ -93,10 +101,13 @@ export function useRealDeck(opts?: { ownedEquipment?: string[]; allergens?: stri
 
   React.useEffect(() => { void fetchBatch("initial"); }, [fetchBatch]);
 
-  // Append a re-ranked batch when the in-hand deck runs low (in-hand order is preserved).
+  // Discover appends a re-ranked batch when the hand runs low (order preserved); the
+  // bounded warm-up instead goes `empty` once its single batch is exhausted.
   React.useEffect(() => {
-    if (status === "ready" && cards.length <= 2) void fetchBatch("more");
-  }, [cards.length, status, fetchBatch]);
+    if (status !== "ready") return;
+    if (refill) { if (cards.length <= 2) void fetchBatch("more"); }
+    else if (cards.length === 0) setStatus("empty");
+  }, [cards.length, status, refill, fetchBatch]);
 
   const swipe = React.useCallback((direction: Direction, reason?: DislikeReason, detail?: string) => {
     setCards((current) => {

@@ -85,6 +85,19 @@ export async function flushOnboarding(): Promise<void> {
   resetOnboarding();
 }
 
+/**
+ * Re-establishes an anonymous session from the stored device key — the fallback when
+ * a token refresh fails (an anon user has no phone to re-verify with). Throws if there
+ * is no device key to resume from, so the caller falls through to re-authentication.
+ */
+export async function resumeAnonymousSession(): Promise<Session> {
+  const deviceKey = await getDeviceKey();
+  if (!deviceKey) throw new Error("NO_DEVICE_KEY");
+  const response = await postSession("/v1/users/anonymous", { device_key: deviceKey });
+  if (response.device_key) await setDeviceKey(response.device_key);
+  return establish(response, response.user.phone);
+}
+
 /** Signs a returning user in by verified OTP and persists the session. */
 export async function signIn(phone: string, code: string): Promise<Session> {
   const body = { auth: { otp: { phone_number: phone, code } } };

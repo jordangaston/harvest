@@ -28,6 +28,7 @@ type StartState = "deck" | "empty" | "error";
  */
 export function SwipeDeck({
   initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings, hydrateDetail,
+  headerTitle = "Tonight", showSettings = true, onExhausted,
 }: {
   initial?: StartState;
   failSaves?: boolean;
@@ -38,6 +39,11 @@ export function SwipeDeck({
   onSaveSettings?: (p: Preferences) => void;
   /** Lazily fetches a card's ingredients/steps when the DetailSheet opens (real deck only). */
   hydrateDetail?: (recipeId: string) => Promise<{ ingredients: DeckCard["recipe"]["ingredients"]; steps: string[] }>;
+  headerTitle?: string;
+  showSettings?: boolean;
+  /** Onboarding warm-up: called once the bounded deck empties, to advance the flow. When set,
+   * the discover "all caught up" state is suppressed (we're navigating away). */
+  onExhausted?: () => void;
 }) {
   const mock = useMockDeck(initial, failSaves);
   const deck = controller ?? mock;
@@ -67,7 +73,10 @@ export function SwipeDeck({
   }, [top?.recipe.id]);
 
   React.useEffect(() => {
-    if (deck.status === "empty") analytics.track("Deck Exhausted", { swipesThisSession: deck.likeCount });
+    if (deck.status === "empty") {
+      analytics.track("Deck Exhausted", { swipesThisSession: deck.likeCount });
+      onExhausted?.();
+    }
   }, [deck.status]);
 
   const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,12 +196,12 @@ export function SwipeDeck({
 
   return (
     <View style={{ width: CARD_W, alignSelf: "center" }}>
-      <Header liked={deck.likeCount} onSettings={() => setSettingsOpen(true)} />
+      <Header liked={deck.likeCount} title={headerTitle} onSettings={showSettings ? () => setSettingsOpen(true) : undefined} />
 
       <View style={{ height: CARD_H, marginTop: 12 }}>
         {deck.status === "loading" ? <LoadingCard /> : null}
         {deck.status === "error" ? <ErrorCard onRetry={deck.retry} /> : null}
-        {deck.status === "empty" ? <EmptyState onSettings={() => setSettingsOpen(true)} onPlan={() => setSettingsOpen(true)} /> : null}
+        {deck.status === "empty" ? (onExhausted ? <LoadingCard /> : <EmptyState onSettings={() => setSettingsOpen(true)} onPlan={() => setSettingsOpen(true)} />) : null}
 
         {deck.status === "ready" && behind ? (
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -240,18 +249,20 @@ export function SwipeDeck({
 }
 
 /* ---------- Header ---------- */
-function Header({ liked, onSettings }: { liked: number; onSettings: () => void }) {
+function Header({ liked, title, onSettings }: { liked: number; title: string; onSettings?: () => void }) {
   return (
     <View className="flex-row items-center justify-between">
-      <Text className="text-2xl text-ink" style={{ fontFamily: "Lora_700Bold" }}>Tonight</Text>
+      <Text className="text-2xl text-ink" style={{ fontFamily: "Lora_700Bold" }}>{title}</Text>
       <View className="flex-row items-center" style={{ gap: 10 }}>
         <View className="flex-row items-center" style={{ gap: 4 }}>
           <Icon name="heart" size={15} color="#6E5B48" />
           <Text className="text-sm font-semibold text-muted">{liked}</Text>
         </View>
-        <Pressable onPress={onSettings} accessibilityRole="button" accessibilityLabel="Ranking preferences" className="rounded-full bg-card p-2.5" style={ELEVATION.low}>
-          <Icon name="options-outline" size={20} color="#2E2419" />
-        </Pressable>
+        {onSettings ? (
+          <Pressable onPress={onSettings} accessibilityRole="button" accessibilityLabel="Ranking preferences" className="rounded-full bg-card p-2.5" style={ELEVATION.low}>
+            <Icon name="options-outline" size={20} color="#2E2419" />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

@@ -3,46 +3,24 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import { CookingLoaderText } from "../../components/recime/CookingLoaderText";
-import { VStack, Heading, Text, Center } from "../../components/ui";
-import { createAnonymousUser, flushOnboarding } from "../../lib/api/auth";
+import { VStack, Heading, Center } from "../../components/ui";
 
 export default function SettingUp() {
   const router = useRouter();
-  const [failed, setFailed] = React.useState(false);
-
-  // Finalize onboarding: create the anonymous account (persists goals + cook-days),
-  // then flush the preference draft. Idempotent on retry — the stored device key
-  // resolves the same account, so a re-run only re-attempts the failed step.
-  const finish = React.useCallback(async () => {
-    setFailed(false);
-    try {
-      await createAnonymousUser();
-      await flushOnboarding();
-      router.replace("/(app)/discover");
-    } catch {
-      setFailed(true);
-    }
-  }, [router]);
 
   React.useEffect(() => {
-    finish();
-  }, [finish]);
-
-  if (failed) {
-    return (
-      <OnboardingScreen progress={1} showBack={false} ctaLabel="Try again" onCta={finish}>
-        <VStack className="mt-12 items-center" space={16}>
-          <Heading className="text-center text-2xl">We hit a snag setting things up</Heading>
-          <Text className="text-center text-muted">Check your connection and try again.</Text>
-        </VStack>
-      </OnboardingScreen>
-    );
-  }
+    // The account + preferences were saved by the warm-up deck; this is the closing
+    // "building your first meal plan" beat before the app opens.
+    const timeout = setTimeout(() => {
+      router.replace("/(app)/discover");
+    }, 2500);
+    return () => clearTimeout(timeout);
+  }, [router]);
 
   return (
     <OnboardingScreen progress={1} showBack={false}>
       <VStack className="mt-12 items-center" space={32}>
-        <Heading className="text-center text-2xl">We're setting everything up for you</Heading>
+        <Heading className="text-center text-2xl">We're building your first meal plan</Heading>
 
         <Center>
           <Image

@@ -203,9 +203,9 @@ export default function OnboardingFlow() {
   function advance() {
     steps[step]?.commit?.();
     if (step >= steps.length - 1) {
-      // The last answer is committed; setting-up creates the anonymous account and
-      // flushes the draft (no phone step — that's linked later).
-      router.push("/(onboarding)/setting-up");
+      // The last answer is committed; the warm-up deck creates the anonymous account,
+      // flushes the draft, and lets the user react to a few recipes before the meal plan.
+      router.push("/(onboarding)/recipe-swipe");
       return;
     }
     setStep((s) => s + 1);
