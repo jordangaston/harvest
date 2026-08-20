@@ -20,6 +20,45 @@ function Badge({ icon, label }: { icon: React.ComponentProps<typeof Icon>["name"
   );
 }
 
+// FDA Daily Values (grams) for the per-serving % daily value shown on each macro bar.
+const DV = { protein: 50, carbs: 275, fat: 78 };
+const MACRO_FILL = "#E9C77E";
+
+/** Per-serving macros as a compact visual: calories + Protein/Carbs/Fat, each a
+ * %-daily-value bar with grams. Sits over the photo scrim. */
+function MacroStrip({ macros }: { macros: NonNullable<DeckCard["recipe"]["macros"]> }) {
+  const items = [
+    { label: "Protein", g: macros.protein, dv: DV.protein },
+    { label: "Carbs", g: macros.carbs, dv: DV.carbs },
+    { label: "Fat", g: macros.fat, dv: DV.fat },
+  ].filter((m): m is { label: string; g: number; dv: number } => m.g != null);
+  if (!items.length) return null;
+  return (
+    <View className="flex-row items-center rounded-2xl px-3 py-2" style={{ gap: 12, backgroundColor: OVERLAY }}>
+      {macros.calories != null ? (
+        <View className="items-center" style={{ minWidth: 34 }}>
+          <Text className="text-sm font-bold" style={{ color: OVERLAY_TEXT }}>{Math.round(macros.calories)}</Text>
+          <Text style={{ color: OVERLAY_TEXT, opacity: 0.7, fontSize: 10 }}>cal</Text>
+        </View>
+      ) : null}
+      {items.map((m) => {
+        const pct = Math.min(1, m.g / m.dv);
+        return (
+          <View key={m.label} className="flex-1" style={{ gap: 3 }}>
+            <View className="flex-row items-baseline justify-between">
+              <Text className="text-xs font-bold" style={{ color: OVERLAY_TEXT }}>{m.label}</Text>
+              <Text style={{ color: OVERLAY_TEXT, opacity: 0.75, fontSize: 10 }}>{Math.round(m.g)}g · {Math.round(pct * 100)}%</Text>
+            </View>
+            <View className="h-1.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.22)" }}>
+              <View className="h-1.5 rounded-full" style={{ width: `${pct * 100}%`, backgroundColor: MACRO_FILL }} />
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 /**
  * Presentational recipe card — hero photo, scrim, title, plain-language "why for
  * you" line, and the at-a-glance badge row. Fills its parent; the deck stacks and
@@ -70,6 +109,8 @@ export function SwipeCard({ card, dimmed, onOpenDetail }: { card: DeckCard; dimm
             : r.compat[0] ? <Badge icon="checkmark-circle" label={r.compat[0]} />
             : null}
         </View>
+
+        {r.macros ? <MacroStrip macros={r.macros} /> : null}
 
         <Pressable
           onPress={onOpenDetail}

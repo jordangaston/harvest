@@ -115,6 +115,7 @@ export type RecipeCard = {
   equipment?: { equipment: string; essentiality: string }[];
   allergens?: string[];
   diets?: string[];
+  nutrition?: { calories: number | null; protein_g: number | null; carbs_g: number | null; fat_g: number | null }; // per serving
   ingredient_names?: string[];
   cookbook_ids?: string[];
 };

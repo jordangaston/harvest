@@ -32,6 +32,7 @@ export interface DeckRecipe {
   nrf: number; // higher = more nutrient-dense
   mealPrepFit: MealPrepFit;
   equipment: Equip[];
+  macros?: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null } | null; // per serving
   compat: string[]; // e.g. "Vegetarian", "Nut-free" — derived diet/allergen fit vs. the user's filters
   likedNote: string; // affinity phrase for the "why" line, e.g. "Italian + chicken"
   ingredients: Ingredient[];

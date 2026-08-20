@@ -180,8 +180,17 @@ export interface RecipeCard {
   equipment?: { equipment: string; essentiality: string }[];
   allergens?: string[]; // the allergens the recipe contains
   compatibleDiets?: string[]; // diet ids the recipe is compatible with
+  macros?: RecipeMacros | null; // per-serving calories + protein/carbs/fat (grams) for the card
   ingredientNames?: string[];
   cookbookIds?: string[];
+}
+
+/** Per-serving macros carried on the deck card; any field is null when unavailable. */
+export interface RecipeMacros {
+  calories: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
 }
 
 /** One page of recipe cards plus the cursor for the next page (null at the end). */
@@ -207,6 +216,7 @@ export interface PublicRecipeCard {
   equipment?: { equipment: string; essentiality: string }[];
   allergens?: string[]; // allergens the recipe contains — the client derives "X-free" compat chips
   diets?: string[]; // diet ids the recipe is compatible with — the client derives diet compat chips
+  nutrition?: { calories: number | null; protein_g: number | null; carbs_g: number | null; fat_g: number | null }; // per serving
   ingredient_names?: string[];
   cookbook_ids?: string[];
 }
@@ -223,6 +233,7 @@ export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
   if (card.equipment && card.equipment.length) out.equipment = card.equipment;
   if (card.allergens && card.allergens.length) out.allergens = card.allergens;
   if (card.compatibleDiets && card.compatibleDiets.length) out.diets = card.compatibleDiets;
+  if (card.macros) out.nutrition = { calories: card.macros.calories, protein_g: card.macros.proteinG, carbs_g: card.macros.carbsG, fat_g: card.macros.fatG };
   if (card.ingredientNames) out.ingredient_names = card.ingredientNames;
   if (card.cookbookIds) out.cookbook_ids = card.cookbookIds;
   return out;

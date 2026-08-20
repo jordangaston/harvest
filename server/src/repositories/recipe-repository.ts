@@ -72,6 +72,16 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
  * its ingredients (separated amount/unit/quantity_text, C3, and an O-09 icon key),
  * and its steps. Saving into a cookbook is a separate `cookbook_recipes` concern.
  */
+/** Per-serving macros for the deck card, parsed from the recipe's numeric-text nutrition
+ * columns. Null when the recipe has no calories (nutrition withheld). */
+function macrosFrom(r: {
+  calories: string | null; gramsOfProtein: string | null; gramsOfCarbohydrate: string | null; gramsOfFat: string | null;
+}): RecipeCard['macros'] {
+  const num = (s: string | null) => (s == null ? null : Number(s));
+  if (r.calories == null) return null;
+  return { calories: num(r.calories), proteinG: num(r.gramsOfProtein), carbsG: num(r.gramsOfCarbohydrate), fatG: num(r.gramsOfFat) };
+}
+
 export class RecipeRepository {
   constructor(private readonly db: Database) {}
 
@@ -491,6 +501,7 @@ export class RecipeRepository {
           equipment: equip,
           allergens: allergensContains,
           compatibleDiets,
+          macros: macrosFrom(recipe),
         }),
       };
     });

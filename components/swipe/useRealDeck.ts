@@ -45,6 +45,7 @@ function toDeckCard(api: ApiDeckCard, f: Filters): DeckCard {
       owned: f.owned.has(e.equipment),
     })),
     compat: buildCompat(r.allergens ?? [], r.diets ?? [], f),
+    macros: r.nutrition ? { calories: r.nutrition.calories, protein: r.nutrition.protein_g, carbs: r.nutrition.carbs_g, fat: r.nutrition.fat_g } : null,
     likedNote: "",
     ingredients: [],
     steps: [],
