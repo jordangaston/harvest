@@ -100,6 +100,9 @@ export const rankedRecipesQuerySchema = z.object({
 /** `GET /v1/recipes/deck` query: how many top cards to return (no paging — swipe to advance). */
 export const deckQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(DECK_DEFAULT_LIMIT),
+  // Optional meal-type filter: comma-separated recipe_categories values (any facet) — a
+  // recipe matches if it carries any of them. Absent = no filter (whole deck).
+  categories: z.string().optional().transform((s) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined)),
 });
 
 /** `POST /v1/recipes/:id/swipe` body: like/dislike/save + an optional dislike reason and its detail. */

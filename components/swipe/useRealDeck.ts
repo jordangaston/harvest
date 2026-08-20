@@ -65,8 +65,13 @@ export function useRealDeck(opts?: {
   /** Discover refills the hand as it runs low; the onboarding warm-up sets this false to
    * cap at one batch, going `empty` (→ done) once the last card is swiped. */
   refill?: boolean;
+  /** Meal-type filter: recipe_categories values (any facet). Changing it resets the deck. */
+  categories?: string[];
 }): DeckController {
   const refill = opts?.refill !== false;
+  const categoriesKey = (opts?.categories ?? []).join(",");
+  const categoriesRef = React.useRef<string[] | undefined>(opts?.categories);
+  categoriesRef.current = opts?.categories;
   const filtersRef = React.useRef<Filters>({ owned: new Set(), allergens: new Set(), diets: new Set() });
   filtersRef.current = {
     owned: new Set(opts?.ownedEquipment ?? []),
@@ -86,7 +91,7 @@ export function useRealDeck(opts?: {
     inflight.current = true;
     if (mode === "initial") setStatus("loading");
     try {
-      const batch = (await getDeck(LIMIT)).map((c) => toDeckCard(c, filtersRef.current));
+      const batch = (await getDeck(LIMIT, categoriesRef.current)).map((c) => toDeckCard(c, filtersRef.current));
       setCards((prev) => {
         const have = new Set(prev.map((c) => c.recipe.id));
         const next = mode === "initial" ? batch : [...prev, ...batch.filter((c) => !have.has(c.recipe.id))];
@@ -100,7 +105,7 @@ export function useRealDeck(opts?: {
     }
   }, []);
 
-  React.useEffect(() => { void fetchBatch("initial"); }, [fetchBatch]);
+  React.useEffect(() => { void fetchBatch("initial"); }, [fetchBatch, categoriesKey]);
 
   // Discover appends a re-ranked batch when the hand runs low (order preserved); the
   // bounded warm-up instead goes `empty` once its single batch is exhausted.

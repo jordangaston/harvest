@@ -154,8 +154,8 @@ app.get("/v1/recipes/ranked", guard, async (c) => {
  * global) minus liked/on-cooldown, ranked best-first, top `limit`. No `page_token` — the
  * deck advances by swiping. Registered before `/:id` so "deck" isn't captured as an id. */
 app.get("/v1/recipes/deck", guard, async (c) => {
-  const { limit } = deckQuerySchema.parse(c.req.query());
-  return c.json(await recipes.deck(c.get("authUserId")!, { limit }));
+  const q = deckQuerySchema.parse(c.req.query());
+  return c.json(await recipes.deck(c.get("authUserId")!, q));
 });
 
 /** POST /v1/recipes/:id/swipe — records a like/dislike/save swipe and applies its side-effect

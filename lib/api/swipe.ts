@@ -16,8 +16,9 @@ export interface SwipeBody {
 }
 
 /** The top `limit` unswiped ranked cards (no paging — the deck advances by swiping). */
-export async function getDeck(limit = 5): Promise<ApiDeckCard[]> {
-  const { recipes } = await apiFetch<{ recipes: ApiDeckCard[] }>(`/v1/recipes/deck?limit=${limit}`);
+export async function getDeck(limit = 5, categories?: string[]): Promise<ApiDeckCard[]> {
+  const filter = categories && categories.length ? `&categories=${encodeURIComponent(categories.join(","))}` : "";
+  const { recipes } = await apiFetch<{ recipes: ApiDeckCard[] }>(`/v1/recipes/deck?limit=${limit}${filter}`);
   return recipes;
 }
 

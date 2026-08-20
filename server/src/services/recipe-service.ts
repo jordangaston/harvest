@@ -95,11 +95,11 @@ export class RecipeService {
    * @param userId - The caller.
    * @param opts - `limit` (deck batch size).
    */
-  async deck(userId: string, opts: { limit: number }): Promise<{ recipes: RankedCard[] }> {
+  async deck(userId: string, opts: { limit: number; categories?: string[] }): Promise<{ recipes: RankedCard[] }> {
     const cutoff = new Date(Date.now() - SWIPE_COOLDOWN_DAYS * 86_400_000);
     const [prefs, candidates, excluded] = await Promise.all([
       this.preferences.getPreferences(userId),
-      this.recipes.listDeckCandidates(userId),
+      this.recipes.listDeckCandidates(userId, opts.categories),
       this.swipes.excludedRecipeIds(userId, cutoff),
     ]);
     const live = candidates.filter((c) => !excluded.has(c.recipe.id));

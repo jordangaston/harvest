@@ -428,8 +428,13 @@ export class RecipeRepository {
    * assembly as {@link listRankable}, no N+1. Globals are empty until the corpus lands.
    * @param userId - The caller whose deck is built.
    */
-  async listDeckCandidates(userId: string): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
-    const rows = await this.db.select().from(recipes).where(or(eq(recipes.userId, userId), isNull(recipes.userId)));
+  async listDeckCandidates(userId: string, categories?: string[]): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
+    const visible = or(eq(recipes.userId, userId), isNull(recipes.userId));
+    // Meal-type filter: keep only recipes carrying one of the requested category values (any facet).
+    const where = categories && categories.length
+      ? and(visible, inArray(recipes.id, this.db.select({ id: recipeCategories.recipeId }).from(recipeCategories).where(inArray(recipeCategories.value, categories))))
+      : visible;
+    const rows = await this.db.select().from(recipes).where(where);
     return this.assembleRankable(rows);
   }
 
