@@ -10,7 +10,7 @@ import { SwipeCard } from "./SwipeCard";
 import { DetailSheet } from "./DetailSheet";
 import { ReasonSheet } from "./ReasonSheet";
 import { SettingsScreen } from "./SettingsScreen";
-import { useMockDeck, DeckCard, Direction, DislikeReason, REASON_CHIPS } from "./mock";
+import { useMockDeck, DeckCard, Direction, DislikeReason, REASON_CHIPS, type DeckController, type Preferences } from "./mock";
 
 const { width, height } = Dimensions.get("window");
 const CARD_W = Math.min(width - 32, 420);
@@ -27,13 +27,18 @@ type StartState = "deck" | "empty" | "error";
  * for the real useDeck/useSwipe to go live (docs/swipe-ui/DESIGN.md).
  */
 export function SwipeDeck({
-  initial = "deck", failSaves = false, forceReduceMotion,
+  initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings,
 }: {
   initial?: StartState;
   failSaves?: boolean;
   forceReduceMotion?: boolean;
+  /** Real-app data source; defaults to the Design-Studio mock so studies render server-free. */
+  controller?: DeckController;
+  settingsInitial?: Preferences;
+  onSaveSettings?: (p: Preferences) => void;
 }) {
-  const deck = useMockDeck(initial, failSaves);
+  const mock = useMockDeck(initial, failSaves);
+  const deck = controller ?? mock;
   const pos = React.useRef(new Animated.ValueXY()).current;
   const [detail, setDetail] = React.useState<DeckCard | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -175,14 +180,6 @@ export function SwipeDeck({
     <View style={{ width: CARD_W, alignSelf: "center" }}>
       <Header liked={deck.likeCount} onSettings={() => setSettingsOpen(true)} />
 
-      {deck.showNudge ? (
-        <NudgeBanner
-          count={deck.likeCount}
-          onPlan={() => { analytics.track("Plan Nudge Tapped", { likeCount: deck.likeCount }); deck.dismissNudge(); setSettingsOpen(false); }}
-          onDismiss={deck.dismissNudge}
-        />
-      ) : null}
-
       <View style={{ height: CARD_H, marginTop: 12 }}>
         {deck.status === "loading" ? <LoadingCard /> : null}
         {deck.status === "error" ? <ErrorCard onRetry={deck.retry} /> : null}
@@ -228,7 +225,7 @@ export function SwipeDeck({
       <DetailSheet card={detail} visible={!!detail} onClose={() => setDetail(null)} />
       <ReasonSheet visible={!!reasonFor} onChoose={chooseReason} onSkip={skipReason} />
       <CookbookPicker visible={!!cookbookFor} recipeTitle={cookbookFor?.recipe.title ?? null} onSelect={saveToCookbook} onClose={() => setCookbookFor(null)} />
-      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} initial={settingsInitial} onSave={onSaveSettings} />
     </View>
   );
 }
@@ -383,28 +380,6 @@ function RewardToast({ message }: { message: string }) {
         <Text className="text-sm font-bold text-white">{message}</Text>
       </View>
     </Animated.View>
-  );
-}
-
-/* ---------- Return nudge → meal planning ---------- */
-function NudgeBanner({ count, onPlan, onDismiss }: { count: number; onPlan: () => void; onDismiss: () => void }) {
-  React.useEffect(() => { analytics.track("Plan Nudge Shown", { likeCount: count }); }, []);
-  return (
-    <View className="mt-3 flex-row items-center rounded-2xl bg-brand-light p-3" style={{ gap: 10 }}>
-      <View className="h-9 w-9 items-center justify-center rounded-full bg-brand">
-        <Icon name="calendar" size={18} color="#fff" />
-      </View>
-      <View className="flex-1">
-        <Text className="text-sm font-bold text-ink">You’ve liked {count} — plan your week?</Text>
-        <Text className="text-xs text-muted-canvas">Turn your likes into a meal plan.</Text>
-      </View>
-      <Pressable onPress={onPlan} accessibilityRole="button" accessibilityLabel="Plan my week" className="rounded-full bg-brand px-3.5 py-2">
-        <Text className="text-xs font-bold text-white">Plan</Text>
-      </Pressable>
-      <Pressable onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Dismiss" className="p-1">
-        <Icon name="close" size={16} color="#6E5B48" />
-      </Pressable>
-    </View>
   );
 }
 

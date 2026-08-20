@@ -219,22 +219,18 @@ export const difficultyLabel = (d: DifficultyBand) => cap(d);
 /* ---------- The deck controller (mock useDeck + useSwipe) ---------- */
 export type DeckStatus = "loading" | "ready" | "empty" | "error";
 const BATCH = 5;
-// Demo threshold, reachable within the 8-card pool; DESIGN.md F-04/Q-09 default is 10 in production (fa-3).
-const PLAN_NUDGE_AT = 4;
 
 export type SwipeRecord = { card: DeckCard; direction: Direction };
 
 export interface DeckController {
   status: DeckStatus;
   cards: DeckCard[]; // in-hand, index 0 = top; never reshuffled once dealt
-  likeCount: number;
-  showNudge: boolean;
+  likeCount: number; // session counter (telemetry only — the D-13 plan nudge is gone)
   lastSwipe: SwipeRecord | null;
   failedSave: DeckCard | null; // a card whose save rolled back (front of deck)
   swipe: (direction: Direction, reason?: DislikeReason, detail?: string) => void;
   undo: () => void;
   retry: () => void;
-  dismissNudge: () => void;
 }
 
 /**
@@ -246,11 +242,9 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
   const [status, setStatus] = React.useState<DeckStatus>("loading");
   const [cards, setCards] = React.useState<DeckCard[]>([]);
   const [likeCount, setLikeCount] = React.useState(0);
-  const [showNudge, setShowNudge] = React.useState(false);
   const [lastSwipe, setLastSwipe] = React.useState<SwipeRecord | null>(null);
   const [failedSave, setFailedSave] = React.useState<DeckCard | null>(null);
   const poolRef = React.useRef<DeckCard[]>([]);
-  const nudgedRef = React.useRef(false);
 
   // Initial deal — simulate the first ranked-deck fetch latency.
   React.useEffect(() => {
@@ -290,16 +284,7 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
         if (!top) return current;
         setLastSwipe({ card: top, direction });
         setFailedSave(null);
-        if (direction === "like" || direction === "save") {
-          setLikeCount((n) => {
-            const next = n + 1;
-            if (next >= PLAN_NUDGE_AT && !nudgedRef.current) {
-              nudgedRef.current = true;
-              setShowNudge(true);
-            }
-            return next;
-          });
-        }
+        if (direction === "like" || direction === "save") setLikeCount((n) => n + 1);
         // Optimistic POST (fire-and-forget). On failure, roll the card back to the front.
         setTimeout(() => {
           if (failSaves) {
@@ -333,7 +318,5 @@ export function useMockDeck(initial: "deck" | "empty" | "error", failSaves: bool
     }, 500);
   }, []);
 
-  const dismissNudge = React.useCallback(() => setShowNudge(false), []);
-
-  return { status, cards, likeCount, showNudge, lastSwipe, failedSave, swipe, undo, retry, dismissNudge };
+  return { status, cards, likeCount, lastSwipe, failedSave, swipe, undo, retry };
 }

@@ -314,12 +314,12 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
 }
 
 /** The deck's gear opens this — the settings content in a bottom-sheet Modal. */
-export function SettingsScreen({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function SettingsScreen({ visible, onClose, initial, onSave }: { visible: boolean; onClose: () => void; initial?: Preferences; onSave?: (p: Preferences) => void }) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
         <View className="overflow-hidden rounded-t-3xl bg-cream" style={{ height: "92%" }}>
-          {visible ? <SettingsContent onClose={onClose} /> : null}
+          {visible ? <SettingsContent onClose={onClose} initial={initial} onSave={onSave} /> : null}
         </View>
       </View>
     </Modal>
