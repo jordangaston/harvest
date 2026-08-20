@@ -12,15 +12,30 @@ import {
 /**
  * The onboarding screen-body archetypes — controlled, presentational, and shell-free.
  * Each is the *body* of one screen (the Phase-2 flow wraps it in the existing
- * components/recime/OnboardingScreen shell). They compose the shared primitives so the
- * onboarding chips/sliders/steppers are the exact ones Settings ships. Golden-hour system
- * throughout: bg-card surfaces, depth via ELEVATION (never tone), one accent = one meaning,
- * Reduce Motion honoured in every animated archetype.
+ * components/recime/OnboardingScreen shell, which owns the horizontal padding + pinned CTA).
+ * They compose the shared primitives so the onboarding chips/sliders/steppers are the exact ones
+ * Settings ships. Golden-hour system throughout: bg-card surfaces, depth via ELEVATION (never tone),
+ * one accent = one meaning, Reduce Motion honoured in every animated archetype.
+ *
+ * Two layout invariants keep the flow consistent (Refactoring UI Ch2/Ch3):
+ *  - Every input screen opens with the shared <StepHeader> (one centered title/subtitle treatment).
+ *  - Bodies never add horizontal padding — the shell (flow) or the studio Frame owns it, so every
+ *    screen shares one inset instead of stacking paddings.
  */
 
 type IoniconName = React.ComponentProps<typeof Icon>["name"];
 const SELECTED_TILE = { borderWidth: 2, borderColor: "#A85E2B", backgroundColor: "#F3E0CC" } as const;
 const RESTING_TILE = { borderWidth: 1, borderColor: "#E4D6BC" } as const;
+
+/** The one centered title + subtitle every input step opens with — consistent size, weight, spacing. */
+export function StepHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <VStack space={6} className="items-center" style={{ marginBottom: 24 }}>
+      <Text className="text-center text-2xl text-ink" style={{ fontFamily: "Karla_700Bold", lineHeight: 30 }}>{title}</Text>
+      {subtitle ? <Text className="text-center text-base text-muted">{subtitle}</Text> : null}
+    </VStack>
+  );
+}
 
 /* ── 1. Informational value card — typing + haptics (info screens only) ────────── */
 
@@ -33,7 +48,7 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
     if (showBody) Animated.timing(fade, { toValue: 1, duration: DURATION.medium, easing: EASE.smoothOut, useNativeDriver: false }).start();
   }, [showBody, fade]);
   return (
-    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-center">
+    <View style={{ paddingVertical: 24, minHeight: 440 }} className="items-center justify-center">
       <View className="items-center" style={{ gap: 20 }}>
         {art ? <View className="items-center">{art}</View> : null}
         {typing ? (
@@ -77,7 +92,7 @@ export function OnboardingValueCarousel({ slides, intervalMs = 2200 }: { slides:
   }, [i, reduce, fade]);
   const s = slides[i] ?? { title: "" };
   return (
-    <View style={{ padding: 24, minHeight: 440 }} className="items-center justify-between">
+    <View style={{ paddingVertical: 24, minHeight: 440 }} className="items-center justify-between">
       <View className="flex-1 items-center justify-center">
         <Animated.View className="items-center" style={{ opacity: reduce ? 1 : fade, gap: 16 }}>
           {s.art ? <View className="items-center">{s.art}</View> : null}
@@ -106,12 +121,9 @@ export function OnboardingChipGrid({ title, subtitle, options, value, onChange, 
   const labelFor = (v: string) => options.find((o) => o.value === v)?.label ?? v;
   const extra = value.filter((v) => !options.some((o) => o.value === v));
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
-        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
-      </VStack>
-      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title={title} subtitle={subtitle} />
+      <View className="flex-row flex-wrap" style={{ gap: 8 }}>
         {options.map((o) => <Chip key={o.value} label={o.label} active={value.includes(o.value)} onToggle={() => toggle(o.value)} />)}
         {extra.map((v) => <Chip key={v} label={labelFor(v)} active onToggle={() => toggle(v)} />)}
         {moreCorpus ? <MoreChip onPress={() => setSearch(true)} /> : null}
@@ -129,12 +141,9 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
   const [search, setSearch] = React.useState(false);
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Where do you shop?</Text>
-        <Text className="text-sm text-muted">We’ll tailor prices to your stores.</Text>
-      </VStack>
-      <View className="flex-row flex-wrap" style={{ gap: 10, marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title="Where do you shop?" subtitle="We’ll tailor prices to your stores." />
+      <View className="flex-row flex-wrap" style={{ gap: 10 }}>
         {GROCERY_STORES.map((store) => {
           const active = value.includes(store.id);
           return (
@@ -167,12 +176,9 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
 export function OnboardingBudget({ cents, onChange, min = 3000, max = 40000, step = 1000 }: { cents: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
   const atMax = cents >= max;
   return (
-    <View style={{ padding: 24, minHeight: 360 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>What’s your weekly budget?</Text>
-        <Text className="text-sm text-muted">We’ll keep your plan under it.</Text>
-      </VStack>
-      <View className="items-center" style={{ paddingVertical: 36, gap: 4 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title="What’s your weekly budget?" subtitle="We’ll keep your plan under it." />
+      <View className="items-center" style={{ paddingVertical: 24, gap: 4 }}>
         <Text className="text-ink" style={{ fontFamily: "Karla_700Bold", fontSize: 56, lineHeight: 60 }}>{money(cents)}{atMax ? "+" : ""}</Text>
         <Text className="text-sm text-muted">this week</Text>
       </View>
@@ -191,23 +197,18 @@ export type Household = { adults: number; kids: number };
 
 export function OnboardingCounter({ value, onChange }: { value: Household; onChange: (v: Household) => void }) {
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>How many are you cooking for?</Text>
-        <Text className="text-sm text-muted">We’ll size every portion right.</Text>
-      </VStack>
-      <View style={{ marginTop: 16 }}>
-        <Card>
-          <HStack className="items-center justify-between">
-            <VStack space={2}><Text className="text-base font-bold text-ink">Adults</Text><Text className="text-xs text-muted">13 and older</Text></VStack>
-            <Stepper big value={value.adults} min={1} max={12} label="adults" onChange={(v) => onChange({ ...value, adults: v })} />
-          </HStack>
-          <HStack className="items-center justify-between">
-            <VStack space={2}><Text className="text-base font-bold text-ink">Kids</Text><Text className="text-xs text-muted">12 and under</Text></VStack>
-            <Stepper big value={value.kids} min={0} max={12} label="kids" onChange={(v) => onChange({ ...value, kids: v })} />
-          </HStack>
-        </Card>
-      </View>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title="How many are you cooking for?" subtitle="We’ll size every portion right." />
+      <Card>
+        <HStack className="items-center justify-between">
+          <VStack space={2}><Text className="text-base font-bold text-ink">Adults</Text><Text className="text-xs text-muted">13 and older</Text></VStack>
+          <Stepper big value={value.adults} min={1} max={12} label="adults" onChange={(v) => onChange({ ...value, adults: v })} />
+        </HStack>
+        <HStack className="items-center justify-between">
+          <VStack space={2}><Text className="text-base font-bold text-ink">Kids</Text><Text className="text-xs text-muted">12 and under</Text></VStack>
+          <Stepper big value={value.kids} min={0} max={12} label="kids" onChange={(v) => onChange({ ...value, kids: v })} />
+        </HStack>
+      </Card>
     </View>
   );
 }
@@ -223,12 +224,9 @@ export function OnboardingDayPicker({ value, onChange }: { value: string[]; onCh
   const toggle = (d: string) => onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d]);
   const n = value.length;
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>Which days do you cook?</Text>
-        <Text className="text-sm text-muted">We’ll only plan for these days.</Text>
-      </VStack>
-      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title="Which days do you cook?" subtitle="We’ll only plan for these days." />
+      <View className="flex-row flex-wrap" style={{ gap: 8 }}>
         {WEEKDAYS.map((d) => <Chip key={d.v} label={d.l} active={value.includes(d.v)} onToggle={() => toggle(d.v)} />)}
       </View>
       <Text className={`text-sm ${n === 0 ? "text-error" : "text-muted"}`} style={{ marginTop: 16 }}>
@@ -252,12 +250,9 @@ export function OnboardingBinary({ title, subtitle, value, onChange, yes = { lab
     </Pressable>
   );
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
-        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
-      </VStack>
-      <VStack space={12} style={{ marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title={title} subtitle={subtitle} />
+      <VStack space={12}>
         <Option on opt={yes} sel={value === true} />
         <Option on={false} opt={no} sel={value === false} />
       </VStack>
@@ -278,12 +273,9 @@ export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defa
   const setLevel = (name: string, level: string) => onChange(value.map((x) => x.name === name ? { ...x, level } : x));
   const available = corpus.filter((c) => !value.some((x) => x.name === c));
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
-        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
-      </VStack>
-      <VStack space={12} style={{ marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title={title} subtitle={subtitle} />
+      <VStack space={12}>
         {value.map((pref) => (
           <Card key={pref.name}>
             <HStack className="items-center justify-between">
@@ -296,7 +288,7 @@ export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defa
         ))}
       </VStack>
       {available.length ? (
-        <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 12 }}>
+        <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: value.length ? 12 : 0 }}>
           {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} onToggle={() => add(c)} />)}
         </View>
       ) : null}
@@ -313,12 +305,9 @@ export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTi
   const toggle = (item: string) => onChange(value.includes(item) ? value.filter((x) => x !== item) : [...value, item]);
   const chips = Array.from(new Set([...presets, ...value]));
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
-        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
-      </VStack>
-      <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title={title} subtitle={subtitle} />
+      <View className="flex-row flex-wrap" style={{ gap: 8 }}>
         {chips.map((c) => <Chip key={c} label={c} active={value.includes(c)} onToggle={() => toggle(c)} />)}
         <MoreChip onPress={() => setSearch(true)} />
       </View>
@@ -334,12 +323,9 @@ export function OnboardingSingleSelectList({ title, subtitle, options, value, on
   value: string | null; onSelect: (v: string) => void;
 }) {
   return (
-    <View style={{ padding: 20 }}>
-      <VStack space={8}>
-        <Text className="text-xl text-ink" style={{ fontFamily: "Karla_700Bold" }}>{title}</Text>
-        {subtitle ? <Text className="text-sm text-muted">{subtitle}</Text> : null}
-      </VStack>
-      <VStack space={10} style={{ marginTop: 16 }}>
+    <View style={{ paddingTop: 8 }}>
+      <StepHeader title={title} subtitle={subtitle} />
+      <VStack space={10}>
         {options.map((o) => {
           const sel = o.value === value;
           return (

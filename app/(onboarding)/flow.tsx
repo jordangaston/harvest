@@ -4,11 +4,11 @@ import { OnboardingScreen } from "../../components/recime/OnboardingScreen";
 import {
   OnboardingValueCarousel, OnboardingValueCard, OnboardingChipGrid, OnboardingStorePicker,
   OnboardingBudget, OnboardingCounter, OnboardingDayPicker, OnboardingBinary,
-  OnboardingSeverityPicker, OnboardingTasteMenu, OnboardingSingleSelectList, type Household,
+  OnboardingSeverityPicker, OnboardingTasteMenu, OnboardingSingleSelectList, StepHeader, type Household,
 } from "../../components/onboarding/screens";
 import { MealCounts } from "../../components/planner/MealPlanIntake";
 import { OptionRow } from "../../components/recime/OptionRow";
-import { VStack, Center, Text, Heading } from "../../components/ui";
+import { VStack } from "../../components/ui";
 import {
   ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, EQUIP_LABEL_TO_TYPE,
   TASTE_PRESETS, TASTE_CORPUS, tasteFacet,
@@ -102,12 +102,9 @@ export default function OnboardingFlow() {
       progress: 0.22, ctaLabel: "Continue", ctaDisabled: goals.length === 0,
       commit: () => setGoals(goals),
       body: (
-        <VStack space={8}>
-          <Center>
-            <Heading className="text-2xl">What are your goals?</Heading>
-            <Text className="mt-1 text-base text-muted">Select all that apply</Text>
-          </Center>
-          <VStack className="mt-4">
+        <VStack style={{ paddingTop: 8 }}>
+          <StepHeader title="What are your goals?" subtitle="Select all that apply" />
+          <VStack>
             {GOALS.map((g) => (
               <OptionRow key={g.label} label={g.label} image={g.image} icon={g.icon} variant="check" selected={goals.includes(g.label)} onPress={() => toggleGoal(g.label)} />
             ))}

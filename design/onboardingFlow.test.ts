@@ -12,7 +12,7 @@ beforeEach(() => resetOnboarding());
 
 test("draft holds the LATEST answer after a back-nav edit; flush builds each payload once", async () => {
   // Walk the flow, recording answers.
-  setGoals(["Eat healthier", "Kid-friendly meals"]);
+  setGoals(["Healthy meals", "Kid friendly meals"]);
   setCookDays(["mon", "wed", "fri"]);
   setPreferences({ weeklyBudgetCents: 20000 });
   setPreferences({ groceryStores: ["walmart"] });
@@ -48,7 +48,7 @@ test("no payload is built with the collected answers until completion (nothing w
 });
 
 test("a rejected flush leaves the draft intact and reports the error", async () => {
-  setGoals(["Save money"]);
+  setGoals(["Saving money"]);
   setPreferences({ weeklyBudgetCents: 9000 });
 
   const putPreferences = async (_: ApiPreferences) => { throw new Error("network"); };

@@ -16,7 +16,9 @@ import {
 // the Phase-2 flow will own it. Components are otherwise controlled + presentational.
 const GROUP = "Onboarding";
 function Frame({ children }: { children: React.ReactNode }) {
-  return <View className="w-full overflow-hidden rounded-2xl bg-cream" style={{ borderWidth: 1, borderColor: "#E4D6BC" }}>{children}</View>;
+  // The archetypes no longer self-pad horizontally (the flow shell owns it), so the studio Frame
+  // provides the inset here — matching the shell's ~24px so previews read like the live screen.
+  return <View className="w-full overflow-hidden rounded-2xl bg-cream" style={{ borderWidth: 1, borderColor: "#E4D6BC", paddingHorizontal: 20, paddingVertical: 16 }}>{children}</View>;
 }
 
 /* 1. Value card (typing + haptics) */
