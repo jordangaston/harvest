@@ -174,6 +174,10 @@ export interface RecipeCard {
   difficultyBand: DifficultyBand | null;
   costPerServingCents: number | null;
   costCoverage: number | null;
+  // Accent-badge signals — populated on the swipe deck (assembleRankable), absent on the plain library list.
+  nrfScore?: number | null;
+  mealPrepFit?: MealPrepFit | null;
+  equipment?: { equipment: string; essentiality: string }[];
   ingredientNames?: string[];
   cookbookIds?: string[];
 }
@@ -193,6 +197,12 @@ export interface PublicRecipeCard {
   difficulty_band?: DifficultyBand;
   cost_per_serving_cents: number | null;
   cost_coverage: number | null;
+  // Accent-badge signals (swipe deck): nutrition, meal-prep fit, and the recipe's equipment
+  // (with essentiality). The client derives the accent + "unowned equipment" from these + the
+  // user's owned set. Absent on the plain library list. See docs/swipe-ui/DESIGN.md § Card anatomy.
+  nrf_score?: number;
+  meal_prep_fit?: MealPrepFit;
+  equipment?: { equipment: string; essentiality: string }[];
   ingredient_names?: string[];
   cookbook_ids?: string[];
 }
@@ -204,6 +214,9 @@ export function toPublicRecipeCard(card: RecipeCard): PublicRecipeCard {
   if (card.imageUrl) out.image_url = card.imageUrl;
   if (card.totalMinutes != null) out.total_minutes = card.totalMinutes;
   if (card.difficultyBand) out.difficulty_band = card.difficultyBand;
+  if (card.nrfScore != null) out.nrf_score = card.nrfScore;
+  if (card.mealPrepFit) out.meal_prep_fit = card.mealPrepFit;
+  if (card.equipment && card.equipment.length) out.equipment = card.equipment;
   if (card.ingredientNames) out.ingredient_names = card.ingredientNames;
   if (card.cookbookIds) out.cookbook_ids = card.cookbookIds;
   return out;

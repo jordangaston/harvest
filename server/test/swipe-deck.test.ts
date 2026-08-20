@@ -5,6 +5,7 @@ import {
   recipes,
   recipeCategories,
   recipeSwipes,
+  recipeEquipment,
   cookbooks,
   cookbookRecipes,
   userPreferences,
@@ -270,6 +271,21 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     // Idempotent (204 with no prior swipe) + 401 without a bearer.
     expect(await unswipe(token, r1)).toBe(204);
     expect((await app.request(`/v1/recipes/${r1}/swipe`, { method: "DELETE" })).status).toBe(401);
+  });
+
+  it("TC11: deck card carries the accent-badge signals (nutrition, meal-prep, equipment)", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const [row] = await db
+      .insert(recipes)
+      .values({ userId, title: "Prep Star", sourceType: "website", nrfScore: "88", mealPrepFit: "designed", allergensComplete: true })
+      .returning({ id: recipes.id });
+    await db.insert(recipeEquipment).values({ recipeId: row!.id, equipment: "air_fryer", essentiality: "required" });
+
+    const { body } = await getDeck(token);
+    const card = body.recipes.find((x: any) => x.recipe.id === row!.id).recipe;
+    expect(card.nrf_score).toBe(88);
+    expect(card.meal_prep_fit).toBe("designed");
+    expect(card.equipment).toEqual([{ equipment: "air_fryer", essentiality: "required" }]);
   });
 });
 
