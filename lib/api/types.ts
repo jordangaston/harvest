@@ -39,6 +39,7 @@ export type ApiCookbook = {
   name: string;
   recipe_count: number;
   cover_image_url?: string;
+  system: boolean; // Liked/Saved system cookbook, not user-created
 };
 
 export type CookbookView = {

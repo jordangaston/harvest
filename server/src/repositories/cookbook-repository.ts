@@ -47,6 +47,7 @@ export class CookbookRepository {
         id: cookbooks.id,
         userId: cookbooks.userId,
         name: cookbooks.name,
+        systemSlug: cookbooks.systemSlug,
         createdAt: cookbooks.createdAt,
         recipeId: cookbookRecipes.recipeId,
         imageUrl: recipes.imageUrl,
@@ -62,7 +63,7 @@ export class CookbookRepository {
       let summary = byId.get(row.id);
       if (!summary) {
         summary = {
-          cookbook: CookbookSchema.parse({ id: row.id, userId: row.userId, name: row.name, createdAt: row.createdAt }),
+          cookbook: CookbookSchema.parse({ id: row.id, userId: row.userId, name: row.name, systemSlug: row.systemSlug, createdAt: row.createdAt }),
           recipeCount: 0,
           coverImageUrl: null,
         };
