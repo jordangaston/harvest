@@ -18,16 +18,20 @@ import {
   TextInput,
   ActivityIndicator,
   ScrollView as RNScrollView,
+  StyleSheet,
   ViewProps,
   TextProps,
   PressableProps,
   ImageProps,
   TextInputProps,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
 import { tv } from "tailwind-variants";
 import { Ionicons } from "@expo/vector-icons";
 import { analytics } from "../../lib/analytics";
 import { extractLabel } from "../../lib/analytics/label";
+import { BRAND_GRADIENT } from "../../lib/gradient";
 
 type WithClass<T> = T & { className?: string };
 
@@ -141,18 +145,26 @@ export function Button({
   // Auto-instrument every tap on the shared primitive, then run the caller's handler unchanged.
   // `track` is fire-and-forget and swallows its own errors, so it can never block or drop a press.
   const handlePress: PressableProps["onPress"] = (event) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const label = typeof children === "function" ? undefined : extractLabel(children);
     analytics.track("Button Tapped", label ? { label } : {});
     onPress?.(event);
   };
+  // The primary (solid brand) button carries the shared brand gradient behind its label; the
+  // bg-brand class stays underneath as a fallback. Other actions/variants render flat. A press
+  // dims + shrinks it slightly so the tap always reads.
+  const gradient = (action ?? "brand") === "brand" && (variant ?? "solid") === "solid";
   return (
     <RNPressable
-      className={button({ action, variant, size, className })}
-      style={({ pressed }) => (pressed ? { opacity: 0.9 } : undefined)}
+      className={button({ action, variant, size, className }) + (gradient ? " overflow-hidden" : "")}
+      style={({ pressed }) => (pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : undefined)}
       onPress={handlePress}
       {...props}
     >
-      {children}
+      {gradient ? (
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} pointerEvents="none" />
+      ) : null}
+      {children as React.ReactNode}
     </RNPressable>
   );
 }

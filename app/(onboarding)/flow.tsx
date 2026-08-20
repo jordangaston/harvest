@@ -138,7 +138,16 @@ export default function OnboardingFlow() {
     {
       ctaLabel: "Continue", ctaDisabled: cookDays === null,
       commit: () => cookDays && setCookDaysCount(Number(cookDays)),
-      body: <OnboardingSingleSelectList title="How many days a week do you cook?" subtitle="We’ll plan for that many." options={COOK_DAYS_OPTIONS} value={cookDays} onSelect={setCookDays} />,
+      body: (
+        <VStack style={{ paddingTop: 8 }}>
+          <StepHeader title="How many days a week do you cook?" subtitle="We’ll plan for that many." />
+          <VStack>
+            {COOK_DAYS_OPTIONS.map((o) => (
+              <OptionRow key={o.value} label={o.label} variant="pill" selected={cookDays === o.value} onPress={() => setCookDays(o.value)} />
+            ))}
+          </VStack>
+        </VStack>
+      ),
     },
     {
       ctaLabel: "Continue",

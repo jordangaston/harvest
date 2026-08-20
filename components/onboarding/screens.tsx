@@ -257,7 +257,7 @@ export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defa
       </VStack>
       {available.length ? (
         <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: value.length ? 24 : 4 }}>
-          {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} variant="add" onToggle={() => add(c)} />)}
+          {available.map((c) => <Chip key={c} label={`+ ${c}`} active={false} onToggle={() => add(c)} />)}
         </View>
       ) : null}
     </View>

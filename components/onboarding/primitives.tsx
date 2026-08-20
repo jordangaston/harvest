@@ -1,8 +1,11 @@
 import React from "react";
 import { Modal, View, PanResponder, TextInput, AccessibilityInfo } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
 import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { ELEVATION } from "../../lib/elevation";
+import { BRAND_GRADIENT } from "../../lib/gradient";
 import { revealCount } from "../../lib/typewriter";
 
 /**
@@ -23,14 +26,22 @@ export function Segmented<T extends string | number>({ options, value, onChange,
         return (
           <Pressable
             key={String(o.value)}
-            onPress={() => onChange(o.value)}
+            onPress={() => { Haptics.selectionAsync().catch(() => {}); onChange(o.value); }}
             accessibilityRole="radio"
             accessibilityState={{ selected: active }}
             accessibilityLabel={o.label}
-            className={`flex-1 items-center rounded-full py-1.5 ${active ? "bg-brand" : ""}`}
+            className="flex-1 overflow-hidden rounded-full"
             style={active ? ELEVATION.low : undefined}
           >
-            <Text className={`text-xs font-bold ${active ? "text-white" : "text-muted"}`}>{o.label}</Text>
+            {active ? (
+              <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingVertical: 6, alignItems: "center", borderRadius: 999 }}>
+                <Text className="text-xs font-bold text-white">{o.label}</Text>
+              </LinearGradient>
+            ) : (
+              <View className="items-center py-1.5">
+                <Text className="text-xs font-bold text-muted">{o.label}</Text>
+              </View>
+            )}
           </Pressable>
         );
       })}
@@ -39,30 +50,27 @@ export function Segmented<T extends string | number>({ options, value, onChange,
 }
 
 /**
- * Multi-select chip. Selected (or the `add` variant, for "+ tap to add" affordances) = brand-light +
- * brand border + brand text. Unselected = a darker sand fill (`sand-300`) with a defined border and
- * ink text, so a resting chip actually reads off the cream canvas (the old `sand-200`/muted was
- * ~1.1:1 and vanished). Refactoring UI Ch2 (hierarchy) + Ch5 (contrast).
+ * Multi-select chip — one brand family, two harmonious states (design decision, chip options v4):
+ * resting = an outline on the canvas (`bg-card` + brand border + brand-dark text); selected = the
+ * gentle brand gradient fill + white text. Both clear WCAG AA. The "+ add" chips (allergies/diet)
+ * use the resting look — no separate variant.
  */
-export function Chip({ label, active, onToggle, variant = "default" }: { label: string; active: boolean; onToggle: () => void; variant?: "default" | "add" }) {
-  // Three distinct looks: `add` = a lighter, secondary brand pill (brand-300 fill + ink text) — a
-  // filled "tap to add" action that recedes; selected = brand-light tint; resting = sand-300. `add`
-  // stays lighter than the full-brand selected state (segmented "Severe"), and — since a fill lighter
-  // than the full brand can't carry white text at 4.5:1 — it uses ink text to stay legible.
-  const add = variant === "add";
-  const bg = add ? "bg-brand-200" : active ? "bg-brand-light" : "bg-sand-300";
-  const borderColor = add ? "#DDA168" : active ? "#A85E2B" : "#C2A678";
-  const textCls = active ? "text-brand" : "text-ink";
+export function Chip({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  const tap = () => { Haptics.selectionAsync().catch(() => {}); onToggle(); };
+  if (active) {
+    return (
+      <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: true }} accessibilityLabel={label} className="overflow-hidden rounded-full" style={ELEVATION.low}>
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingHorizontal: 14, paddingVertical: 8 }}>
+          <Text className="text-sm font-semibold text-white">{label}</Text>
+        </LinearGradient>
+      </Pressable>
+    );
+  }
+  // Resting = a brand outline with a transparent fill, so the chip shows the page background (cream),
+  // not a near-white pill. Border via className so it survives the Pressable's style merge.
   return (
-    <Pressable
-      onPress={onToggle}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={label}
-      className={`rounded-full px-3.5 py-2 ${bg}`}
-      style={{ borderWidth: 1, borderColor }}
-    >
-      <Text className={`text-sm font-semibold ${textCls}`}>{label}</Text>
+    <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: false }} accessibilityLabel={label} className="rounded-full border border-brand bg-transparent px-3.5 py-2">
+      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -70,9 +78,9 @@ export function Chip({ label, active, onToggle, variant = "default" }: { label: 
 /** A "More…" search action — hollow neutral pill so it can't be mistaken for a value chip. */
 export function MoreChip({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#C2A678", gap: 4 }}>
-      <Icon name="search" size={14} color="#6E5B48" />
-      <Text className="text-sm font-semibold text-muted">More…</Text>
+    <Pressable onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress(); }} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full border border-brand bg-transparent px-3.5 py-2" style={{ gap: 5 }}>
+      <Icon name="search" size={14} color="#8A4A1E" />
+      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More…</Text>
     </Pressable>
   );
 }
