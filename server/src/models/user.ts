@@ -10,6 +10,7 @@ const GOALS = [
   'meal_prepping',
   'try_new_cuisines',
   'kid_friendly',
+  'quick_meals',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;

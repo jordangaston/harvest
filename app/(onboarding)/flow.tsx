@@ -28,14 +28,12 @@ import type { WeeklyMeals, MealType, AllergenPref, DietPref, TastePref } from ".
 // painterly icon yet (Nano Banana credits depleted) — interim Ionicon; swap to a matching PNG later.
 type GoalRow = { label: string; image?: React.ComponentProps<typeof OptionRow>["image"]; icon?: React.ComponentProps<typeof OptionRow>["icon"] };
 const GOALS: GoalRow[] = [
-  { image: require("../../assets/goal-healthier.png"), label: "Eat healthier" },
-  { image: require("../../assets/goal-money.png"), label: "Save money" },
-  { image: require("../../assets/goal-skills.png"), label: "Improve cooking skills" },
-  { image: require("../../assets/goal-organize.png"), label: "Organize recipes" },
-  { image: require("../../assets/goal-plan.png"), label: "Plan out meals" },
+  { image: require("../../assets/goal-healthier.png"), label: "Healthy meals" },
+  { icon: "happy-outline", label: "Kid friendly meals" },
+  { icon: "flash-outline", label: "Quick meals" },
+  { image: require("../../assets/goal-money.png"), label: "Saving money" },
+  { image: require("../../assets/goal-cuisines.png"), label: "Trying new recipes" },
   { image: require("../../assets/goal-prep.png"), label: "Meal prepping" },
-  { image: require("../../assets/goal-cuisines.png"), label: "Try new cuisines" },
-  { icon: "happy-outline", label: "Kid-friendly meals" },
 ];
 
 const TIME_OPTIONS = [

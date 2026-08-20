@@ -33,6 +33,7 @@ const GOALS = [
   'meal_prepping',
   'try_new_cuisines',
   'kid_friendly',
+  'quick_meals',
 ] as const;
 // Canonical grocery-store vocab (onboarding E1). Mirrors the client's
 // GROCERY_STORES + MORE_STORES ids (components/onboarding/primitives.tsx); a

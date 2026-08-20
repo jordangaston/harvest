@@ -118,7 +118,7 @@ export class PreferenceRepository {
       weightDifficulty: 1,
       weightNutrition: goals.includes('eat_healthier') ? 3 : 1,
       weightAffinity: 1,
-      weightTime: 1,
+      weightTime: goals.includes('quick_meals') ? 3 : 1,
       weightPopularity: 0,
       weightMealPrep: goals.includes('meal_prepping') ? 3 : 1,
     };

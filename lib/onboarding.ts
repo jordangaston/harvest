@@ -14,14 +14,12 @@ const makeMap = (entries: Record<string, string>): Map<string, string> =>
   new Map(Object.entries(entries).map(([label, value]) => [norm(label), value]));
 
 const GOALS = makeMap({
-  "Eat healthier": "eat_healthier",
-  "Save money": "save_money",
-  "Improve cooking skills": "improve_cooking",
-  "Organize recipes": "organize_recipes",
-  "Plan out meals": "plan_meals",
+  "Healthy meals": "eat_healthier",
+  "Kid friendly meals": "kid_friendly",
+  "Quick meals": "quick_meals",
+  "Saving money": "save_money",
+  "Trying new recipes": "try_new_cuisines",
   "Meal prepping": "meal_prepping",
-  "Try new cuisines": "try_new_cuisines",
-  "Kid-friendly meals": "kid_friendly",
 });
 
 // The day picker emits the wire enums directly ("mon"…); this map validates/passes them through.
