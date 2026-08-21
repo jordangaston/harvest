@@ -75,12 +75,13 @@ export function Chip({ label, active, onToggle }: { label: string; active: boole
   );
 }
 
-/** A "More…" search action — hollow neutral pill so it can't be mistaken for a value chip. */
+/** A "More…" search action — a filled brand-light pill with a leading "+" so it reads as an action,
+ *  distinct from the brand-outlined value chips (which it was previously mistaken for). */
 export function MoreChip({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress(); }} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full border border-brand bg-transparent px-3.5 py-2" style={{ gap: 5 }}>
-      <Icon name="search" size={14} color="#8A4A1E" />
-      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More…</Text>
+    <Pressable onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress(); }} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full bg-brand-light px-3.5 py-2" style={{ gap: 5 }}>
+      <Icon name="add" size={16} color="#8A4A1E" />
+      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More</Text>
     </Pressable>
   );
 }
@@ -147,11 +148,16 @@ export function Slider({ value, min, max, step, format, onChange, hideValue = fa
   );
 }
 
-/** A search sheet to add options from a larger corpus (tap a result to toggle it). */
-export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onClose }: { visible: boolean; title: string; corpus: string[]; selected: string[]; onToggle: (item: string) => void; onClose: () => void }) {
+/**
+ * A search sheet to add options from a larger corpus (tap a result to toggle it). `corpus` holds the
+ * toggle values; `labelFor` (default identity) maps a value to its display label, so the sheet can
+ * operate in value-space while showing labels — the search filters on the label, and toggling reports
+ * the value, so a search-added item is the SAME canonical value the preset chips use (no label/value split).
+ */
+export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onClose, labelFor = (v) => v }: { visible: boolean; title: string; corpus: string[]; selected: string[]; onToggle: (item: string) => void; onClose: () => void; labelFor?: (value: string) => string }) {
   const [q, setQ] = React.useState("");
   React.useEffect(() => { if (visible) setQ(""); }, [visible]);
-  const results = corpus.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
+  const results = corpus.filter((o) => labelFor(o).toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
@@ -166,7 +172,7 @@ export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onC
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
               <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                {results.map((o) => <Chip key={o} label={o} active={selected.includes(o)} onToggle={() => onToggle(o)} />)}
+                {results.map((o) => <Chip key={o} label={labelFor(o)} active={selected.includes(o)} onToggle={() => onToggle(o)} />)}
                 {results.length === 0 ? <Text className="text-sm text-muted">No matches for “{q}”.</Text> : null}
               </View>
             </ScrollView>
@@ -231,9 +237,10 @@ export function Typewriter({ text, msPerChar = 28, haptics = true, onDone, style
 export const CUISINES = ["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
 export const ALL_CUISINES = [...CUISINES, "Korean", "Vietnamese", "Spanish", "Greek", "Lebanese", "Turkish", "Ethiopian", "Peruvian", "Brazilian", "Caribbean", "Moroccan", "Filipino", "Malaysian", "Indonesian", "Portuguese", "German", "British", "American", "Tex-Mex", "Cajun", "Middle Eastern", "Soul food", "Nordic", "Argentine"];
 export const ALL_INGREDIENTS = ["Cilantro", "Mushrooms", "Olives", "Blue cheese", "Anchovies", "Bell peppers", "Coconut", "Tofu", "Eggplant", "Liver", "Capers", "Raisins", "Onions", "Garlic", "Ginger", "Fennel", "Beets", "Cumin", "Pickles", "Sardines", "Oysters", "Lamb", "Goat cheese", "Cottage cheese", "Tahini", "Miso", "Cabbage", "Brussels sprouts", "Okra", "Turnip", "Cauliflower", "Kimchi"];
-export const ALLERGENS = ["peanut", "tree nut", "milk", "egg", "soy", "wheat", "fish", "shellfish"];
+export const ALLERGENS = ["peanut", "tree nut", "milk", "egg", "soy", "wheat", "fish", "shellfish", "sesame"];
 export const DIETS = ["Vegetarian", "Vegan", "Pescatarian", "Gluten-free", "Keto", "Paleo", "Dairy-free"];
 export const EQUIPMENT = [
+  { type: "oven", label: "Oven" }, { type: "stovetop", label: "Stovetop" }, { type: "microwave", label: "Microwave" },
   { type: "air_fryer", label: "Air fryer" }, { type: "slow_cooker", label: "Slow cooker" },
   { type: "pressure_cooker", label: "Pressure cooker" }, { type: "blender", label: "Blender" },
   { type: "stand_mixer", label: "Stand mixer" }, { type: "grill", label: "Grill" },

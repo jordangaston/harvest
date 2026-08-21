@@ -1,11 +1,11 @@
 import React from "react";
-import { View, Animated, Image } from "react-native";
+import { View, Animated, Image, TextInput } from "react-native";
 import { VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { ELEVATION } from "../../lib/elevation";
 import { DURATION, EASE } from "../../lib/motion";
 import {
   Chip, Segmented, Slider, Stepper, MoreChip, SearchAddSheet, Card, Typewriter,
-  GROCERY_STORES, ALL_GROCERY_STORES, STORE_ID_TO_LABEL, STORE_LABEL_TO_ID, STORE_LOGOS,
+  ALL_GROCERY_STORES, STORE_LOGOS,
 } from "./primitives";
 
 /**
@@ -74,16 +74,21 @@ export function OnboardingValueCard({ headline, body, art, typing = true, haptic
 
 /* ── 3. Chip grid — multi or single select (goals, time-bands, equipment) ───────── */
 
-export function OnboardingChipGrid({ title, subtitle, options, value, onChange, multi = true, moreCorpus, moreTitle }: {
+/**
+ * `moreCorpus` holds the search-add VALUES (the same value-space `options`/`value` use); `moreLabels`
+ * maps a value → its display label. Search toggles the canonical value the preset chips use, so a
+ * search-added item never appears as a duplicate label chip alongside its preset.
+ */
+export function OnboardingChipGrid({ title, subtitle, options, value, onChange, multi = true, moreCorpus, moreLabels, moreTitle }: {
   title: string; subtitle?: string; options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void;
-  multi?: boolean; moreCorpus?: string[]; moreTitle?: string;
+  multi?: boolean; moreCorpus?: string[]; moreLabels?: Record<string, string>; moreTitle?: string;
 }) {
   const [search, setSearch] = React.useState(false);
   const toggle = (v: string) => {
     if (multi) onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
     else onChange(value.includes(v) ? [] : [v]);
   };
-  const labelFor = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const labelFor = (v: string) => options.find((o) => o.value === v)?.label ?? moreLabels?.[v] ?? v;
   const extra = value.filter((v) => !options.some((o) => o.value === v));
   return (
     <View style={{ paddingTop: 8 }}>
@@ -94,7 +99,7 @@ export function OnboardingChipGrid({ title, subtitle, options, value, onChange, 
         {moreCorpus ? <MoreChip onPress={() => setSearch(true)} /> : null}
       </View>
       {moreCorpus ? (
-        <SearchAddSheet visible={search} title={moreTitle ?? "Add more"} corpus={moreCorpus} selected={value} onToggle={toggle} onClose={() => setSearch(false)} />
+        <SearchAddSheet visible={search} title={moreTitle ?? "Add more"} corpus={moreCorpus} labelFor={labelFor} selected={value} onToggle={toggle} onClose={() => setSearch(false)} />
       ) : null}
     </View>
   );
@@ -103,13 +108,15 @@ export function OnboardingChipGrid({ title, subtitle, options, value, onChange, 
 /* ── 4. Store picker — real-brand tiles, our accent marks the choice ───────────── */
 
 export function OnboardingStorePicker({ value, onChange, onSkip }: { value: string[]; onChange: (v: string[]) => void; onSkip?: () => void }) {
-  const [search, setSearch] = React.useState(false);
+  const [q, setQ] = React.useState("");
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const stores = ALL_GROCERY_STORES.filter((s) => s.label.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <View style={{ paddingTop: 8 }}>
       <StepHeader title="Where do you shop?" subtitle="We’ll tailor prices to your stores." />
+      <TextInput value={q} onChangeText={setQ} placeholder="Search stores…" placeholderTextColor="#9C8460" className="mb-4 rounded-xl bg-card px-4 py-3 text-ink" style={[{ fontFamily: "Karla_400Regular" }, ELEVATION.low]} />
       <View className="flex-row flex-wrap" style={{ gap: 10 }}>
-        {GROCERY_STORES.map((store) => {
+        {stores.map((store) => {
           const active = value.includes(store.id);
           return (
             <Pressable key={store.id} onPress={() => toggle(store.id)} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={store.label}
@@ -126,19 +133,15 @@ export function OnboardingStorePicker({ value, onChange, onSkip }: { value: stri
             </Pressable>
           );
         })}
-        {/* Actions share the store-tile shape, so the whole grid reads as one card family. */}
-        <Pressable onPress={() => setSearch(true)} accessibilityRole="button" accessibilityLabel="Search for more stores" className="rounded-2xl bg-card" style={[{ width: "31%", paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", gap: 8 }, ELEVATION.low, RESTING_TILE]}>
-          <View style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}><Icon name="search" size={26} color="#8A4A1E" /></View>
-          <Text className="text-xs font-semibold text-center" style={{ color: "#8A4A1E" }} numberOfLines={1}>More</Text>
-        </Pressable>
-        {onSkip ? (
+        {stores.length === 0 ? <Text className="text-sm text-muted">No stores match “{q}”.</Text> : null}
+        {/* The skip affordance shares the store-tile shape, so the grid reads as one card family. */}
+        {onSkip && q.trim() === "" ? (
           <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="I shop elsewhere" className="rounded-2xl bg-card" style={[{ width: "31%", paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", gap: 8 }, ELEVATION.low, RESTING_TILE]}>
             <View style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}><Icon name="ellipsis-horizontal" size={26} color="#8A4A1E" /></View>
             <Text className="text-xs font-semibold text-center" style={{ color: "#8A4A1E" }} numberOfLines={1}>Elsewhere</Text>
           </Pressable>
         ) : null}
       </View>
-      <SearchAddSheet visible={search} title="Add a store" corpus={ALL_GROCERY_STORES.map((store) => store.label)} selected={value.map((id) => STORE_ID_TO_LABEL[id]).filter(Boolean)} onToggle={(label) => toggle(STORE_LABEL_TO_ID[label])} onClose={() => setSearch(false)} />
     </View>
   );
 }
