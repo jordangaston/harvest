@@ -68,7 +68,7 @@ sequenceDiagram
     participant Q as TanStack Query + AsyncStorage
     participant API as GET /v1/taste-options
     participant Vocab as VOCAB (server code)
-    participant Repo as FdcFoodRepository
+    participant Repo as TasteIngredientRepository
 
     App->>Q: useTasteOptions()
     alt cache fresh (< staleTime) or offline
@@ -76,9 +76,9 @@ sequenceDiagram
     else stale or cold
         Q->>API: GET /v1/taste-options
         API->>Vocab: cuisines, dishTypes
-        API->>Repo: tasteFoods()  (curated ingredient list)
-        Repo-->>API: FoodOption[]
-        API-->>Q: { cuisines, dishTypes, foods } + ETag
+        API->>Repo: ingredients()  (taste_ingredients rows)
+        Repo-->>API: TasteIngredient[]
+        API-->>Q: { cuisines, dishTypes, ingredients } + ETag
         Q-->>App: TasteOptions (persisted)
     end
     note over App: Picks reference option ids that map 1:1 to<br/>ranking values — no free text
@@ -118,8 +118,10 @@ sequenceDiagram
 
 ## Score Affinity — Implements F-AF-1: Rank a recipe against food likes/dislikes
 
-`AffinityScorer` gains a fourth facet, `ingredient`, matched against the recipe's persisted food
-ids. An "okra" dislike now penalizes any recipe whose ingredients matched the okra food.
+`AffinityScorer` gains a fourth facet, `ingredient`. At load time the repository rolls each recipe's
+matched `ingredients.fdc_id` up to base ingredients via the `fdc_foods.base_ingredient_id` join, so
+the scorer intersects the user's picked `base_ingredient_id`s with the recipe's. An "okra" dislike now
+penalizes any recipe whose ingredients rolled up to the okra base ingredient.
 
 ```mermaid
 sequenceDiagram
@@ -128,10 +130,10 @@ sequenceDiagram
     participant Aff as AffinityScorer
 
     Eng->>Repo: load RankableRecipe (batched, no N+1)
-    Repo-->>Eng: recipe.categories + recipe.foodIds  (from ingredients.fdc_id)
+    Repo-->>Eng: recipe.categories + recipe.baseIngredientIds<br/>(ingredients.fdc_id rolled up via fdc_foods.base_ingredient_id)
     Eng->>Aff: score(recipe, prefs)
     note over Aff: facets = cuisine, dish_type,<br/>primary_ingredient, ingredient
-    note over Aff: ingredient sentiment = intersect<br/>prefs.foodPrefs(ingredient) with recipe.foodIds
+    note over Aff: ingredient sentiment = intersect<br/>prefs.foodPrefs(ingredient) with recipe.baseIngredientIds
     Aff-->>Eng: 0.5 + 0.5*mean(sentiments)
 ```
 
@@ -178,9 +180,9 @@ classDiagram
     FdcFood "*" ..> "1" TasteOption : ingredient option
 ```
 
-`TasteOption` is a **view** over VOCAB (cuisines, dish types) and the curated base-ingredient set
-(`taste_ingredients`), not a stored table — it is assembled by the endpoint. `UserFoodPref.facet` now
-admits `ingredient`, whose `value` is a `base_ingredient_id` (the curated cluster, resolves Q-03).
+`TasteOption` is a **view** the endpoint assembles by merging VOCAB (cuisines, dish types) with the
+stored `taste_ingredients` rows — it is not itself a table. `UserFoodPref.facet` now admits
+`ingredient`, whose `value` is a `base_ingredient_id` (uuid → `taste_ingredients.id`, resolves Q-03).
 
 ---
 
@@ -211,8 +213,8 @@ No schema change. `value` is a free string validated in app code, not a DB enum
 
 `facet` is `AFFINITY_FACETS` (`server/src/schema.ts:529`). `AFFINITY_FACETS` gains `ingredient`
 (`server/src/schema.ts:636`), an app-level tuple change, not a DB migration — the column is
-`text`. `value` for an `ingredient` pref is a `base_ingredient_id` — the curated cluster the pick
-rolls up to, **not** a raw `fdc_id` (resolves Q-03).
+`text`. `value` for an `ingredient` pref is a `base_ingredient_id` (uuid, → `taste_ingredients.id`) —
+the curated cluster the pick rolls up to, **not** a raw `fdc_id` (resolves Q-03).
 
 ## fdc_foods / fdc_foods_fts — changed
 
@@ -225,18 +227,18 @@ Adds three columns so foods can be clustered into a base-ingredient picker. The 
 |---|---|---|---|
 | food_code | integer | null | 8-digit FNDDS code, from the FDC Survey JSON `foodCode`; the hierarchical key that drives clustering |
 | wweia_category_code | integer | null | 4-digit `wweiaFoodCategory.wweiaFoodCategoryCode`; the existing `category` description stays |
-| base_ingredient_id | text | null, fk → taste_ingredients.id | The curated cluster this food rolls up to; the affinity join target |
+| base_ingredient_id | text | null, fk → taste_ingredients.id (uuid) | The curated cluster this food rolls up to; the affinity join target |
 
 ## taste_ingredients — new
 
 The picker options — a few-hundred curated base ingredients the ~5,432 foods collapse into. Populated
-by the curation pass (see *Ingredient Curation*). The affinity join is
-`ingredients.fdc_id → fdc_foods.base_ingredient_id`, and a user ingredient pref's `value` is a
-`base_ingredient_id`.
+by the curation pass (see *Ingredient Curation*). The `id` follows the app's `uuidPk()` convention;
+`fdc_foods.base_ingredient_id` and a user ingredient pref's `value` both hold that uuid. The affinity
+join is `ingredients.fdc_id → fdc_foods.base_ingredient_id`.
 
 | Column Name | Type | Constraints | Notes |
 |---|---|---|---|
-| id | text | pk | Slug (the `base_ingredient_id` foods point to) |
+| id | text | pk, `uuidPk()` | The uuid `base_ingredient_id` foods and prefs point to |
 | label | text | not null | Canonical consumer name (e.g. `Chicken`, `Bell pepper`) |
 | section | text | not null | One of the 9 FNDDS groups, or a ~13 grocery-aisle remap — the picker's section header |
 | food_group | integer | not null | FNDDS major group, 1–9 (= `food_code[0]`) |
@@ -256,38 +258,41 @@ classDiagram
     class AffinityScorer {
         +score(recipe, prefs) number
         -facetSentiment(facet, values, prefs) number
-        -ingredientSentiment(foodIds, prefs) number
+        -ingredientSentiment(baseIngredientIds, prefs) number
     }
     class TasteOptionsService {
         +options() TasteOptions
     }
+    class TasteIngredientRepository {
+        +ingredients() TasteIngredient[]
+    }
     class FdcFoodRepository {
-        +tasteFoods() FoodOption[]
         +search(tokens) FdcFoodCandidate[]
     }
     class RecipeRepository {
         +persistIngredientMatches(tx, recipeId, matches)
-        -foodIdsByRecipe(recipeIds) Map
+        -baseIngredientIdsByRecipe(recipeIds) Map
     }
 
-    TasteOptionsService --> FdcFoodRepository : tasteFoods()
+    TasteOptionsService --> TasteIngredientRepository : ingredients()
     RecipeCategorizer --> FoodMatcher : primary-ingredient + persisted match
-    AffinityScorer --> RecipeRepository : recipe.foodIds
+    AffinityScorer --> RecipeRepository : recipe.baseIngredientIds
 ```
 
 ```mermaid
 flowchart LR
     Vocab[VOCAB] -->|cuisines, dishTypes| TOS[TasteOptionsService]
-    Repo[FdcFoodRepository] -->|FoodOption list| TOS
+    Repo[TasteIngredientRepository] -->|TasteIngredient list| TOS
     TOS -->|TasteOptions| Client[Onboarding/Settings]
     Client -->|foodPrefs facet/value| Prefs[user_food_prefs]
     Match[FoodMatcher] -->|fdcId| Ing[ingredients.fdc_id]
-    Ing -->|foodIds| Aff[AffinityScorer]
+    Ing -->|rolled up via base_ingredient_id| Aff[AffinityScorer]
     Prefs -->|ingredient prefs| Aff
 ```
 
-`RankableRecipe` (`server/src/ranking/types.ts:4`) gains `foodIds: number[]`, batched into
-`assembleRankable()` alongside categories/diets/equipment
+`RankableRecipe` (`server/src/ranking/types.ts:4`) gains `baseIngredientIds: string[]`, populated in
+`assembleRankable()` by joining each recipe's `ingredients.fdc_id` to `fdc_foods.base_ingredient_id`,
+batched alongside categories/diets/equipment
 (`server/src/repositories/recipe-repository.ts:461`) — no N+1.
 
 ---
@@ -333,15 +338,27 @@ against FoodOn / Open Food Facts / LanguaL (their terminology, unit, and granula
 non-trivial to reconcile for little payoff) and **rejected** Foundation Foods as the source (too
 sparse, ~73 foods) — but we borrow its labels where they match.
 
+**The script.** This pipeline ships as `server/scripts/curate-taste-ingredients.ts`, wired as an npm
+script `seed:taste` (parity with `seed:reference`). It reads `fdc_foods`
+(`food_code`/`wweia_category_code`) plus a checked-in `taste-overrides.json` (the merge/split rules,
+exclusions, and section remap from steps 1/4/6), and in **one transaction** wipes and repopulates
+`taste_ingredients` and re-stamps every `fdc_foods.base_ingredient_id`. It then runs the step-7 QA
+asserts (cluster count ~200–500, 100% of non-excluded foods mapped, no orphan `base_ingredient_id`).
+**Generate and regenerate are the same idempotent command** — to recalibrate, edit
+`taste-overrides.json` and re-run `npm run seed:taste`.
+
 ---
 
 # APIs
 
 ## Taste Options `GET /v1/taste-options`
 
-Returns the full taste-picker catalog: cuisines, dish types, and the curated ingredient foods.
-Served once, cached client-side. Authenticated (same `guard` as siblings,
-`server/src/index.ts:156`).
+Returns the full taste-picker catalog spanning **three facets** — ingredients (from
+`taste_ingredients`), dish types, and cuisines (both from `VOCAB`). Dishes ("Tacos", "Bowls") and
+cuisines reuse the **existing** facets already classified on `recipe_categories`; only the
+**ingredient** facet is new machinery. The endpoint merges the `taste_ingredients` rows with the
+`VOCAB` cuisine + dish_type lists. Served once, cached client-side. Authenticated (same `guard` as
+siblings, `server/src/index.ts:156`).
 
 ### Request
 
@@ -357,12 +374,13 @@ Served once, cached client-side. Authenticated (same `guard` as siblings,
     - cache-control: `private, max-age=86400`
 - Body
     - taste_options: object
-        - cuisines: array of `{ value: string, label: string }`
-        - dish_types: array of `{ value: string, label: string }`
-        - foods: array of `{ value: string (fdc_id), label: string, group: string }`
+        - cuisines: array of `{ value: string, label: string }` (from `VOCAB`)
+        - dish_types: array of `{ value: string, label: string }` (from `VOCAB`)
+        - ingredients: array of `{ value: string (base_ingredient_id uuid), label: string, section: string }` (from `taste_ingredients`)
 
 `value` is the exact string a pick stores in `user_food_prefs.value`; the client no longer invents
-labels. `group` is the food's `category`, so the picker can section the list.
+labels. For an ingredient, `value` is the `base_ingredient_id` uuid and `section` is the
+`taste_ingredients.section`, so the picker can section the list.
 
 ### Not Modified Response `304`
 
@@ -373,17 +391,18 @@ labels. `group` is the food's `category`, so the picker can section the list.
 ## Preferences `PUT /v1/preferences` — extended
 
 Unchanged shape (`server/src/index.ts:186`); `foodPrefs` now accepts `facet: "ingredient"` with a
-`value` that is an `fdc_id` string. The body validator adds `ingredient` to the allowed facet enum.
+`value` that is a `base_ingredient_id` (uuid) which must exist in `taste_ingredients`. The body
+validator adds `ingredient` to the allowed facet enum.
 
 ### Ingredient Facet Rejected Response `422`
 
 - Body
     - error: object
         - code: int
-        - message: string ("food value must be a known fdc_id")
+        - message: string ("food value must be a known base_ingredient_id")
 
-Returned when an `ingredient` pref's `value` is not a real `fdc_id` — a trust-boundary check, since
-the value indexes ranking.
+Returned when an `ingredient` pref's `value` is not a known `base_ingredient_id` — a trust-boundary
+check, since the value indexes ranking.
 
 ---
 
@@ -403,21 +422,22 @@ the value indexes ranking.
 
 ### Unit Tests
 
-- **`AffinityScorer.ingredientSentiment`** — a recipe with `foodIds` `[168409]` and a `dislike`
-  pref `{facet: "ingredient", value: "168409"}` scores -1 on that facet; a `like` scores +1; no
-  overlap scores 0. Assert the four-facet mean centers on 0.5. Real scorer, hand-built
-  `RankableRecipe` and `UserPreferences`.
+- **`AffinityScorer.ingredientSentiment`** — a recipe carrying `baseIngredientIds`
+  `["<okra-uuid>"]` and a `dislike` pref `{facet: "ingredient", value: "<okra-uuid>"}` scores -1 on
+  that facet; a `like` scores +1; no overlap scores 0. Assert the four-facet mean centers on 0.5. Real
+  scorer, hand-built `RankableRecipe` and `UserPreferences`.
 - **`constrain()` / `valid()`** — an expanded `VOCAB.cuisine` (e.g. `tex_mex`) survives; a bogus
   value is dropped. Guards the exact chokepoint that silently swallowed richer picks today.
-- **`FdcFoodRepository.tasteFoods`** — returns the curated subset with stable `value`/`label`/`group`,
-  against the local `file:` fixture db (tests already pass one,
+- **`TasteIngredientRepository.ingredients`** — returns the `taste_ingredients` rows with stable
+  `value`/`label`/`section`, against the local `file:` fixture db (tests already pass one,
   `server/src/nutrition/fdc-food-repository.ts:46`). Never hits the network.
 
 ### Integration Tests
 
 - **`GET /v1/taste-options`** — Hono app over the migrated local Postgres
-  (`server/tests/helpers/global-setup.ts`); assert the three sections and that every `foods[].value`
-  is a real `fdc_id`. Assert `304` on a matching `if-none-match`.
+  (`server/tests/helpers/global-setup.ts`); assert the three facets (cuisines, dish_types,
+  ingredients) and that every `ingredients[].value` is a real `taste_ingredients.id`. Assert `304` on
+  a matching `if-none-match`.
 - **Classify → persist → affinity, end to end offline** — import a fixture recipe with an okra
   ingredient, assert `ingredients.fdc_id` is written, set an okra `dislike`, rank, assert the recipe's
   affinity breakdown is penalized. The `StubRecipeAnalyzer` runs when no key is set
@@ -431,8 +451,9 @@ is stubbed offline per `server/CLAUDE.md` ("tests never hit the network").
 
 ## Test Infrastructure
 
-The fixture FDC db needs a curated-taste-food row set and an okra food so the affinity join has a
-target. Extend the existing WI-1 nutrition fixture rather than adding a new one.
+The fixture FDC db needs a `taste_ingredients` row set and an okra food (with its
+`base_ingredient_id` stamped) so the affinity join has a target. Extend the existing WI-1 nutrition
+fixture rather than adding a new one.
 
 ---
 
@@ -444,29 +465,38 @@ target. Extend the existing WI-1 nutrition fixture rather than adding a new one.
 |---|---|---|---|
 | 1 | schema | `ingredients.fdc_id`, `ingredients.match_quality`, `ingredients_fdc_idx`; `fdc_foods.{food_code, wweia_category_code, base_ingredient_id}`; `taste_ingredients` table (adds only) | yes |
 | 2 | code | Expand `VOCAB.cuisine`; add `ingredient` to `AFFINITY_FACETS` | yes |
-| 3 | data | Re-seed recipes + foods (reproducible seed): re-classify against expanded vocab, capture `food_code`/`wweia_category_code`, run curation to fill `base_ingredient_id` + `taste_ingredients`, and backfill `ingredients.fdc_id` | n/a (rebuild) |
+| 3 | data | Re-seed: `seed:reference` re-classifies recipes against the expanded vocab, captures `food_code`/`wweia_category_code`, and backfills `ingredients.fdc_id`; then `seed:taste` runs curation to fill `taste_ingredients` + `fdc_foods.base_ingredient_id` | n/a (rebuild) |
 
 Migration 1 adds only — never a drop-plus-add on one table — so `drizzle-kit generate` stays
 non-interactive (`docs/harvest-principles.md`, "stage destructive-plus-additive schema changes").
 Old code ignores the new nullable columns; the new column is null until backfilled, and
-`AffinityScorer` treats an empty `foodIds` facet as "no signal" (returns null, contributes nothing),
+`AffinityScorer` treats an empty `baseIngredientIds` facet as "no signal" (returns null, contributes nothing),
 so the feature is dark until data lands.
 
 ## Data migration — re-seed, not a backfill LLM pass
 
 The recipe seed is **reproducible** (per memory: "the recipe seed is reproducible"). Re-running it
 re-classifies every recipe against the expanded `VOCAB` and populates `ingredients.fdc_id` from the
-same match the nutrition step runs — no separate, costly LLM backfill over the live corpus. The
-re-seed also captures `food_code` + `wweia_category_code` on each `fdc_food` and runs the curation
-pass (see *Ingredient Curation*) to populate `base_ingredient_id` and insert `taste_ingredients`. See
-the Decisions section.
+same match the nutrition step runs — no separate, costly LLM backfill over the live corpus.
+
+Curation is a separate idempotent seed, `npm run seed:taste`
+(`server/scripts/curate-taste-ingredients.ts`), run **after** `seed:reference` — which now captures
+`food_code` + `wweia_category_code` on each `fdc_food`. `seed:taste` reads those codes plus
+`taste-overrides.json` and, in one transaction, wipes + repopulates `taste_ingredients` and re-stamps
+`fdc_foods.base_ingredient_id` (see *Ingredient Curation*). Deploy order:
+`seed:reference` → `seed:taste`.
+
+Because `taste_ingredients` is in-DB, regeneration is safe with **no slug**: the FK and the re-stamp
+clean up the old cluster ids on every run, and a stale user-pref uuid simply matches no row — it
+**fails safe** (contributes nothing) rather than mis-pointing at a re-used slug. See the Decisions
+section.
 
 ## Deploy Sequence
 
 1. Schema migration 1 (nullable adds) — deployable ahead of code.
 2. Code (expanded vocab + ingredient facet + endpoint) — old rows still rank; new facet stays null.
-3. Re-seed off-hours; the deck refreshes on next fetch (client cache invalidates on the
-   preferences/recipes keys per `docs/client-caching.md`).
+3. Re-seed off-hours — `seed:reference` then `seed:taste`; the deck refreshes on next fetch (client
+   cache invalidates on the preferences/recipes keys per `docs/client-caching.md`).
 
 ## Rollback Plan
 
@@ -525,6 +555,24 @@ already done, (3) no new LLM cost, (4) small diff.
 - **Curated sub-vocab:** doesn't meet the all-foods goal; adds curation debt.
 - **New recipe_foods join table:** redundant — the match is per-ingredient and `ingredients` already
   is that grain; a join table would denormalize what one nullable column expresses.
+
+## `taste_ingredients` is a DB table with the `uuidPk()` convention, not a slug file
+
+**Framework:** Direct criterion — regeneration must be safe, and the app already has a PK convention.
+
+The base-ingredient catalog is regenerated whenever `taste-overrides.json` changes. An in-DB table
+with `uuidPk()` ids makes that safe: `seed:taste` re-stamps `fdc_foods.base_ingredient_id` and the FK
+cleans up the old cluster ids in the same transaction, and a user pref pointing at a cluster that no
+longer exists **fails safe** — its uuid matches no row, so it contributes nothing rather than
+silently mis-pointing at a re-used slug. A slug (or an out-of-DB file) offers neither the FK cleanup
+nor the fail-safe: a re-run that reshapes clusters could re-issue a slug and quietly re-target a stale
+pref. Keying on `uuidPk()` also matches every other id in the app, so nothing bespoke.
+
+### Alternatives Considered
+- **Slug PK (e.g. `chicken`):** human-readable, but a reshaped cluster can re-use a slug and mis-point
+  a stored pref; no FK cleanup guarantee.
+- **Out-of-DB JSON catalog:** no FK, no transactional re-stamp; the affinity join would need a
+  separate lookup and could drift from `fdc_foods`.
 
 ## Two-level cuisine hierarchy with parent fallback, re-seed to re-classify
 
@@ -624,6 +672,7 @@ TanStack Query + AsyncStorage model (`docs/client-caching.md`), keyed and revali
 |---|---|---|
 | 2026-08-20 | Feature Lead (design agent) | Initial draft |
 | (this revision) | Feature Lead (design agent) | Fold in research: resolve Q-01/Q-02/Q-03. Add the *Ingredient Curation* algorithm (fdc_foods → few-hundred base ingredients via the FNDDS food code), `taste_ingredients` table, and `fdc_foods` code columns. Author the two-level cuisine hierarchy (~40–70 entries). Add Q-06 (empirical per-cuisine density) and Appendix B (research + sources). |
+| (this revision) | Feature Lead (design agent) | Consistency pass to the settled model: `taste_ingredients.id` is `uuidPk()` (not a slug); ingredient affinity keys on `base_ingredient_id` (uuid FK) everywhere — `RankableRecipe.baseIngredientIds`, `ingredientSentiment`, the 422 message, tests, and diagrams. `GET /v1/taste-options` serves three facets (only ingredient is new). Curation ships as `seed:taste` (`curate-taste-ingredients.ts`) + `taste-overrides.json`, run after `seed:reference`; added the DB-table-vs-slug Decision. |
 
 ---
 
