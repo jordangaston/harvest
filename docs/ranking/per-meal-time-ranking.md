@@ -13,7 +13,7 @@ onboarding PR collapses those three values into one scalar
 This document designs the real per-meal system: the `TimeScorer` scores a recipe
 against the budget for **its** meal type instead of one global budget.
 
-The whole change is small. The scorer already computes `(2·T − minutes)/T`
+The whole change is small. The scorer already computes `(2*T - minutes)/T`
 (`server/src/ranking/scorers.ts:76`); all that changes is *which* `T`. The work is:
 carry the recipe's `meal_type` into the ranker (it is dropped today), store three
 budgets instead of one, and pick the right budget per recipe.
@@ -42,7 +42,7 @@ The ranker scores a flat list of `RankableRecipe`. Today it has no per-recipe
 meal-type context. The change adds `mealTypes` to `RankableRecipe` and has the
 `TimeScorer` pick the budget for the recipe's meal type.
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     participant Svc as RecipeService.deck/ranked
     participant Repo as RecipeRepository
@@ -56,17 +56,17 @@ sequenceDiagram
     loop each recipe
         Eng->>TS: score(recipe, prefs)
         note over TS: budget = pickBudget(recipe.mealTypes, prefs.timeByMeal)<br/>most-generous applicable; global fallback
-        TS-->>Eng: clamp01((2·budget − totalMinutes)/budget)
+        TS-->>Eng: clamp01((2*budget - totalMinutes)/budget)
     end
     Eng-->>Svc: RankedRecipe[]
-~~~
+```
 
 ## Save Per-Meal Time Budgets — Implements O-PREFS-WRITE (revised)
 
 Settings/onboarding sends three time values. The preferences repo persists them as a
 JSON column and parses them back through the domain model.
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     participant UI as SettingsScreen / OnboardingFlow
     participant Map as preferences-map.ts
@@ -80,7 +80,7 @@ sequenceDiagram
     Repo->>DB: upsert time_by_meal (JSON)
     note over Repo: getPreferences parses time_by_meal<br/>through TimeByMealSchema
     Repo-->>API: UserPreferences
-~~~
+```
 
 ---
 
@@ -90,11 +90,11 @@ The domain gains one value object on `UserPreferences`: a per-meal time budget m
 shaped like the existing `WeeklyMeals`. `RankableRecipe` gains its meal-type set,
 which today it discards.
 
-~~~mermaid
+```mermaid
 classDiagram
     class UserPreferences {
         +TimeByMeal timeByMeal
-        +int timeBudgetMinutes  (retained, derived = max)
+        +int timeBudgetMinutes
         +WeeklyMeals weeklyMeals
         +Weights weights
     }
@@ -109,7 +109,7 @@ classDiagram
         +string[] mealTypes
     }
     UserPreferences "1" --> "1" TimeByMeal : timeByMeal
-~~~
+```
 
 `TimeByMeal` holds only breakfast/lunch/dinner (the three sliders). Snack and kids
 get no budget — see Decisions ("Snack and kids get no time budget").
@@ -141,11 +141,11 @@ time.
 The touched modules: the domain model, the preferences repo (read/write), the recipe
 repo (populate `mealTypes`), and the `TimeScorer`.
 
-~~~mermaid
+```mermaid
 classDiagram
     class TimeScorer {
-        +score(RankableRecipe, UserPreferences) number|null
-        -pickBudget(string[] mealTypes, TimeByMeal, int fallback) int|null
+        +score(RankableRecipe, UserPreferences) number
+        -pickBudget(mealTypes, TimeByMeal, fallback) int
     }
     class PreferenceRepository {
         +getPreferences(userId) UserPreferences
@@ -153,7 +153,7 @@ classDiagram
     }
     class RecipeRepository {
         +assembleRankable(rows) RankableRecipe[]
-        -mealTypesByRecipe(ids) Map~string,string[]~
+        -mealTypesByRecipe(ids) Map
     }
     class UserPreferencesSchema {
         +timeByMeal TimeByMeal
@@ -161,16 +161,16 @@ classDiagram
     TimeScorer --> UserPreferencesSchema : reads timeByMeal
     PreferenceRepository --> UserPreferencesSchema : parses
     RecipeRepository --> TimeScorer : provides mealTypes
-~~~
+```
 
-~~~mermaid
+```mermaid
 flowchart LR
     DB[(user_preferences.time_by_meal)] -->|TimeByMeal| Pref[PreferenceRepository]
     Pref -->|UserPreferences| Eng[RankingEngine]
-    RC[(recipe_categories meal_type)] -->|string[] mealTypes| RepoR[RecipeRepository]
+    RC[(recipe_categories meal_type)] -->|mealTypes| RepoR[RecipeRepository]
     RepoR -->|RankableRecipe| Eng
     Eng -->|recipe + prefs| TS[TimeScorer]
-~~~
+```
 
 ### `pickBudget` — the one piece of new logic
 
