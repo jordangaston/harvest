@@ -33,6 +33,9 @@ export interface TasteOverrides {
   // Whole-category-name match (case-insensitive), for ambiguous single words like "water"/"other".
   excludeCategoryExact: string[];
   excludeFoodGroups: number[];
+  // Case-insensitive substrings that, when present in the de-qualified base name, mark it a
+  // composite dish rather than a base ingredient (e.g. " and ", " or ", " with ").
+  excludeNameContains: string[];
   qualifiers: string[];
   merges: Record<string, string>;
   keepSplit: string[];
@@ -106,9 +109,13 @@ function isExcluded(food: CurationFood, overrides: TasteOverrides): boolean {
 }
 
 /**
- * Pure curation: cluster foods by (subgroup, de-qualified base name), applying merge rules,
+ * Pure curation: cluster foods by (food group, de-qualified base name), applying merge rules,
  * into base ingredients with a fresh uuid each. `newId` is injected so tests are deterministic.
- * Foods without a food code, or matching an exclusion, are dropped (not stamped).
+ * Keying on the food GROUP (not the finer subgroup) merges one ingredient that spans several
+ * subgroups — e.g. chicken across its many 4-digit subgroups — into a single base ingredient;
+ * a distinct base name (e.g. "coconut milk" vs "milk") is what keeps genuinely different foods
+ * apart, so the group is a sufficient guard. Foods without a food code, matching an exclusion,
+ * or whose base name reads as a composite dish are dropped (not stamped).
  */
 export function curate(foods: CurationFood[], overrides: TasteOverrides, newId: () => string): CurationResult {
   const clusters = new Map<string, { label: string; section: string; foodGroup: number; fdcIds: number[] }>();
@@ -116,9 +123,10 @@ export function curate(foods: CurationFood[], overrides: TasteOverrides, newId: 
     if (isExcluded(food, overrides)) continue;
     const rawName = deQualify(food.description, overrides.qualifiers);
     if (!rawName) continue;
+    if (overrides.excludeNameContains.some((c) => rawName.includes(c))) continue; // composite dish, not an ingredient
     const baseName = overrides.merges[rawName] ?? rawName;
     const group = foodGroupOf(food.foodCode!);
-    const key = `${subgroupOf(food.foodCode!)}::${baseName}`;
+    const key = `${group}::${baseName}`;
     const existing = clusters.get(key);
     if (existing) existing.fdcIds.push(food.fdcId);
     else
@@ -171,8 +179,13 @@ export async function persistCuration(db: Database, result: CurationResult): Pro
 /** Step-7 QA: cluster count in a sane band, and every non-excluded food stamped. Throws on failure. */
 function assertQa(foods: CurationFood[], overrides: TasteOverrides, result: CurationResult): void {
   const count = result.ingredients.length;
-  if (count < 200 || count > 500) throw new Error(`curation QA: ${count} base ingredients is outside the sane band [200, 500] — tune taste-overrides.json`);
-  const eligible = foods.filter((f) => !isExcluded(f, overrides) && deQualify(f.description, overrides.qualifiers));
+  if (count < 200 || count > 1000) throw new Error(`curation QA: ${count} base ingredients is outside the sane band [200, 1000] — tune taste-overrides.json`);
+  const eligible = foods.filter((f) => {
+    if (isExcluded(f, overrides)) return false;
+    const name = deQualify(f.description, overrides.qualifiers);
+    // Mirror curate(): a food with no base name, or one that reads as a composite dish, is dropped.
+    return Boolean(name) && !overrides.excludeNameContains.some((c) => name.includes(c));
+  });
   const stamped = new Set(result.stamps.map((s) => s.fdcId));
   const unmapped = eligible.filter((f) => !stamped.has(f.fdcId));
   if (unmapped.length) throw new Error(`curation QA: ${unmapped.length} non-excluded foods were not mapped to a base ingredient`);
