@@ -81,7 +81,15 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
                 </Card>
                 <Card>
                   <Text className="text-sm font-bold text-ink">Time per meal</Text>
-                  <Slider value={p.timeBudgetMin} min={10} max={120} step={5} format={(m) => formatTime(m)} onChange={(v) => setP((s) => ({ ...s, timeBudgetMin: v }))} />
+                  {([["breakfast", "Breakfast"], ["lunch", "Lunch"], ["dinner", "Dinner"]] as const).map(([key, label]) => (
+                    <VStack key={key} space={4}>
+                      <HStack className="items-center justify-between">
+                        <Text className="text-base text-ink">{label}</Text>
+                        <Text className="text-base font-bold text-brand">{formatTime(p.timeByMeal[key])}</Text>
+                      </HStack>
+                      <Slider value={p.timeByMeal[key]} min={10} max={120} step={5} hideValue format={(m) => formatTime(m)} onChange={(v) => setP((s) => ({ ...s, timeByMeal: { ...s.timeByMeal, [key]: v } }))} />
+                    </VStack>
+                  ))}
                 </Card>
                 <Card>
                   <Text className="text-sm font-bold text-ink">Your skill level</Text>
