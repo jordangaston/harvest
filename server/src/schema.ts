@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 /**
  * The Harvest schema, ported from Postgres (`drizzle-orm/pg-core`) to the SQLite
@@ -57,8 +57,12 @@ export const MEAL_PREP_FITS = ['unsuitable', 'suitable', 'designed'] as const;
 // that user food prefs mirror; sentiment is the like/dislike direction.
 export const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+// `ingredient` (added for the taste overhaul) is a base-ingredient food pref whose
+// value is a `taste_ingredients.id` (uuid) — finer than `primary_ingredient`.
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient'] as const;
 export const SENTIMENTS = ['like', 'dislike'] as const;
+// The FoodMatch confidence tier persisted on a matched ingredient (`FoodMatch.quality`).
+export const MATCH_QUALITIES = ['high', 'medium', 'low'] as const;
 // Equipment signal (#9, WI-EQ-1): the controlled vocab of notable appliances (baseline
 // gear — oven, stovetop, pots, knives — is deliberately absent, never filtered), and the
 // per-recipe essentiality the LLM judges (required = non-substitutable, recommended =
@@ -201,18 +205,28 @@ export const recipes = sqliteTable(
   ],
 );
 
-export const ingredients = sqliteTable('ingredients', {
-  id: uuidPk(),
-  recipeId: text('recipe_id')
-    .notNull()
-    .references(() => recipes.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull(),
-  name: text('name').notNull(),
-  quantityText: text('quantity_text'),
-  amount: text('amount'), // pg numeric → text
-  unit: text('unit'),
-  icon: text('icon'),
-});
+export const ingredients = sqliteTable(
+  'ingredients',
+  {
+    id: uuidPk(),
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    name: text('name').notNull(),
+    quantityText: text('quantity_text'),
+    amount: text('amount'), // pg numeric → text
+    unit: text('unit'),
+    icon: text('icon'),
+    // Taste overhaul: the persisted ingredient→FDC food match (already computed by the
+    // nutrition step, previously discarded). `fdc_id` null when no match cleared the reject
+    // floor; `match_quality` is the `FoodMatch.quality` tier. Feeds ingredient-level affinity
+    // (rolled up to `fdc_foods.base_ingredient_id`).
+    fdcId: integer('fdc_id').references(() => fdcFoods.fdcId),
+    matchQuality: text('match_quality', { enum: MATCH_QUALITIES }),
+  },
+  (t) => [index('ingredients_fdc_idx').on(t.fdcId)],
+);
 
 export const recipeSteps = sqliteTable('recipe_steps', {
   id: uuidPk(),
@@ -411,9 +425,33 @@ export const fdcFoods = sqliteTable(
     descriptionNormalized: text('description_normalized').notNull(),
     category: text('category'),
     portions: text('portions', { mode: 'json' }).$type<FdcPortion[]>(),
+    // Taste overhaul: the FNDDS hierarchical keys (captured on re-seed) that drive
+    // base-ingredient clustering, and the curated cluster this food rolls up to.
+    foodCode: integer('food_code'), // 8-digit FNDDS foodCode; food_code[0] = major group
+    wweiaCategoryCode: integer('wweia_category_code'), // 4-digit WWEIA category code
+    baseIngredientId: text('base_ingredient_id').references(() => tasteIngredients.id),
   },
   (t) => [index('fdc_foods_norm_idx').on(t.descriptionNormalized)],
 );
+
+// Taste overhaul: the curated base-ingredient picker options — the few-hundred clusters
+// the ~5.4k FNDDS foods collapse into (see scripts/curate-taste-ingredients.ts). `id` is
+// the uuid a food's `base_ingredient_id` and a user's `ingredient` food-pref both point at.
+export const tasteIngredients = sqliteTable('taste_ingredients', {
+  id: uuidPk(),
+  label: text('label').notNull(),
+  section: text('section').notNull(),
+  foodGroup: integer('food_group').notNull(),
+});
+
+// Taste overhaul: the authored cuisine hierarchy (seed/cuisines.json → seed:cuisines).
+// `slug` is a natural key (stored directly on recipe_categories.value); `parent_slug`
+// self-references for parent-fallback ranking of sparse leaves.
+export const cuisines = sqliteTable('cuisines', {
+  slug: text('slug').primaryKey(),
+  label: text('label').notNull(),
+  parentSlug: text('parent_slug').references((): AnySQLiteColumn => cuisines.slug),
+});
 
 export const fdcFoodNutrient = sqliteTable(
   'fdc_food_nutrient',
@@ -606,6 +644,8 @@ export const schema = {
   fdcFoodNutrient,
   fdcFoodAllergen,
   fdcFoodPrice,
+  tasteIngredients,
+  cuisines,
   userPreferences,
   userAllergens,
   userDiets,
@@ -633,6 +673,8 @@ export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
 export type MealPrepFit = (typeof MEAL_PREP_FITS)[number];
 /** Affinity facet union (WI-RANK-1), the food-pref facets. */
 export type AffinityFacet = (typeof AFFINITY_FACETS)[number];
+/** FoodMatch confidence tier union (taste overhaul), shared with the domain models. */
+export type MatchQuality = (typeof MATCH_QUALITIES)[number];
 /** Equipment vocab + essentiality unions (WI-EQ-1), shared with the domain models. */
 export type Equipment = (typeof EQUIPMENT_TYPES)[number];
 export type Essentiality = (typeof ESSENTIALITY)[number];

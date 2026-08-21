@@ -134,6 +134,13 @@
       "when": 1787250221166,
       "tag": "0018_anon_users",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1787286703484,
+      "tag": "0019_hard_boom_boom",
+      "breakpoints": true
     }
   ]
 }
