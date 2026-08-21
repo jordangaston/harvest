@@ -62,7 +62,7 @@ The picker fetches the full option catalog **once** at app start and caches it. 
 per-keystroke search: latency and offline use rule that out, and every option must map to a ranking
 value, so free text is not selectable.
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     participant App as Onboarding/Settings (client)
     participant Q as TanStack Query + AsyncStorage
@@ -82,7 +82,7 @@ sequenceDiagram
         Q-->>App: TasteOptions (persisted)
     end
     note over App: Picks reference option ids that map 1:1 to<br/>ranking values — no free text
-~~~
+```
 
 ## Classify Recipe — Implements F-CL-1: Tag a recipe's taste at import
 
@@ -90,7 +90,7 @@ One LLM call tags cuisine / meal_type / dish_type against the **expanded** cuisi
 primary_ingredient stays FDC-grounded; and — new here — the ingredient→food match the nutrition
 pipeline already computes is **persisted** so ingredient-level affinity has something to match.
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     participant Pipe as Import pipeline
     participant Cat as RecipeCategorizer
@@ -101,7 +101,7 @@ sequenceDiagram
     rect rgb(240, 248, 255)
     note over Pipe,Luna: Taste facets (expanded cuisine vocab)
     Pipe->>Cat: analyze(title, ingredients, steps)
-    Cat->>Luna: classify (cuisine ∈ expanded VOCAB.cuisine)
+    Cat->>Luna: classify (cuisine in expanded VOCAB.cuisine)
     Luna-->>Cat: { cuisine, mealType, dishType, ... }
     note over Cat: constrain() keeps only VOCAB members<br/>(now includes tex_mex, cajun, …)
     end
@@ -114,14 +114,14 @@ sequenceDiagram
     end
 
     Pipe->>Repo: persist recipe (categories + ingredient fdc_ids)
-~~~
+```
 
 ## Score Affinity — Implements F-AF-1: Rank a recipe against food likes/dislikes
 
 `AffinityScorer` gains a fourth facet, `ingredient`, matched against the recipe's persisted food
 ids. An "okra" dislike now penalizes any recipe whose ingredients matched the okra food.
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     participant Eng as RankingEngine
     participant Repo as RecipeRepository
@@ -132,14 +132,14 @@ sequenceDiagram
     Eng->>Aff: score(recipe, prefs)
     note over Aff: facets = cuisine, dish_type,<br/>primary_ingredient, ingredient
     note over Aff: ingredient sentiment = intersect<br/>prefs.foodPrefs(ingredient) with recipe.foodIds
-    Aff-->>Eng: 0.5 + 0.5·mean(sentiments)
-~~~
+    Aff-->>Eng: 0.5 + 0.5*mean(sentiments)
+```
 
 ---
 
 # Entities
 
-~~~mermaid
+```mermaid
 classDiagram
     class Recipe {
         +string id
@@ -176,7 +176,7 @@ classDiagram
     UserFoodPref "*" ..> "1" TasteOption : selected from
     RecipeCategory "*" ..> "1" TasteOption : matchable value
     FdcFood "*" ..> "1" TasteOption : ingredient option
-~~~
+```
 
 `TasteOption` is a **view** over VOCAB (cuisines, dish types) and the curated `FdcFood` subset, not a
 stored table — it is assembled by the endpoint. `UserFoodPref.facet` now admits `ingredient`, whose
@@ -222,7 +222,7 @@ taste-options endpoint reads a curated subset; the affinity join reads `ingredie
 
 # Modules
 
-~~~mermaid
+```mermaid
 classDiagram
     class RecipeCategorizer {
         +analyze(title, ingredients, steps, servings) RecipeAnalysisResult
@@ -244,24 +244,24 @@ classDiagram
     }
     class RecipeRepository {
         +persistIngredientMatches(tx, recipeId, matches)
-        -foodIdsByRecipe(recipeIds) Map~string, int[]~
+        -foodIdsByRecipe(recipeIds) Map
     }
 
     TasteOptionsService --> FdcFoodRepository : tasteFoods()
     RecipeCategorizer --> FoodMatcher : primary-ingredient + persisted match
     AffinityScorer --> RecipeRepository : recipe.foodIds
-~~~
+```
 
-~~~mermaid
+```mermaid
 flowchart LR
     Vocab[VOCAB] -->|cuisines, dishTypes| TOS[TasteOptionsService]
-    Repo[FdcFoodRepository] -->|FoodOption[]| TOS
+    Repo[FdcFoodRepository] -->|FoodOption list| TOS
     TOS -->|TasteOptions| Client[Onboarding/Settings]
     Client -->|foodPrefs facet/value| Prefs[user_food_prefs]
     Match[FoodMatcher] -->|fdcId| Ing[ingredients.fdc_id]
     Ing -->|foodIds| Aff[AffinityScorer]
     Prefs -->|ingredient prefs| Aff
-~~~
+```
 
 `RankableRecipe` (`server/src/ranking/types.ts:4`) gains `foodIds: number[]`, batched into
 `assembleRankable()` alongside categories/diets/equipment
@@ -338,7 +338,7 @@ the value indexes ranking.
 ### Unit Tests
 
 - **`AffinityScorer.ingredientSentiment`** — a recipe with `foodIds` `[168409]` and a `dislike`
-  pref `{facet: "ingredient", value: "168409"}` scores −1 on that facet; a `like` scores +1; no
+  pref `{facet: "ingredient", value: "168409"}` scores -1 on that facet; a `like` scores +1; no
   overlap scores 0. Assert the four-facet mean centers on 0.5. Real scorer, hand-built
   `RankableRecipe` and `UserPreferences`.
 - **`constrain()` / `valid()`** — an expanded `VOCAB.cuisine` (e.g. `tex_mex`) survives; a bogus
