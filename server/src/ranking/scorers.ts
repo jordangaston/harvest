@@ -1,4 +1,4 @@
-import type { UserPreferences } from '../models/user-preferences.js';
+import type { TimeByMeal, UserPreferences } from '../models/user-preferences.js';
 import type { RankableRecipe } from './types.js';
 import { NUTRITION_K, BUDGET_SLOPE, DIFFICULTY_BY_DISTANCE, MEAL_PREP_SCORE } from './constants.js';
 
@@ -77,12 +77,36 @@ export class AffinityScorer implements SignalScorer {
   }
 }
 
-/** Mirrors cost: (2·T − minutes)/T. */
+/** meal_type → its time-budget slot; snack maps to nothing (no snack slider). */
+const SLOT_FOR_MEAL_TYPE: Record<string, keyof TimeByMeal | undefined> = {
+  breakfast: 'breakfast',
+  brunch: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+};
+
+/**
+ * The time budget to score a recipe against: the most-generous (max) applicable per-meal budget,
+ * so a recipe valid for several meals isn't penalized by the tightest one (design Q-03). Recipes
+ * with no applicable meal_type still get the most-generous overall budget; a null `timeByMeal`
+ * (un-migrated user) falls back to the scalar.
+ */
+function pickBudget(mealTypes: string[], timeByMeal: TimeByMeal | null, fallback: number | null): number | null {
+  if (timeByMeal === null) return fallback;
+  const applicable = mealTypes
+    .map((mt) => SLOT_FOR_MEAL_TYPE[mt])
+    .filter((slot): slot is keyof TimeByMeal => slot !== undefined)
+    .map((slot) => timeByMeal[slot]);
+  const budgets = applicable.length > 0 ? applicable : Object.values(timeByMeal);
+  return Math.max(...budgets);
+}
+
+/** Mirrors cost: (2·T − minutes)/T, scored against the budget for the recipe's meal type. */
 export class TimeScorer implements SignalScorer {
   key = 'time';
   weight = (p: UserPreferences) => p.weights.time;
   score(recipe: RankableRecipe, prefs: UserPreferences): number | null {
-    const t = prefs.timeBudgetMinutes;
+    const t = pickBudget(recipe.mealTypes, prefs.timeByMeal, prefs.timeBudgetMinutes);
     if (recipe.totalMinutes === null || t === null) return null;
     return clamp01((BUDGET_SLOPE * t - recipe.totalMinutes) / t);
   }

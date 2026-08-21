@@ -125,6 +125,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     skillLevel: "advanced" as const,
     weeklyBudgetCents: 12000,
     timeBudgetMinutes: 45,
+    timeByMeal: null,
     weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
     likes: [],
     dislikes: [],
@@ -168,6 +169,23 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
     // …and a dislike-loop dislike on an untouched value survives.
     expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
+  });
+
+  it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+
+    const saved = await repo.savePreferences(userId, {
+      ...baseSave,
+      timeBudgetMinutes: 999, // ignored: the derived max wins when time_by_meal is present
+      timeByMeal: { breakfast: 15, lunch: 30, dinner: 60 },
+    });
+    expect(saved.timeByMeal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(saved.timeBudgetMinutes).toBe(60);
+
+    const reread = await repo.getPreferences(userId);
+    expect(reread.timeByMeal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(reread.timeBudgetMinutes).toBe(60);
   });
 
   it("persists and round-trips grocery stores, household, and eats-leftovers (Test Case 1)", async () => {

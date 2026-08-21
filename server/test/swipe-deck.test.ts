@@ -312,6 +312,30 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dinner]);
   });
 
+  it("TC12b: per-meal time budget ranks a fast breakfast above an equal-minutes dinner a global budget would tie", async () => {
+    const { token, userId } = await mintUser(); // no goals → all weights 1 (time counts)
+    const bfast = await seedRecipe(userId, { title: "Breakfast", nrfScore: 80 });
+    const dinner = await seedRecipe(userId, { title: "Dinner", nrfScore: 80 });
+    await db.insert(recipeCategories).values([
+      { recipeId: bfast, facet: "meal_type", value: "breakfast" },
+      { recipeId: dinner, facet: "meal_type", value: "dinner" },
+    ]);
+    // Equal totalMinutes (45) → a single global budget scores them identically; the tight dinner
+    // budget (30) penalizes the dinner under per-meal scoring, so breakfast wins.
+    await db.update(recipes).set({ totalMinutes: 45 }).where(and(eq(recipes.userId, userId)));
+    await db
+      .insert(userPreferences)
+      .values({
+        userId,
+        weeklyMeals: { breakfast: 3, lunch: 0, dinner: 3, snack: 0, kids: 0 },
+        timeByMeal: { breakfast: 90, lunch: 90, dinner: 30 },
+        timeBudgetMinutes: 90,
+      });
+
+    const { body } = await getDeck(token);
+    expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([bfast, dinner]);
+  });
+
   it("TC13: the meal-type filter never returns an empty deck — it relaxes to the catalog", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
     const dessert = await seedRecipe(userId, { title: "Dessert", nrfScore: 60 });

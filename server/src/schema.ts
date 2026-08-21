@@ -510,6 +510,9 @@ export const userPreferences = sqliteTable('user_preferences', {
   timeBudgetMinutes: integer('time_budget_minutes'),
   // How many of each meal type to plan per week (meal-count intake). JSON; null → all-zero.
   weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
+  // Per-meal cook-time budget in minutes (three onboarding sliders). JSON; null → fall back to
+  // `timeBudgetMinutes`. `timeBudgetMinutes` is retained as the derived max(...) scalar.
+  timeByMeal: text('time_by_meal', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number }>(),
   weightCost: integer('weight_cost').notNull().default(1),
   weightDifficulty: integer('weight_difficulty').notNull().default(1),
   weightNutrition: integer('weight_nutrition').notNull().default(1),

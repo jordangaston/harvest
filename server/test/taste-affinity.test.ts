@@ -59,6 +59,7 @@ function prefs(foodPrefs: UserPreferences["foodPrefs"]): UserPreferences {
     budgetCentsPerServing: null,
     weeklyBudgetCents: null,
     timeBudgetMinutes: null,
+    timeByMeal: null,
     weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
     weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 0 },
     allergens: [],

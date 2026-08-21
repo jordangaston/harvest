@@ -8,6 +8,7 @@ export interface ApiPreferences {
   skill_level: "beginner" | "intermediate" | "advanced";
   weekly_budget_cents: number | null;
   time_budget_minutes: number | null;
+  time_by_meal: { breakfast: number; lunch: number; dinner: number } | null;
   weekly_meals: { breakfast: number; lunch: number; dinner: number; snack: number; kids: number };
   likes: ApiTastePref[];
   dislikes: ApiTastePref[];
