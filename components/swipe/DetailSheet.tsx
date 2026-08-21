@@ -87,7 +87,7 @@ export function DetailSheet({ card, visible, onClose }: { card: DeckCard | null;
                           <Icon name="nutrition-outline" size={18} color="#A85E2B" />
                         </View>
                         <Text className="flex-1 text-base text-ink">
-                          <Text className="font-bold text-ink">{ing.qty} </Text>{ing.name}
+                          {ing.qty ? <Text className="font-bold text-ink">{ing.qty} </Text> : null}{ing.name}
                         </Text>
                       </HStack>
                     </View>

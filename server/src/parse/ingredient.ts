@@ -9,8 +9,11 @@
  * (`amount`/`unit` null, whole line as `name`) — honest over wrong.
  */
 
-/** One ingredient, measurement separated from the display line. `amount` is a
- * string to match the pg `numeric` convention (like `PublicRecipe.amount`). */
+/** One ingredient, measurement separated from the name. `amount` is a string to match
+ * the pg `numeric` convention (like `PublicRecipe.amount`). `quantityText` is the human
+ * measurement only ("1 1/2 pounds") — the name is stored separately and shown after it,
+ * so a consumer that renders both never repeats the name. Empty when there's no leading
+ * measure (the whole line then lives in `name`). */
 export interface StructuredIngredient {
   name: string;
   amount: string | null;
@@ -126,17 +129,21 @@ function combine(a: { amount: number; unit: string | null }, b: Measure): { amou
 /**
  * Structure one raw ingredient line. Never throws; never drops the line.
  * @param raw - The verbatim ingredient line.
- * @returns The structured ingredient; `quantityText` is always the raw line.
+ * @returns The structured ingredient; `quantityText` is the measurement only (empty when
+ *   unparsed — the whole line then rides in `name`).
  */
 export function parseIngredientLine(raw: string): StructuredIngredient {
-  const quantityText = raw;
   // Collapse a leading numeric range to its lower bound ("2-3 cups" → "2 cups").
   const line = raw.trim().replace(/\s+/g, ' ').replace(LEADING_RANGE, '$1');
-  const unparsed: StructuredIngredient = { name: line, amount: null, unit: null, quantityText };
+  const unparsed: StructuredIngredient = { name: line, amount: null, unit: null, quantityText: "" };
 
   if (AMBIGUOUS.test(line)) return unparsed;
   const lead = takeMeasure(line);
   if (!lead) return unparsed;
+
+  // The measurement is what the parse consumed before the name — sliced from the line so the
+  // original wording is kept ("1 1/2 pounds"), not rebuilt from the decimal amount.
+  const quantityText = line.slice(0, line.length - lead.rest.length).trim();
 
   let amount = lead.amount;
   let unit = lead.unit;
