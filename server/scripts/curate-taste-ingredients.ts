@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createClient } from '@libsql/client';
+import pluralize from 'pluralize';
 import { eq, isNotNull } from 'drizzle-orm';
 import { makeDb, type Database } from '../src/db.js';
 import { fdcFoods, tasteIngredients } from '../src/schema.js';
@@ -70,16 +71,6 @@ export function subgroupOf(foodCode: number): string {
   return digits(foodCode).slice(0, 4);
 }
 
-/** Naive singularization for a base-name token (ties → keep-plural forms untouched). */
-function singularize(word: string): string {
-  if (word.length <= 3) return word;
-  if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
-  if (word.endsWith('ses') || word.endsWith('xes') || word.endsWith('zes') || word.endsWith('ches') || word.endsWith('shes')) return word.slice(0, -2);
-  if (word.endsWith('ss') || word.endsWith('us') || word.endsWith('is')) return word;
-  if (word.endsWith('s')) return word.slice(0, -1);
-  return word;
-}
-
 /**
  * De-qualify one FNDDS description to a base name: drop parentheticals, keep the head
  * (comma-first) segment, strip the qualifier lexicon (multi-word phrases first, then single
@@ -96,7 +87,7 @@ export function deQualify(description: string, qualifiers: string[]): string {
     .replace(/[^a-z\s-]/g, ' ')
     .split(/\s+/)
     .filter((w) => w && !singles.has(w))
-    .map(singularize);
+    .map((w) => pluralize.singular(w));
   return words.join(' ').trim();
 }
 
