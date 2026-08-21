@@ -17,4 +17,5 @@ export const queryKeys = {
   onboardingFlags: ["onboardingFlags"] as const,
   deck: ["deck"] as const,
   preferences: ["preferences"] as const,
+  tasteOptions: ["tasteOptions"] as const,
 };

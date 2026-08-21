@@ -1,0 +1,54 @@
+{
+  "_note": "The calibration surface for base-ingredient curation (curate-taste-ingredients.ts). Edit and re-run `npm run seed:taste` to recalibrate. See docs/ranking/taste-classification-affinity.md § Ingredient Curation.",
+
+  "_excludeNote": "excludeCategoryContains matches as a case-insensitive substring (use multi-word, unambiguous phrases only — a bare 'water' would wrongly catch 'watermelon'); excludeCategoryExact matches the whole category name.",
+  "excludeCategoryContains": [
+    "mixed dish", "baby food", "infant formula", "infant and toddler",
+    "protein and nutritional powders", "formula, ready", "formula, prepared"
+  ],
+  "excludeCategoryExact": ["water", "other", "not included in a food category"],
+
+  "excludeFoodGroups": [],
+
+  "qualifiers": [
+    "grilled", "fried", "deep fried", "pan fried", "stir fried", "baked", "boiled", "raw",
+    "cooked", "steamed", "roasted", "broiled", "braised", "sauteed", "sauteed",
+    "fresh", "frozen", "canned", "dried", "dehydrated", "from concentrate", "concentrate",
+    "reconstituted", "smoked", "cured", "pickled", "toasted", "blanched", "microwaved",
+    "low fat", "nonfat", "fat free", "reduced fat", "full fat", "low sodium", "unsalted",
+    "salted", "sweetened", "unsweetened", "no sugar added", "light", "reduced sodium",
+    "skin not eaten", "skin eaten", "with skin", "without skin", "skinless", "boneless",
+    "with bone", "lean", "extra lean", "regular", "prepared", "ready to eat", "ready to cook",
+    "ns as to", "ns", "nfs", "as to", "as to percent lean", "as to type", "as to form",
+    "as to color", "as to fat", "home recipe", "restaurant", "fast food", "commercial"
+  ],
+
+  "merges": {
+    "chicken breast": "chicken",
+    "chicken thigh": "chicken",
+    "chicken drumstick": "chicken",
+    "chicken wing": "chicken",
+    "chicken leg": "chicken",
+    "ground beef": "beef",
+    "beef steak": "beef",
+    "beef roast": "beef",
+    "pork chop": "pork",
+    "pork loin": "pork"
+  },
+
+  "keepSplit": ["bell pepper", "sweet potato", "green bean"],
+
+  "labels": {},
+
+  "sectionByFoodGroup": {
+    "1": "Dairy",
+    "2": "Meat & Seafood",
+    "3": "Eggs",
+    "4": "Beans, Nuts & Seeds",
+    "5": "Grains",
+    "6": "Fruits",
+    "7": "Vegetables",
+    "8": "Fats & Oils",
+    "9": "Sweets & Beverages"
+  }
+}

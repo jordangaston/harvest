@@ -276,8 +276,10 @@ export function OnboardingSeverityPicker({ title, subtitle, corpus, levels, defa
 
 /* ── 10. Taste menu — chips + search (cuisines / disliked ingredients) ─────────── */
 
-export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTitle, value, onChange }: {
+export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTitle, value, onChange, labelFor = (v) => v }: {
   title: string; subtitle?: string; presets: string[]; corpus: string[]; searchTitle: string; value: string[]; onChange: (v: string[]) => void;
+  // Maps a stored value (slug/uuid) to its display label; identity when values ARE labels.
+  labelFor?: (value: string) => string;
 }) {
   const [search, setSearch] = React.useState(false);
   const toggle = (item: string) => onChange(value.includes(item) ? value.filter((x) => x !== item) : [...value, item]);
@@ -286,10 +288,10 @@ export function OnboardingTasteMenu({ title, subtitle, presets, corpus, searchTi
     <View style={{ paddingTop: 8 }}>
       <StepHeader title={title} subtitle={subtitle} />
       <View className="flex-row flex-wrap justify-center" style={{ gap: 8 }}>
-        {chips.map((c) => <Chip key={c} label={c} active={value.includes(c)} onToggle={() => toggle(c)} />)}
+        {chips.map((c) => <Chip key={c} label={labelFor(c)} active={value.includes(c)} onToggle={() => toggle(c)} />)}
         <MoreChip onPress={() => setSearch(true)} />
       </View>
-      <SearchAddSheet visible={search} title={searchTitle} corpus={corpus} selected={value} onToggle={toggle} onClose={() => setSearch(false)} />
+      <SearchAddSheet visible={search} title={searchTitle} corpus={corpus} selected={value} onToggle={toggle} onClose={() => setSearch(false)} labelFor={labelFor} />
     </View>
   );
 }

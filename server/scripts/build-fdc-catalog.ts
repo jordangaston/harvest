@@ -19,6 +19,10 @@ export interface FdcFoodRow {
   description: string;
   descriptionNormalized: string;
   category: string | null;
+  // FNDDS hierarchical keys (taste overhaul): the 8-digit food code drives base-ingredient
+  // clustering; the WWEIA category code sections it. Null when the source omits them.
+  foodCode: number | null;
+  wweiaCategoryCode: number | null;
   portions: FdcPortion[];
   nutrients: { number: string; amount: number }[];
 }
@@ -27,9 +31,17 @@ export interface FdcFoodRow {
 interface SurveyFood {
   fdcId: number;
   description: string;
-  wweiaFoodCategory?: { wweiaFoodCategoryDescription?: string };
+  foodCode?: number | string;
+  wweiaFoodCategory?: { wweiaFoodCategoryDescription?: string; wweiaFoodCategoryCode?: number };
   foodPortions?: { portionDescription?: string; gramWeight?: number }[];
   foodNutrients?: { amount?: number; nutrient?: { number?: string } }[];
+}
+
+/** Coerces a foodCode (string or number in the source) to an int, or null. */
+function toInt(value: number | string | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 const SOURCE =
@@ -43,6 +55,8 @@ export function toFdcFoodRow(food: SurveyFood): FdcFoodRow {
     description: food.description,
     descriptionNormalized: normalize(food.description).join(' '),
     category: food.wweiaFoodCategory?.wweiaFoodCategoryDescription ?? null,
+    foodCode: toInt(food.foodCode),
+    wweiaCategoryCode: food.wweiaFoodCategory?.wweiaFoodCategoryCode ?? null,
     portions: (food.foodPortions ?? [])
       .filter((p) => p.gramWeight != null)
       .map((p) => ({ description: p.portionDescription ?? '', gramWeight: p.gramWeight! })),
@@ -65,6 +79,8 @@ export async function insertFdcFoods(db: Database, foods: FdcFoodRow[]): Promise
           description: f.description,
           descriptionNormalized: f.descriptionNormalized,
           category: f.category,
+          foodCode: f.foodCode,
+          wweiaCategoryCode: f.wweiaCategoryCode,
           portions: f.portions,
         })),
       )

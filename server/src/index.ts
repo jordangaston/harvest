@@ -12,6 +12,8 @@ import { MealPlanService } from "./services/meal-plan-service.js";
 import { GroceryService } from "./services/grocery-service.js";
 import { toPublicGroceryItem } from "./models/grocery-item.js";
 import { PreferenceRepository } from "./repositories/preference-repository.js";
+import { TasteOptionsService } from "./services/taste-options-service.js";
+import { TasteIngredientRepository } from "./repositories/taste-ingredient-repository.js";
 import { preferencesBodySchema, toPreferencesDTO, fromPreferencesDTO } from "./preferences-dto.js";
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
@@ -60,6 +62,8 @@ export function buildApp(db: Database) {
   const mealPlan = MealPlanService.create(db);
   const groceries = GroceryService.create(db);
   const preferences = PreferenceRepository.create(db);
+  const tasteOptions = TasteOptionsService.create(db);
+  const tasteIngredients = TasteIngredientRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -181,10 +185,25 @@ app.get("/v1/preferences", guard, async (c) => {
   return c.json({ preferences: toPreferencesDTO(await preferences.getPreferences(c.get("authUserId")!)) });
 });
 
+/** GET /v1/taste-options — the taste-picker catalog: cuisines + dish types (from VOCAB) and
+ * base ingredients (from taste_ingredients). Served once and cached client-side; an ETag lets
+ * the client revalidate cheaply (304 when unchanged). Requires bearer token. */
+app.get("/v1/taste-options", guard, async (c) => {
+  const options = await tasteOptions.options();
+  const body = JSON.stringify({ taste_options: options });
+  const etag = `"${weakHash(body)}"`;
+  c.header("etag", etag);
+  c.header("cache-control", "private, max-age=86400");
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.body(body, 200, { "content-type": "application/json" });
+});
+
 /** PUT /v1/preferences — upserts the user-editable subset (weights stay server-owned).
- * Requires bearer token; 400 on an invalid value (ZodError). */
+ * Requires bearer token; 400 on an invalid value (ZodError); 422 when an `ingredient`
+ * pref's value is not a known base_ingredient_id (a trust-boundary check — the value indexes ranking). */
 app.put("/v1/preferences", guard, async (c) => {
   const body = preferencesBodySchema.parse(await c.req.json());
+  await assertKnownIngredients(tasteIngredients, [...body.likes, ...body.dislikes]);
   const saved = await preferences.savePreferences(c.get("authUserId")!, fromPreferencesDTO(body));
   return c.json({ preferences: toPreferencesDTO(saved) });
 });
@@ -352,4 +371,30 @@ function toAppError(error: unknown): AppError {
   if (error instanceof ZodError)
     return new AppError("INVALID_REQUEST", 400, error.issues[0]?.message ?? "invalid request");
   return new AppError("INTERNAL", 500, "internal error");
+}
+
+/**
+ * Rejects a preferences save whose `ingredient` picks reference an unknown base_ingredient_id
+ * (a trust-boundary check — the value indexes ranking). Cuisine/dish_type facets are code-vocab
+ * and validated by the categorizer's `constrain`, so only `ingredient` needs a DB check.
+ */
+async function assertKnownIngredients(
+  repo: TasteIngredientRepository,
+  selections: { facet: string; value: string }[],
+): Promise<void> {
+  const picked = selections.filter((s) => s.facet === "ingredient").map((s) => s.value);
+  if (picked.length === 0) return;
+  const known = new Set((await repo.ingredients()).map((i) => i.value));
+  if (picked.some((v) => !known.has(v)))
+    throw new AppError("UNKNOWN_INGREDIENT", 422, "food value must be a known base_ingredient_id");
+}
+
+/** A cheap, stable FNV-1a hash (hex) of a string — the ETag basis for the served-once catalog. */
+function weakHash(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
 }

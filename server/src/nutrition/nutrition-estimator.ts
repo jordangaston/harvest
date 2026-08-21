@@ -13,10 +13,21 @@ export interface EstimatorIngredient {
   unit: string | null;
 }
 
-/** The estimator's per-recipe result. Empty (`{}`) when withheld — no matches or no basis. */
+/** One persisted ingredient→FDC food match (taste overhaul), keyed by the ingredient
+ * name so the repository can stamp it onto the right ingredient row. */
+export interface IngredientMatch {
+  name: string;
+  fdcId: number;
+  quality: 'high' | 'medium' | 'low';
+}
+
+/** The estimator's per-recipe result. `nutrition`/`nrfScore` are withheld when nothing
+ * matches or there's no basis; `matches` carries every ingredient→food match found (for
+ * ingredient-affinity persistence), independent of whether nutrition was withheld. */
 export interface EstimateResult {
   nutrition?: { values: LabelCoreValues; estimated: boolean };
   nrfScore?: number;
+  matches?: IngredientMatch[];
 }
 
 /**
@@ -52,7 +63,16 @@ export class NutritionEstimator {
     servings: number | null,
     parsed?: LabelCoreText,
   ): Promise<EstimateResult> {
-    const totals = await this.aggregate(ingredients);
+    const { totals, matches } = await this.aggregate(ingredients);
+    const result = this.estimate(totals, servings, parsed);
+    // The match set rides out on every path (even a withheld estimate) — it feeds
+    // ingredient-affinity persistence, not nutrition.
+    if (matches.length) result.matches = matches;
+    return result;
+  }
+
+  /** The nutrition/NRF estimate from the aggregated dish totals (no matching side-effects). */
+  private estimate(totals: Map<string, number>, servings: number | null, parsed?: LabelCoreText): EstimateResult {
     if (totals.size === 0) return {}; // nothing matched — withhold entirely
 
     const calories = totals.get(FDC_NUTRIENT.calories) ?? 0;
@@ -95,12 +115,19 @@ export class NutritionEstimator {
     return { values, filled };
   }
 
-  /** Sums every matched, convertible ingredient's panel into dish totals (per 100 g basis). */
-  private async aggregate(ingredients: EstimatorIngredient[]): Promise<Map<string, number>> {
+  /** Sums every matched, convertible ingredient's panel into dish totals (per 100 g basis),
+   * and captures each ingredient→food match (deduped by name) for affinity persistence. A
+   * match is captured even when its quantity can't be converted to grams (nutrition needs
+   * grams; affinity only needs the matched food). */
+  private async aggregate(
+    ingredients: EstimatorIngredient[],
+  ): Promise<{ totals: Map<string, number>; matches: IngredientMatch[] }> {
     const totals = new Map<string, number>();
+    const matchByName = new Map<string, IngredientMatch>();
     for (const ing of ingredients) {
       const match = await this.matcher.match(ing.name);
       if (!match) continue;
+      if (!matchByName.has(ing.name)) matchByName.set(ing.name, { name: ing.name, fdcId: match.fdcId, quality: match.quality });
       const grams = await this.converter.toGrams(ing.amount, ing.unit, match);
       if (!grams) continue;
       const panel = await this.repo.nutrients(match.fdcId);
@@ -108,7 +135,7 @@ export class NutritionEstimator {
         totals.set(number, (totals.get(number) ?? 0) + (per100g * grams.grams) / 100);
       }
     }
-    return totals;
+    return { totals, matches: [...matchByName.values()] };
   }
 
   /** Dish totals → the eight per-serving macros; a macro with no contribution stays null. */

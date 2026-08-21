@@ -6,12 +6,13 @@ import { analytics } from "../../lib/analytics";
 import { MealCounts } from "../planner/MealPlanIntake";
 import {
   Chip, Segmented, Slider, MoreChip, SearchAddSheet, Card,
-  CUISINES, ALL_CUISINES, ALL_INGREDIENTS, ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT,
-  EQUIP_TYPE_TO_LABEL, EQUIP_LABEL_TO_TYPE, tasteFacet,
+  ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT,
+  EQUIP_TYPE_TO_LABEL, EQUIP_LABEL_TO_TYPE,
 } from "../onboarding/primitives";
 import {
-  Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, money, formatTime, DifficultyBand, MealType,
+  Preferences, DEFAULT_PREFERENCES, money, formatTime, DifficultyBand, MealType, TasteFacet,
 } from "./mock";
+import { useTasteOptions } from "../../lib/api/hooks";
 import { MEAL_FILTERS } from "./mealFilters";
 
 /**
@@ -28,11 +29,24 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
   const [cuisineSearch, setCuisineSearch] = React.useState(false);
   const [ingredientSearch, setIngredientSearch] = React.useState(false);
   const [equipmentSearch, setEquipmentSearch] = React.useState(false);
-  // Preset chips plus anything the user added via search, so added options stay visible.
+  // The taste catalog from the server (no hardcoded corpora); values are slugs/uuids, labels shown.
+  const { data: tasteOptions } = useTasteOptions();
+  const cuisineOptions = tasteOptions?.cuisines ?? [];
+  const ingredientOptions = tasteOptions?.ingredients ?? [];
+  const tasteLabel = React.useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const o of [...cuisineOptions, ...ingredientOptions, ...(tasteOptions?.dish_types ?? [])]) m[o.value] = o.label;
+    return (v: string) => m[v] ?? v;
+  }, [tasteOptions]);
+  const isCuisine = React.useMemo(() => new Set(cuisineOptions.map((o) => o.value)), [tasteOptions]);
+  const isIngredient = React.useMemo(() => new Set(ingredientOptions.map((o) => o.value)), [tasteOptions]);
+
+  // Preset chips plus anything the user picked, so added options stay visible. The likes card
+  // shows cuisines, the dislikes card shows ingredients — each filtered to its facet.
   const likeValues = p.likes.map((t) => t.value);
   const dislikeValues = p.dislikes.map((t) => t.value);
-  const cuisineChips = Array.from(new Set([...CUISINES, ...likeValues]));
-  const ingredientChips = Array.from(new Set([...COMMON_INGREDIENTS, ...dislikeValues]));
+  const cuisineChips = Array.from(new Set([...cuisineOptions.slice(0, 8).map((o) => o.value), ...likeValues.filter((v) => isCuisine.has(v))]));
+  const ingredientChips = Array.from(new Set([...ingredientOptions.slice(0, 12).map((o) => o.value), ...dislikeValues.filter((v) => isIngredient.has(v))]));
   const equipmentChips = Array.from(new Set([...EQUIPMENT.map((e) => e.type), ...p.ownedEquipment]));
 
   const track = (control: string, from: unknown, to: unknown, kind: "soft" | "hard") =>
@@ -49,12 +63,12 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
       return { ...s, ownedEquipment: has ? s.ownedEquipment.filter((x) => x !== item) : [...s.ownedEquipment, item] };
     });
   };
-  // Likes/dislikes hold {facet,value}; toggle by value and tag the facet from the label's corpus.
-  const toggleTaste = (key: "likes" | "dislikes", value: string) => {
+  // Likes/dislikes hold {facet,value}; the caller supplies the facet (the option's group).
+  const toggleTaste = (key: "likes" | "dislikes", value: string, facet: TasteFacet) => {
     setP((s) => {
       const has = s[key].some((t) => t.value === value);
       track(key, has ? "on" : "off", has ? "off" : "on", "soft");
-      return { ...s, [key]: has ? s[key].filter((t) => t.value !== value) : [...s[key], { facet: tasteFacet(value), value }] };
+      return { ...s, [key]: has ? s[key].filter((t) => t.value !== value) : [...s[key], { facet, value }] };
     });
   };
 
@@ -162,7 +176,7 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
                 <Card>
                   <Text className="text-sm font-bold text-ink">Cuisines you like</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                    {cuisineChips.map((c) => <Chip key={c} label={c} active={likeValues.includes(c)} onToggle={() => toggleTaste("likes", c)} />)}
+                    {cuisineChips.map((c) => <Chip key={c} label={tasteLabel(c)} active={likeValues.includes(c)} onToggle={() => toggleTaste("likes", c, "cuisine")} />)}
                     <MoreChip onPress={() => setCuisineSearch(true)} />
                   </View>
                 </Card>
@@ -170,7 +184,7 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
                 <Card>
                   <Text className="text-sm font-bold text-ink">Ingredients to avoid</Text>
                   <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                    {ingredientChips.map((i) => <Chip key={i} label={i} active={dislikeValues.includes(i)} onToggle={() => toggleTaste("dislikes", i)} />)}
+                    {ingredientChips.map((i) => <Chip key={i} label={tasteLabel(i)} active={dislikeValues.includes(i)} onToggle={() => toggleTaste("dislikes", i, "ingredient")} />)}
                     <MoreChip onPress={() => setIngredientSearch(true)} />
                   </View>
                 </Card>
@@ -180,8 +194,8 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
                 <Text className="text-base font-bold text-white">Save</Text>
               </Pressable>
 
-              <SearchAddSheet visible={cuisineSearch} title="Add a cuisine" corpus={ALL_CUISINES} selected={likeValues} onToggle={(c) => toggleTaste("likes", c)} onClose={() => setCuisineSearch(false)} />
-              <SearchAddSheet visible={ingredientSearch} title="Add an ingredient to avoid" corpus={ALL_INGREDIENTS} selected={dislikeValues} onToggle={(i) => toggleTaste("dislikes", i)} onClose={() => setIngredientSearch(false)} />
+              <SearchAddSheet visible={cuisineSearch} title="Add a cuisine" corpus={cuisineOptions.map((o) => o.value)} labelFor={tasteLabel} selected={likeValues} onToggle={(c) => toggleTaste("likes", c, "cuisine")} onClose={() => setCuisineSearch(false)} />
+              <SearchAddSheet visible={ingredientSearch} title="Add an ingredient to avoid" corpus={ingredientOptions.map((o) => o.value)} labelFor={tasteLabel} selected={dislikeValues} onToggle={(i) => toggleTaste("dislikes", i, "ingredient")} onClose={() => setIngredientSearch(false)} />
               <SearchAddSheet visible={equipmentSearch} title="Add kitchen equipment" corpus={ALL_EQUIPMENT.map((e) => e.label)} selected={p.ownedEquipment.map((t) => EQUIP_TYPE_TO_LABEL[t]).filter(Boolean)} onToggle={(label) => toggleEquipment(EQUIP_LABEL_TO_TYPE[label])} onClose={() => setEquipmentSearch(false)} />
     </>
   );

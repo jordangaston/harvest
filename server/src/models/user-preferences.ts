@@ -7,7 +7,7 @@ const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient'] as const;
 const SENTIMENTS = ['like', 'dislike'] as const;
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 

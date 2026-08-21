@@ -20,6 +20,7 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     totalMinutes: 30,
     mealTypes: [],
     categories: { cuisine: [], dishType: [], primaryIngredient: [] },
+    baseIngredientIds: [],
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
     equipment: [],
@@ -138,6 +139,24 @@ describe('scorer normalization (Test Case 1)', () => {
     expect(aff.score(italian, p)).toBe(0.5);
     expect(aff.score(italian, disliked)).toBe(0);
     expect(aff.score(rankableRecipe(), p)).toBeNull();
+  });
+
+  // O-AF-1: the ingredient facet intersects the user's picked base_ingredient_ids with the
+  // recipe's rolled-up baseIngredientIds — an "okra" dislike bites at base-ingredient granularity.
+  it('affinity ingredient facet: liked → 1, disliked → 0, no overlap → 0.5 within the four-facet mean', () => {
+    const aff = new AffinityScorer();
+    const okra = 'okra-uuid';
+    const recipe = rankableRecipe({ categories: { cuisine: [], dishType: [], primaryIngredient: [] }, baseIngredientIds: [okra] });
+    const liked = preferences({ foodPrefs: [{ facet: 'ingredient', value: okra, sentiment: 'like' }] });
+    const disliked = preferences({ foodPrefs: [{ facet: 'ingredient', value: okra, sentiment: 'dislike' }] });
+    expect(aff.score(recipe, liked)).toBe(1); // only facet present → mean 1 → 0.5+0.5
+    expect(aff.score(recipe, disliked)).toBe(0);
+    expect(aff.score(recipe, p)).toBe(0.5); // no matching pref → neutral
+    // No overlap between a picked id and the recipe's ids → neutral 0.5.
+    const other = preferences({ foodPrefs: [{ facet: 'ingredient', value: 'spinach-uuid', sentiment: 'dislike' }] });
+    expect(aff.score(recipe, other)).toBe(0.5);
+    // Empty baseIngredientIds → the ingredient facet contributes nothing (here: null overall).
+    expect(aff.score(rankableRecipe({ baseIngredientIds: [] }), disliked)).toBeNull();
   });
 
   it('popularity: always null', () => {
