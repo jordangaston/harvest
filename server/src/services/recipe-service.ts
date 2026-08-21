@@ -8,6 +8,7 @@ import { tuneActionFor } from "../ranking/tune-mapping.js";
 import { SWIPE_COOLDOWN_DAYS } from "../ranking/constants.js";
 import { parseIngredientLine } from "../parse/ingredient.js";
 import type { SWIPE_REASONS } from "../schema.js";
+import type { WeeklyMeals } from "../models/user-preferences.js";
 import {
   toPublicRecipe,
   toPublicRecipeCard,
@@ -25,6 +26,22 @@ export interface RankedCard {
 }
 
 type SwipeReason = (typeof SWIPE_REASONS)[number];
+
+/** meal_type category values each planned slot maps to. Mirrors the client's MEAL_FILTERS. */
+const SLOT_MEAL_TYPES: Record<keyof WeeklyMeals, string[]> = {
+  breakfast: ["breakfast", "brunch"],
+  lunch: ["lunch"],
+  dinner: ["dinner"],
+  snack: ["snack"],
+  kids: [],
+};
+
+/** The default deck meal-type filter: the category values for the slots the user actually plans. */
+function defaultMealTypes(weeklyMeals: WeeklyMeals): string[] {
+  return (Object.keys(SLOT_MEAL_TYPES) as (keyof WeeklyMeals)[])
+    .filter((slot) => weeklyMeals[slot] > 0)
+    .flatMap((slot) => SLOT_MEAL_TYPES[slot]);
+}
 
 /** A swipe request: direction, plus a dislike reason and its free-text detail (the ingredient). */
 export interface SwipeInput {
@@ -92,17 +109,30 @@ export class RecipeService {
    * they've liked (permanent) or swiped within `SWIPE_COOLDOWN_DAYS`, ranked best-first,
    * top `limit`. Same card/score/breakdown shape as {@link ranked}; the deck advances by
    * swiping, so there's no `page_token`.
+   * The deck is meal-type filtered as part of the recommendation: an explicit `categories`
+   * selection (Discover chips) overrides, else the user's planned meal types (from their
+   * onboarding weekly_meals) apply — so the warm-up and Discover both respect what the user
+   * wants. The filter never empties the deck: if it leaves no live candidates it's relaxed.
    * @param userId - The caller.
-   * @param opts - `limit` (deck batch size).
+   * @param opts - `limit` (deck batch size) and an optional explicit meal-type filter.
    */
-  async deck(userId: string, opts: { limit: number }): Promise<{ recipes: RankedCard[] }> {
+  async deck(userId: string, opts: { limit: number; categories?: string[] }): Promise<{ recipes: RankedCard[] }> {
     const cutoff = new Date(Date.now() - SWIPE_COOLDOWN_DAYS * 86_400_000);
-    const [prefs, candidates, excluded] = await Promise.all([
+    const [prefs, excluded] = await Promise.all([
       this.preferences.getPreferences(userId),
-      this.recipes.listDeckCandidates(userId),
       this.swipes.excludedRecipeIds(userId, cutoff),
     ]);
-    const live = candidates.filter((c) => !excluded.has(c.recipe.id));
+    // Explicit selection wins (`[]` = show-all); absent → the user's planned meal types.
+    const mealTypes = opts.categories !== undefined ? opts.categories : defaultMealTypes(prefs.weeklyMeals);
+
+    let candidates = await this.recipes.listDeckCandidates(userId, mealTypes);
+    let live = candidates.filter((c) => !excluded.has(c.recipe.id));
+    // Never hand back an empty deck because of the meal filter — relax to the whole catalog.
+    if (live.length === 0 && mealTypes.length > 0) {
+      candidates = await this.recipes.listDeckCandidates(userId);
+      live = candidates.filter((c) => !excluded.has(c.recipe.id));
+    }
+
     const cardById = new Map(live.map((c) => [c.recipe.id, c.card]));
     const ranked = RankingEngine.create().rank(live.map((c) => c.recipe), prefs).slice(0, opts.limit);
     return {

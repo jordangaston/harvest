@@ -23,6 +23,16 @@ export class UserRepository {
   }
 
   /**
+   * Looks up an anonymous user by their device key.
+   * @param deviceKey - The device key to match.
+   * @returns The user parsed into the domain model, or null if none.
+   */
+  async findByDeviceKey(deviceKey: string): Promise<User | null> {
+    const [row] = await this.db.select().from(users).where(eq(users.deviceKey, deviceKey));
+    return row ? UserSchema.parse(row) : null;
+  }
+
+  /**
    * Looks up a user by id.
    * @param id - User id.
    * @returns The user parsed into the domain model, or null if none.

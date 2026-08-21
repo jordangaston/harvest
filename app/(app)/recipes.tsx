@@ -23,7 +23,10 @@ export default function Recipes() {
   // (create cookbook, mark import) invalidates the key so the next mount refetches.
   const { data: cookbooks } = useCookbooks();
   const { data: flags } = useOnboardingFlags();
-  const checklist = checklistState(flags ?? { importedFirst: false, shortcutDone: false }, cookbooks?.length ?? 0);
+  // Only user-created cookbooks count toward the checklist — the "Liked"/"Saved" system
+  // cookbooks are auto-created by swiping and shouldn't tick off "Create your first cookbook".
+  const userCookbookCount = cookbooks?.filter((c) => !c.system).length ?? 0;
+  const checklist = checklistState(flags ?? { importedFirst: false, shortcutDone: false }, userCookbookCount);
   const [toast, setToast] = React.useState<string | null>(null);
   const toastAnim = React.useRef(new Animated.Value(0)).current;
   const reduceMotion = React.useRef(false);

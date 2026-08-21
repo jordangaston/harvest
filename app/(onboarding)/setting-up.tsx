@@ -9,8 +9,8 @@ export default function SettingUp() {
   const router = useRouter();
 
   React.useEffect(() => {
-    // The account was already created + verified at the code step; this is just
-    // the closing loader before the app opens.
+    // The account + preferences were saved by the warm-up deck; this is the closing
+    // "building your first meal plan" beat before the app opens.
     const timeout = setTimeout(() => {
       router.replace("/(app)/discover");
     }, 2500);
@@ -20,7 +20,7 @@ export default function SettingUp() {
   return (
     <OnboardingScreen progress={1} showBack={false}>
       <VStack className="mt-12 items-center" space={32}>
-        <Heading className="text-center text-2xl">We're setting everything up for you</Heading>
+        <Heading className="text-center text-2xl">We're building your first meal plan</Heading>
 
         <Center>
           <Image

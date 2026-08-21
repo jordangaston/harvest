@@ -22,6 +22,13 @@ export const createUserSchema = z.object({
   }),
 });
 
+/** `POST /v1/users/anonymous` body: an optional prior device key (resolves an
+ * existing anon user across reinstalls) and optional onboarding to persist. */
+export const anonUserSchema = z.object({
+  device_key: z.string().optional(),
+  onboarding: OnboardingSchema.optional(),
+});
+
 /** `POST /v1/imports` body: exactly one of a url, a share payload, or a photo ref. */
 export const createImportSchema = z.object({
   source: z
@@ -93,6 +100,10 @@ export const rankedRecipesQuerySchema = z.object({
 /** `GET /v1/recipes/deck` query: how many top cards to return (no paging — swipe to advance). */
 export const deckQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(DECK_DEFAULT_LIMIT),
+  // Meal-type filter: comma-separated recipe_categories values (any facet); a recipe matches
+  // if it carries any. ABSENT (undefined) = use the user's default from their plan; PRESENT but
+  // empty (`?categories=`) = explicit show-all; values = filter to those.
+  categories: z.string().optional().transform((s) => (s === undefined ? undefined : s.split(",").map((v) => v.trim()).filter(Boolean))),
 });
 
 /** `POST /v1/recipes/:id/swipe` body: like/dislike/save + an optional dislike reason and its detail. */

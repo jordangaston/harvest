@@ -28,6 +28,7 @@ type StartState = "deck" | "empty" | "error";
  */
 export function SwipeDeck({
   initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings, hydrateDetail,
+  headerTitle = "Tonight", showSettings = true, onExhausted, mealFilter,
 }: {
   initial?: StartState;
   failSaves?: boolean;
@@ -36,8 +37,15 @@ export function SwipeDeck({
   controller?: DeckController;
   settingsInitial?: Preferences;
   onSaveSettings?: (p: Preferences) => void;
+  /** Meal-type deck filter, surfaced in the settings sheet (Discover only). Applies live. */
+  mealFilter?: { selected: string[]; onToggle: (label: string) => void };
   /** Lazily fetches a card's ingredients/steps when the DetailSheet opens (real deck only). */
   hydrateDetail?: (recipeId: string) => Promise<{ ingredients: DeckCard["recipe"]["ingredients"]; steps: string[] }>;
+  headerTitle?: string;
+  showSettings?: boolean;
+  /** Onboarding warm-up: called once the bounded deck empties, to advance the flow. When set,
+   * the discover "all caught up" state is suppressed (we're navigating away). */
+  onExhausted?: () => void;
 }) {
   const mock = useMockDeck(initial, failSaves);
   const deck = controller ?? mock;
@@ -47,7 +55,6 @@ export function SwipeDeck({
   const [reasonFor, setReasonFor] = React.useState<{ id: string; title: string } | null>(null);
   const [cookbookFor, setCookbookFor] = React.useState<DeckCard | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
-  const [showHint, setShowHint] = React.useState(true);
   const [osReduceMotion, setOsReduceMotion] = React.useState(false);
   const reduceMotion = forceReduceMotion ?? osReduceMotion;
 
@@ -67,7 +74,10 @@ export function SwipeDeck({
   }, [top?.recipe.id]);
 
   React.useEffect(() => {
-    if (deck.status === "empty") analytics.track("Deck Exhausted", { swipesThisSession: deck.likeCount });
+    if (deck.status === "empty") {
+      analytics.track("Deck Exhausted", { swipesThisSession: deck.likeCount });
+      onExhausted?.();
+    }
   }, [deck.status]);
 
   const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,10 +88,9 @@ export function SwipeDeck({
   }, []);
 
   const commit = React.useCallback(
-    (direction: Direction, method: "gesture" | "button", cookbook?: string) => {
+    (direction: Direction, method: "gesture" | "button", cookbook?: string, reason?: DislikeReason, detail?: string) => {
       const card = deck.cards[0];
       if (!card) return;
-      setShowHint(false);
       analytics.track("Recipe Swiped", {
         recipeId: card.recipe.id, direction, method, score: card.score,
         msVisible: Date.now() - shownAt.current,
@@ -89,24 +98,22 @@ export function SwipeDeck({
       if (direction === "like" || direction === "save") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         flash(direction === "save" ? `Saved to ${cookbook ?? "your week"} ♥` : "Added to Liked ♥");
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        setReasonFor({ id: card.recipe.id, title: card.recipe.title });
       }
-      deck.swipe(direction);
+      // Dislike carries the reason chosen in the sheet (opened before the card left).
+      deck.swipe(direction, reason, detail);
     },
     [deck, flash],
   );
 
   // Fling the top card off, then advance and reset. Honors Reduce Motion (skip travel).
   const fling = React.useCallback(
-    (direction: Direction, method: "gesture" | "button", cookbook?: string) => {
+    (direction: Direction, method: "gesture" | "button", cookbook?: string, reason?: DislikeReason, detail?: string) => {
       if (!deck.cards[0]) return;
       const toValue =
         direction === "save"
           ? { x: 0, y: -CARD_H * 1.3 }
           : { x: (direction === "like" ? 1 : -1) * CARD_W * 1.6, y: 0 };
-      const done = () => { commit(direction, method, cookbook); pos.setValue({ x: 0, y: 0 }); };
+      const done = () => { commit(direction, method, cookbook, reason, detail); pos.setValue({ x: 0, y: 0 }); };
       if (reduceMotion) return done();
       Animated.timing(pos, { toValue, duration: DURATION.fast, easing: EASE.smoothOut, useNativeDriver: false }).start(done);
     },
@@ -129,6 +136,15 @@ export function SwipeDeck({
     fling("save", "button", cookbook);
   }, [fling]);
 
+  // Pass opens the reason sheet BEFORE the card leaves — the card springs back and stays on
+  // screen, so it's clear the reason applies to it. It only flies off once chosen/skipped.
+  const requestDislike = React.useCallback(() => {
+    const card = deck.cards[0];
+    if (!card) return;
+    springBack();
+    setReasonFor({ id: card.recipe.id, title: card.recipe.title });
+  }, [deck, springBack]);
+
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -136,13 +152,13 @@ export function SwipeDeck({
         onPanResponderMove: Animated.event([null, { dx: pos.x, dy: pos.y }], { useNativeDriver: false }),
         onPanResponderRelease: (_e, g) => {
           if (g.dx > SWIPE_THRESHOLD) fling("like", "gesture");
-          else if (g.dx < -SWIPE_THRESHOLD) fling("dislike", "gesture");
+          else if (g.dx < -SWIPE_THRESHOLD) requestDislike();
           else if (g.dy < -UP_THRESHOLD) openCookbook();
           else springBack();
         },
         onPanResponderTerminate: springBack,
       }),
-    [pos, fling, springBack, openCookbook],
+    [pos, fling, springBack, openCookbook, requestDislike],
   );
 
   const onUndo = React.useCallback(() => {
@@ -153,20 +169,24 @@ export function SwipeDeck({
     setToast(null);
   }, [deck, pos]);
 
+  // Reason chosen → close the sheet, confirm, and NOW fling the card off with the reason.
   const chooseReason = React.useCallback(
     (reason: DislikeReason, detail?: string) => {
       analytics.track("Swipe Reason Chosen", { recipeId: reasonFor?.id, reason, hadDetail: !!detail });
       const chip = REASON_CHIPS.find((c) => c.reason === reason);
       setReasonFor(null);
       flash(detail ? `We’ll avoid ${detail}.` : chip?.confirm ?? "Got it.");
+      fling("dislike", "button", undefined, reason, detail);
     },
-    [reasonFor, flash],
+    [reasonFor, flash, fling],
   );
 
+  // Skipped → still a dislike, just no reason; the card leaves now.
   const skipReason = React.useCallback(() => {
     analytics.track("Swipe Reason Skipped", { recipeId: reasonFor?.id });
     setReasonFor(null);
-  }, [reasonFor]);
+    fling("dislike", "button");
+  }, [reasonFor, fling]);
 
   const openDetail = React.useCallback((card: DeckCard) => {
     analytics.track("Card Detail Expanded", { recipeId: card.recipe.id });
@@ -187,12 +207,12 @@ export function SwipeDeck({
 
   return (
     <View style={{ width: CARD_W, alignSelf: "center" }}>
-      <Header liked={deck.likeCount} onSettings={() => setSettingsOpen(true)} />
+      <Header liked={deck.likeCount} title={headerTitle} onSettings={showSettings ? () => setSettingsOpen(true) : undefined} />
 
       <View style={{ height: CARD_H, marginTop: 12 }}>
         {deck.status === "loading" ? <LoadingCard /> : null}
         {deck.status === "error" ? <ErrorCard onRetry={deck.retry} /> : null}
-        {deck.status === "empty" ? <EmptyState onSettings={() => setSettingsOpen(true)} onPlan={() => setSettingsOpen(true)} /> : null}
+        {deck.status === "empty" ? (onExhausted ? <LoadingCard /> : <EmptyState onSettings={() => setSettingsOpen(true)} onPlan={() => setSettingsOpen(true)} />) : null}
 
         {deck.status === "ready" && behind ? (
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -209,7 +229,6 @@ export function SwipeDeck({
             <Disc opacity={likeOpacity} side="right" icon="checkmark" />
             <Disc opacity={nopeOpacity} side="left" icon="close" />
             <Disc opacity={saveOpacity} side="top" icon="arrow-up" />
-            {showHint ? <GestureHint /> : null}
             {deck.failedSave?.recipe.id === top.recipe.id ? (
               <View className="absolute inset-x-4 top-4 flex-row items-center justify-center rounded-full bg-error px-3 py-2" style={{ gap: 6 }}>
                 <Icon name="refresh" size={14} color="#fff" />
@@ -225,7 +244,7 @@ export function SwipeDeck({
         <ActionBar
           canUndo={!!deck.lastSwipe}
           onUndo={onUndo}
-          onPass={() => fling("dislike", "button")}
+          onPass={requestDislike}
           onSuper={openCookbook}
           onLike={() => fling("like", "button")}
         />
@@ -234,24 +253,26 @@ export function SwipeDeck({
       <DetailSheet card={detail} visible={!!detail} onClose={() => setDetail(null)} />
       <ReasonSheet visible={!!reasonFor} onChoose={chooseReason} onSkip={skipReason} />
       <CookbookPicker visible={!!cookbookFor} recipeTitle={cookbookFor?.recipe.title ?? null} onSelect={saveToCookbook} onClose={() => setCookbookFor(null)} />
-      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} initial={settingsInitial} onSave={onSaveSettings} />
+      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} initial={settingsInitial} onSave={onSaveSettings} mealFilter={mealFilter} />
     </View>
   );
 }
 
 /* ---------- Header ---------- */
-function Header({ liked, onSettings }: { liked: number; onSettings: () => void }) {
+function Header({ liked, title, onSettings }: { liked: number; title: string; onSettings?: () => void }) {
   return (
     <View className="flex-row items-center justify-between">
-      <Text className="text-2xl text-ink" style={{ fontFamily: "Lora_700Bold" }}>Tonight</Text>
+      <Text className="text-2xl text-ink" style={{ fontFamily: "Lora_700Bold" }}>{title}</Text>
       <View className="flex-row items-center" style={{ gap: 10 }}>
         <View className="flex-row items-center" style={{ gap: 4 }}>
           <Icon name="heart" size={15} color="#6E5B48" />
           <Text className="text-sm font-semibold text-muted">{liked}</Text>
         </View>
-        <Pressable onPress={onSettings} accessibilityRole="button" accessibilityLabel="Ranking preferences" className="rounded-full bg-card p-2.5" style={ELEVATION.low}>
-          <Icon name="options-outline" size={20} color="#2E2419" />
-        </Pressable>
+        {onSettings ? (
+          <Pressable onPress={onSettings} accessibilityRole="button" accessibilityLabel="Ranking preferences" className="rounded-full bg-card p-2.5" style={ELEVATION.low}>
+            <Icon name="options-outline" size={20} color="#2E2419" />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -346,30 +367,6 @@ function CookbookPicker({ visible, recipeTitle, onSelect, onClose }: { visible: 
         </View>
       </View>
     </Modal>
-  );
-}
-
-/* ---------- First-use gesture hint (the only tutorial element in scope) ---------- */
-function GestureHint() {
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
-      <View className="items-center rounded-2xl px-5 py-4" style={{ backgroundColor: "rgba(20,12,4,0.62)", gap: 8 }}>
-        <View className="flex-row items-center" style={{ gap: 14 }}>
-          <HintArrow icon="arrow-back" text="Pass" />
-          <HintArrow icon="arrow-up" text="Cook" />
-          <HintArrow icon="arrow-forward" text="Like" />
-        </View>
-        <Text className="text-sm font-semibold text-white">Swipe or use the buttons below</Text>
-      </View>
-    </View>
-  );
-}
-function HintArrow({ icon, text }: { icon: React.ComponentProps<typeof Icon>["name"]; text: string }) {
-  return (
-    <View className="items-center" style={{ gap: 2 }}>
-      <Icon name={icon} size={20} color="#fff" />
-      <Text className="text-xs text-white/90">{text}</Text>
-    </View>
   );
 }
 

@@ -30,6 +30,13 @@ export default function AppTabsLayout() {
       }}
     >
       <Tabs.Screen
+        name="discover"
+        options={{
+          title: "Discover",
+          tabBarIcon: ({ color }) => <Ionicons name="compass-outline" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="recipes"
         options={{
           title: "Recipes",
@@ -48,14 +55,6 @@ export default function AppTabsLayout() {
         options={{
           title: "Groceries",
           tabBarIcon: ({ color }) => <Ionicons name="cart-outline" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="discover"
-        options={{
-          href: null,
-          title: "Discover",
-          tabBarIcon: ({ color }) => <Ionicons name="compass-outline" size={22} color={color} />,
         }}
       />
     </Tabs>

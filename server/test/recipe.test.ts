@@ -165,7 +165,7 @@ describe("PATCH /v1/recipes/:id (owner edits in place)", () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).recipe.ingredients).toEqual([
-      { name: "flour", icon: "flour", quantity_text: "2 cups flour", amount: "2", unit: "cup" },
+      { name: "flour", icon: "flour", quantity_text: "2 cups", amount: "2", unit: "cup" },
     ]);
   });
 

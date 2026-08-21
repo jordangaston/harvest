@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "./config";
-import { refreshSession } from "./auth";
+import { refreshSession, resumeAnonymousSession } from "./auth";
 import { getSession, clearSession, type Session } from "./session";
 
 /** A structured API failure carrying the HTTP status and the server error code. */
@@ -27,9 +27,10 @@ function request(path: string, init: RequestInit, session: Session): Promise<Res
 
 /**
  * Calls a protected endpoint with the current session. On 401 it refreshes and
- * retries once; if the refresh fails the session is cleared and the caller must
- * re-authenticate (there is no account without a verified phone). Returns parsed
- * JSON, or undefined for 204. Throws {@link ApiError} on a non-2xx response.
+ * retries once; if the refresh fails it resumes the anonymous account from the stored
+ * device key, and only if that also fails does it clear the session and require
+ * re-authentication. Returns parsed JSON, or undefined for 204. Throws {@link ApiError}
+ * on a non-2xx response.
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = await getSession();
@@ -37,11 +38,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   let res = await request(path, init, session);
 
   if (res.status === 401) {
-    const refreshed = await refreshSession(session).catch(async () => {
-      await clearSession();
-      throw new ApiError(401, "REAUTH_REQUIRED", "session expired, sign in again");
-    });
-    res = await request(path, init, refreshed);
+    const restored = await refreshSession(session)
+      .catch(() => resumeAnonymousSession())
+      .catch(async () => {
+        await clearSession();
+        throw new ApiError(401, "REAUTH_REQUIRED", "session expired, sign in again");
+      });
+    res = await request(path, init, restored);
   }
 
   if (res.status === 204) return undefined as T;

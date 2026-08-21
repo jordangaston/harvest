@@ -109,7 +109,7 @@ describe("GET /v1/cookbooks", () => {
 
     const list = (await (await listCookbooks(me.token)).json()).cookbooks;
     expect(list).toEqual([
-      { id: cbId, name: "Dinners", recipe_count: 1, cover_image_url: "https://img.example/chicken.jpg" },
+      { id: cbId, name: "Dinners", recipe_count: 1, cover_image_url: "https://img.example/chicken.jpg", system: false },
     ]);
   });
 });

@@ -72,6 +72,16 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
  * its ingredients (separated amount/unit/quantity_text, C3, and an O-09 icon key),
  * and its steps. Saving into a cookbook is a separate `cookbook_recipes` concern.
  */
+/** Per-serving macros for the deck card, parsed from the recipe's numeric-text nutrition
+ * columns. Null when the recipe has no calories (nutrition withheld). */
+function macrosFrom(r: {
+  calories: string | null; gramsOfProtein: string | null; gramsOfCarbohydrate: string | null; gramsOfFat: string | null;
+}): RecipeCard['macros'] {
+  const num = (s: string | null) => (s == null ? null : Number(s));
+  if (r.calories == null) return null;
+  return { calories: num(r.calories), proteinG: num(r.gramsOfProtein), carbsG: num(r.gramsOfCarbohydrate), fatG: num(r.gramsOfFat) };
+}
+
 export class RecipeRepository {
   constructor(private readonly db: Database) {}
 
@@ -163,17 +173,17 @@ export class RecipeRepository {
    * transaction, or joins a caller's `tx` when the write must commit atomically
    * with other rows (the import persist links the job in the same transaction).
    * @param recipe - Parsed recipe the provider hands over to persist.
-   * @param userId - The creator/owner (`recipes.user_id`).
+   * @param userId - The creator/owner (`recipes.user_id`); null for a global (catalog) recipe.
    * @param tx - Executor; a caller's transaction client, else the db singleton.
    * @returns The new recipe id.
    */
-  async persist(recipe: RecipeInput, userId: string, tx?: Tx): Promise<string> {
+  async persist(recipe: RecipeInput, userId: string | null, tx?: Tx): Promise<string> {
     if (tx) return this.persistWith(tx, recipe, userId);
     return this.db.transaction((t) => this.persistWith(t, recipe, userId));
   }
 
   /** Writes the recipe aggregate on an active transaction client. */
-  private async persistWith(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
+  private async persistWith(tx: Tx, recipe: RecipeInput, userId: string | null): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
     await this.insertIngredients(tx, recipeId, recipe.ingredients);
     await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques, recipe.equipment?.stepEquipment);
@@ -244,7 +254,7 @@ export class RecipeRepository {
    * @param userId - The owner.
    * @returns The new recipe id, parsed at the boundary.
    */
-  private async insertRecipe(tx: Tx, recipe: RecipeInput, userId: string): Promise<string> {
+  private async insertRecipe(tx: Tx, recipe: RecipeInput, userId: string | null): Promise<string> {
     const [row] = await tx
       .insert(recipes)
       .values({
@@ -418,8 +428,13 @@ export class RecipeRepository {
    * assembly as {@link listRankable}, no N+1. Globals are empty until the corpus lands.
    * @param userId - The caller whose deck is built.
    */
-  async listDeckCandidates(userId: string): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
-    const rows = await this.db.select().from(recipes).where(or(eq(recipes.userId, userId), isNull(recipes.userId)));
+  async listDeckCandidates(userId: string, categories?: string[]): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
+    const visible = or(eq(recipes.userId, userId), isNull(recipes.userId));
+    // Meal-type filter: keep only recipes carrying one of the requested category values (any facet).
+    const where = categories && categories.length
+      ? and(visible, inArray(recipes.id, this.db.select({ id: recipeCategories.recipeId }).from(recipeCategories).where(inArray(recipeCategories.value, categories))))
+      : visible;
+    const rows = await this.db.select().from(recipes).where(where);
     return this.assembleRankable(rows);
   }
 
@@ -491,6 +506,7 @@ export class RecipeRepository {
           equipment: equip,
           allergens: allergensContains,
           compatibleDiets,
+          macros: macrosFrom(recipe),
         }),
       };
     });

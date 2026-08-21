@@ -18,8 +18,8 @@ const ALLERGEN_TO_CLIENT: Record<string, string> = {
 // The equipment the server enum models. The settings list is reconciled to exactly this set, so the
 // filter below is a no-op safety net (a stray unknown type would be dropped rather than 422 a PUT).
 const SERVER_EQUIPMENT = new Set([
-  "air_fryer", "slow_cooker", "pressure_cooker", "stand_mixer", "blender", "food_processor",
-  "grill", "dutch_oven", "deep_fryer", "wok", "sous_vide", "smoker", "ice_cream_maker", "waffle_iron",
+  "oven", "stovetop", "microwave", "air_fryer", "slow_cooker", "pressure_cooker", "stand_mixer", "blender",
+  "food_processor", "grill", "dutch_oven", "deep_fryer", "wok", "sous_vide", "smoker", "ice_cream_maker", "waffle_iron",
 ]);
 
 /** Server DTO → the client `Preferences` the settings screen seeds from. */

@@ -33,6 +33,7 @@ const GOALS = [
   'meal_prepping',
   'try_new_cuisines',
   'kid_friendly',
+  'quick_meals',
 ] as const;
 // Canonical grocery-store vocab (onboarding E1). Mirrors the client's
 // GROCERY_STORES + MORE_STORES ids (components/onboarding/primitives.tsx); a
@@ -63,14 +64,13 @@ export const SENTIMENTS = ['like', 'dislike'] as const;
 // per-recipe essentiality the LLM judges (required = non-substitutable, recommended =
 // convenient). Like `MAJOR_ALLERGENS`, a code tuple, not a table — adding one is a one-line
 // change plus its `EQUIPMENT` config entry (src/equipment/equipment.ts).
-export const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
+export const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 export const ESSENTIALITY = ['required', 'recommended'] as const;
 // Swipe deck (WI-RANK-4): swipe direction and the optional dislike reason.
 // `save` ("cook this week") files the recipe into the caller's Saved cookbook (like `like` → Liked).
 export const SWIPE_DIRECTIONS = ['like', 'dislike', 'save'] as const;
 export const SWIPE_REASONS = ['too_expensive', 'too_hard', 'too_slow', 'disliked_ingredient', 'not_nutritious', 'other'] as const;
-const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-const WHEN_COOK = ['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
+const WHEN_COOK =['morning_plan_ahead', 'lunchtime', 'evening_ready', 'weekly_schedule', 'meal_prep'] as const;
 const COOK_TIME = ['before_5pm', 'from_5_to_6pm', 'from_6_to_7pm', 'from_7_to_8pm', 'after_8pm'] as const;
 const HOW_HEARD = [
   'tiktok',
@@ -122,7 +122,10 @@ export const users = sqliteTable(
   'users',
   {
     id: uuidPk(),
-    phone: text('phone').notNull(),
+    // Nullable: an anonymous user has no phone until they link one. A device_key
+    // (server-generated, unguessable) resolves an anon user across reinstalls.
+    phone: text('phone'),
+    deviceKey: text('device_key'),
     name: text('name'),
     jwtPrivateKey: text('jwt_private_key').notNull(),
     jwtPublicKey: text('jwt_public_key').notNull(),
@@ -132,7 +135,7 @@ export const users = sqliteTable(
     // single-selects are plain enum-text columns. All nullable — a user may skip a screen.
     goals: text('goals', { mode: 'json' }).$type<(typeof GOALS)[number][]>(),
     recipeSources: text('recipe_sources', { mode: 'json' }).$type<(typeof RECIPE_SOURCES)[number][]>(),
-    cookDays: text('cook_days', { mode: 'json' }).$type<(typeof WEEKDAYS)[number][]>(),
+    cookDaysCount: integer('cook_days_count'),
     whenCook: text('when_cook', { enum: WHEN_COOK }),
     cookTime: text('cook_time', { enum: COOK_TIME }),
     howHeard: text('how_heard', { enum: HOW_HEARD }),
@@ -140,7 +143,10 @@ export const users = sqliteTable(
     onboardingCompletedAt: integer('onboarding_completed_at', { mode: 'timestamp' }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('users_phone_uidx').on(t.phone)],
+  (t) => [
+    uniqueIndex('users_phone_uidx').on(t.phone),
+    uniqueIndex('users_device_key_uidx').on(t.deviceKey),
+  ],
 );
 
 export const recipes = sqliteTable(

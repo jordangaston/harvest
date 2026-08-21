@@ -32,6 +32,7 @@ export interface DeckRecipe {
   nrf: number; // higher = more nutrient-dense
   mealPrepFit: MealPrepFit;
   equipment: Equip[];
+  macros?: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null } | null; // per serving
   compat: string[]; // e.g. "Vegetarian", "Nut-free" — derived diet/allergen fit vs. the user's filters
   likedNote: string; // affinity phrase for the "why" line, e.g. "Italian + chicken"
   ingredients: Ingredient[];
@@ -84,18 +85,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   timeBudgetMin: 35,
   weeklyMeals: { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 },
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
-  likes: [
-    { facet: "cuisine", value: "Italian" },
-    { facet: "cuisine", value: "Thai" },
-    { facet: "cuisine", value: "Mexican" },
-  ],
-  dislikes: [
-    { facet: "ingredient", value: "Liver" },
-    { facet: "ingredient", value: "Olives" },
-  ],
-  allergens: [{ allergen: "peanut", severity: "severe" }],
-  diets: [{ diet: "Pescatarian", strictness: "flexible" }],
-  ownedEquipment: ["blender", "slow_cooker"],
+  likes: [],
+  dislikes: [],
+  allergens: [],
+  diets: [],
+  ownedEquipment: ["oven", "stovetop", "microwave", "blender", "air_fryer"],
   equipmentReviewed: true,
   groceryStores: [],
   household: { adults: 2, kids: 0 },

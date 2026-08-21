@@ -19,6 +19,7 @@ import { InvalidPhoneError } from "./util/phone.js";
 import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError } from "./errors.js";
 import {
   createUserSchema,
+  anonUserSchema,
   signInSchema,
   requestOtpSchema,
   verifyOtpSchema,
@@ -89,6 +90,14 @@ app.post("/v1/users", async (c) => {
   return c.json(sessionResponse(resolved), 201);
 });
 
+/** POST /v1/users/anonymous — creates (or resolves via device_key) an anonymous user
+ * and returns a session plus the device_key to persist. Public. */
+app.post("/v1/users/anonymous", async (c) => {
+  const { device_key, onboarding } = anonUserSchema.parse(await c.req.json());
+  const resolved = await users.createAnonymousUser({ deviceKey: device_key, onboarding });
+  return c.json({ ...sessionResponse(resolved), device_key: resolved.user.deviceKey }, 201);
+});
+
 /** POST /v1/users/sign_in — exchanges an OTP or refresh token for a session. Public. */
 app.post("/v1/users/sign_in", async (c) => {
   const { auth } = signInSchema.parse(await c.req.json());
@@ -145,8 +154,8 @@ app.get("/v1/recipes/ranked", guard, async (c) => {
  * global) minus liked/on-cooldown, ranked best-first, top `limit`. No `page_token` — the
  * deck advances by swiping. Registered before `/:id` so "deck" isn't captured as an id. */
 app.get("/v1/recipes/deck", guard, async (c) => {
-  const { limit } = deckQuerySchema.parse(c.req.query());
-  return c.json(await recipes.deck(c.get("authUserId")!, { limit }));
+  const q = deckQuerySchema.parse(c.req.query());
+  return c.json(await recipes.deck(c.get("authUserId")!, q));
 });
 
 /** POST /v1/recipes/:id/swipe — records a like/dislike/save swipe and applies its side-effect

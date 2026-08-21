@@ -2,12 +2,13 @@ import * as SecureStore from "expo-secure-store";
 
 const KEY = "harvest.session";
 
-/** The persisted session: the token JWT strings plus the user's id and generated phone. */
+/** The persisted session: the token JWT strings plus the user's id and phone
+ * (null for an anonymous user who hasn't linked one). */
 export type Session = {
   accessJwt: string;
   refreshJwt: string;
   userId: string;
-  phone: string;
+  phone: string | null;
 };
 
 export async function getSession(): Promise<Session | null> {

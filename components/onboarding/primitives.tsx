@@ -1,8 +1,11 @@
 import React from "react";
 import { Modal, View, PanResponder, TextInput, AccessibilityInfo } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
 import { ScrollView, VStack, HStack, Text, Pressable, Icon } from "../ui";
 import { ELEVATION } from "../../lib/elevation";
+import { BRAND_GRADIENT } from "../../lib/gradient";
 import { revealCount } from "../../lib/typewriter";
 
 /**
@@ -23,14 +26,22 @@ export function Segmented<T extends string | number>({ options, value, onChange,
         return (
           <Pressable
             key={String(o.value)}
-            onPress={() => onChange(o.value)}
+            onPress={() => { Haptics.selectionAsync().catch(() => {}); onChange(o.value); }}
             accessibilityRole="radio"
             accessibilityState={{ selected: active }}
             accessibilityLabel={o.label}
-            className={`flex-1 items-center rounded-full py-1.5 ${active ? "bg-brand" : ""}`}
+            className="flex-1 overflow-hidden rounded-full"
             style={active ? ELEVATION.low : undefined}
           >
-            <Text className={`text-xs font-bold ${active ? "text-white" : "text-muted"}`}>{o.label}</Text>
+            {active ? (
+              <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingVertical: 6, alignItems: "center", borderRadius: 999 }}>
+                <Text className="text-xs font-bold text-white">{o.label}</Text>
+              </LinearGradient>
+            ) : (
+              <View className="items-center py-1.5">
+                <Text className="text-xs font-bold text-muted">{o.label}</Text>
+              </View>
+            )}
           </Pressable>
         );
       })}
@@ -38,28 +49,39 @@ export function Segmented<T extends string | number>({ options, value, onChange,
   );
 }
 
-/** Multi-select chip — selected = brand-light + brand border + brand text. */
+/**
+ * Multi-select chip — one brand family, two harmonious states (design decision, chip options v4):
+ * resting = an outline on the canvas (`bg-card` + brand border + brand-dark text); selected = the
+ * gentle brand gradient fill + white text. Both clear WCAG AA. The "+ add" chips (allergies/diet)
+ * use the resting look — no separate variant.
+ */
 export function Chip({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  const tap = () => { Haptics.selectionAsync().catch(() => {}); onToggle(); };
+  if (active) {
+    return (
+      <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: true }} accessibilityLabel={label} className="rounded-full">
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 }}>
+          <Text className="text-sm font-semibold text-white">{label}</Text>
+        </LinearGradient>
+      </Pressable>
+    );
+  }
+  // Resting = a brand outline with a transparent fill, so the chip shows the page background (cream),
+  // not a near-white pill. Border via className so it survives the Pressable's style merge.
   return (
-    <Pressable
-      onPress={onToggle}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={label}
-      className={`rounded-full px-3.5 py-2 ${active ? "bg-brand-light" : "bg-sand-200"}`}
-      style={active ? { borderWidth: 1, borderColor: "#A85E2B" } : undefined}
-    >
-      <Text className={`text-sm font-semibold ${active ? "text-brand" : "text-muted"}`}>{label}</Text>
+    <Pressable onPress={tap} accessibilityRole="button" accessibilityState={{ selected: false }} accessibilityLabel={label} className="rounded-full border border-brand bg-transparent px-3.5 py-2">
+      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>{label}</Text>
     </Pressable>
   );
 }
 
-/** A "More…" search action — hollow neutral pill so it can't be mistaken for a value chip. */
+/** A "More…" search action — a filled brand-light pill with a leading "+" so it reads as an action,
+ *  distinct from the brand-outlined value chips (which it was previously mistaken for). */
 export function MoreChip({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#C2A678", gap: 4 }}>
-      <Icon name="search" size={14} color="#6E5B48" />
-      <Text className="text-sm font-semibold text-muted">More…</Text>
+    <Pressable onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress(); }} accessibilityRole="button" accessibilityLabel="Search for more" className="flex-row items-center rounded-full bg-brand-light px-3.5 py-2" style={{ gap: 5 }}>
+      <Icon name="add" size={16} color="#8A4A1E" />
+      <Text className="text-sm font-semibold" style={{ color: "#8A4A1E" }}>More</Text>
     </Pressable>
   );
 }
@@ -117,18 +139,25 @@ export function Slider({ value, min, max, step, format, onChange, hideValue = fa
       {hideValue ? null : <Text className="text-base font-bold text-brand" style={{ alignSelf: "flex-end" }}>{format(value)}</Text>}
       <View {...pan.panHandlers} onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height: 40, justifyContent: "center" }} accessibilityRole="adjustable">
         <View className="rounded-full bg-sand" style={{ height: 8 }} />
-        <View className="absolute rounded-full bg-brand" style={{ left: 0, top: 16, height: 8, width: `${pct * 100}%` }} />
-        <View className="absolute rounded-full bg-brand" style={[{ top: 8, left: `${pct * 100}%`, marginLeft: -12, height: 24, width: 24 }, ELEVATION.low]} />
+        <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ position: "absolute", left: 0, top: 16, height: 8, borderRadius: 999, width: `${pct * 100}%` }} />
+        <View className="absolute" style={[{ top: 8, left: `${pct * 100}%`, marginLeft: -12, height: 24, width: 24, borderRadius: 999 }, ELEVATION.low]}>
+          <LinearGradient colors={BRAND_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={{ height: 24, width: 24, borderRadius: 999 }} />
+        </View>
       </View>
     </VStack>
   );
 }
 
-/** A search sheet to add options from a larger corpus (tap a result to toggle it). */
-export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onClose }: { visible: boolean; title: string; corpus: string[]; selected: string[]; onToggle: (item: string) => void; onClose: () => void }) {
+/**
+ * A search sheet to add options from a larger corpus (tap a result to toggle it). `corpus` holds the
+ * toggle values; `labelFor` (default identity) maps a value to its display label, so the sheet can
+ * operate in value-space while showing labels — the search filters on the label, and toggling reports
+ * the value, so a search-added item is the SAME canonical value the preset chips use (no label/value split).
+ */
+export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onClose, labelFor = (v) => v }: { visible: boolean; title: string; corpus: string[]; selected: string[]; onToggle: (item: string) => void; onClose: () => void; labelFor?: (value: string) => string }) {
   const [q, setQ] = React.useState("");
   React.useEffect(() => { if (visible) setQ(""); }, [visible]);
-  const results = corpus.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
+  const results = corpus.filter((o) => labelFor(o).toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
@@ -143,7 +172,7 @@ export function SearchAddSheet({ visible, title, corpus, selected, onToggle, onC
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
               <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-                {results.map((o) => <Chip key={o} label={o} active={selected.includes(o)} onToggle={() => onToggle(o)} />)}
+                {results.map((o) => <Chip key={o} label={labelFor(o)} active={selected.includes(o)} onToggle={() => onToggle(o)} />)}
                 {results.length === 0 ? <Text className="text-sm text-muted">No matches for “{q}”.</Text> : null}
               </View>
             </ScrollView>
@@ -208,9 +237,10 @@ export function Typewriter({ text, msPerChar = 28, haptics = true, onDone, style
 export const CUISINES = ["Italian", "Thai", "Mexican", "Indian", "Japanese", "Mediterranean", "Chinese", "French"];
 export const ALL_CUISINES = [...CUISINES, "Korean", "Vietnamese", "Spanish", "Greek", "Lebanese", "Turkish", "Ethiopian", "Peruvian", "Brazilian", "Caribbean", "Moroccan", "Filipino", "Malaysian", "Indonesian", "Portuguese", "German", "British", "American", "Tex-Mex", "Cajun", "Middle Eastern", "Soul food", "Nordic", "Argentine"];
 export const ALL_INGREDIENTS = ["Cilantro", "Mushrooms", "Olives", "Blue cheese", "Anchovies", "Bell peppers", "Coconut", "Tofu", "Eggplant", "Liver", "Capers", "Raisins", "Onions", "Garlic", "Ginger", "Fennel", "Beets", "Cumin", "Pickles", "Sardines", "Oysters", "Lamb", "Goat cheese", "Cottage cheese", "Tahini", "Miso", "Cabbage", "Brussels sprouts", "Okra", "Turnip", "Cauliflower", "Kimchi"];
-export const ALLERGENS = ["peanut", "tree nut", "milk", "egg", "soy", "wheat", "fish", "shellfish"];
+export const ALLERGENS = ["peanut", "tree nut", "milk", "egg", "soy", "wheat", "fish", "shellfish", "sesame"];
 export const DIETS = ["Vegetarian", "Vegan", "Pescatarian", "Gluten-free", "Keto", "Paleo", "Dairy-free"];
 export const EQUIPMENT = [
+  { type: "oven", label: "Oven" }, { type: "stovetop", label: "Stovetop" }, { type: "microwave", label: "Microwave" },
   { type: "air_fryer", label: "Air fryer" }, { type: "slow_cooker", label: "Slow cooker" },
   { type: "pressure_cooker", label: "Pressure cooker" }, { type: "blender", label: "Blender" },
   { type: "stand_mixer", label: "Stand mixer" }, { type: "grill", label: "Grill" },

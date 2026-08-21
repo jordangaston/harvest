@@ -6,6 +6,8 @@ export const CookbookSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
   name: z.string(),
+  // Non-null for a system cookbook (Liked/Saved); null for a user-created one.
+  systemSlug: z.string().nullable(),
   createdAt: z.date(),
 });
 
@@ -24,6 +26,7 @@ export interface PublicCookbook {
   name: string;
   recipe_count: number;
   cover_image_url?: string;
+  system: boolean; // a Liked/Saved system cookbook, not user-created
 }
 
 /**
@@ -35,6 +38,7 @@ export function toPublicCookbook(summary: CookbookSummary): PublicCookbook {
     id: summary.cookbook.id,
     name: summary.cookbook.name,
     recipe_count: summary.recipeCount,
+    system: summary.cookbook.systemSlug != null,
   };
   if (summary.coverImageUrl) pub.cover_image_url = summary.coverImageUrl;
   return pub;

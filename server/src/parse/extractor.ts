@@ -123,9 +123,11 @@ function toStructuredIngredient(raw: unknown): StructuredIngredient {
   if (raw && typeof raw === "object") {
     const r = raw as Record<string, unknown>;
     const name = typeof r.name === "string" ? r.name : "";
-    const quantityText = typeof r.raw === "string" && r.raw ? r.raw : name;
+    const rawLine = typeof r.raw === "string" && r.raw ? r.raw : "";
     // A structured object without a name is unusable — fall back to parsing the line.
-    if (!name) return parseIngredientLine(quantityText);
+    if (!name) return parseIngredientLine(rawLine);
+    // Measurement only (name is stored + shown separately), consistent with parseIngredientLine.
+    const quantityText = rawLine && rawLine.includes(name) ? rawLine.replace(name, "").trim() : "";
     return {
       name,
       amount: typeof r.amount === "number" ? String(r.amount) : null,

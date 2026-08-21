@@ -1,8 +1,10 @@
 import React from "react";
 import { View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { HStack, Pressable, Text } from "../ui";
 import { Ionicons } from "@expo/vector-icons";
+import { BRAND_GRADIENT } from "../../lib/gradient";
 
 /** Onboarding top bar: back chevron, thin progress track, optional Skip link. */
 export function ProgressHeader({
@@ -33,9 +35,11 @@ export function ProgressHeader({
         <View className="w-6" />
       )}
       <View className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/10">
-        <View
-          className="h-full rounded-full bg-brand"
-          style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
+        <LinearGradient
+          colors={BRAND_GRADIENT}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ height: "100%", borderRadius: 999, width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
         />
       </View>
       {onSkip ? (

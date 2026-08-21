@@ -38,7 +38,7 @@ const PP_NAP_SOURCE =
   join(homedir(), 'Desktop/Business/Harvest/pp_national_average_prices.csv');
 
 /** Builds the `food_code → fdc_id` map from the FNDDS Survey foods. */
-function foodCodeToFdcId(foods: SurveyFood[]): Map<string, number> {
+export function foodCodeToFdcId(foods: SurveyFood[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const f of foods) {
     if (f.fdcId != null && f.foodCode != null) map.set(String(f.foodCode), f.fdcId);
@@ -51,7 +51,7 @@ function foodCodeToFdcId(foods: SurveyFood[]): Map<string, number> {
  * `price_100gm`, and (optional) `method` columns. A minimal RFC-4180-ish split —
  * PP-NAP has no embedded commas/quotes in these columns.
  */
-function parsePpNap(csv: string): PpNapRow[] {
+export function parsePpNap(csv: string): PpNapRow[] {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim() !== '');
   const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
   const foodCodeIdx = header.indexOf('food_code');

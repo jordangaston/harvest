@@ -2,21 +2,24 @@ import React from "react";
 import { View } from "react-native";
 import type { Study } from "../types.ts";
 import {
-  OnboardingValueCard, OnboardingValueCarousel, OnboardingChipGrid, OnboardingStorePicker,
-  OnboardingBudget, OnboardingCounter, OnboardingDayPicker, OnboardingBinary,
+  OnboardingValueCard, OnboardingChipGrid, OnboardingStorePicker,
+  OnboardingSliderStep, OnboardingCounter, OnboardingDayPicker, OnboardingBinary,
   OnboardingSeverityPicker, OnboardingTasteMenu, OnboardingSingleSelectList,
   type Household, type LeveledPref,
 } from "../../components/onboarding/screens";
 import {
   ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, TASTE_PRESETS, TASTE_CORPUS,
 } from "../../components/onboarding/primitives";
+import { money } from "../../components/swipe/mock";
 
 // Every onboarding archetype is rendered INLINE in a cream frame (like SwipeSettings) so the
 // studio's CommentLayer can pin reviews to it. Each view holds its own draft state, matching how
 // the Phase-2 flow will own it. Components are otherwise controlled + presentational.
 const GROUP = "Onboarding";
 function Frame({ children }: { children: React.ReactNode }) {
-  return <View className="w-full overflow-hidden rounded-2xl bg-cream" style={{ borderWidth: 1, borderColor: "#E4D6BC" }}>{children}</View>;
+  // The archetypes no longer self-pad horizontally (the flow shell owns it), so the studio Frame
+  // provides the inset here — matching the shell's ~24px so previews read like the live screen.
+  return <View className="w-full overflow-hidden rounded-2xl bg-cream" style={{ borderWidth: 1, borderColor: "#E4D6BC", paddingHorizontal: 20, paddingVertical: 16 }}>{children}</View>;
 }
 
 /* 1. Value card (typing + haptics) */
@@ -32,20 +35,6 @@ export const OnboardingValueCardStudy: Study = {
     { kind: "boolean", key: "haptics", label: "Haptics", default: true },
   ],
   render: (v) => <ValueCardView headline={String(v.headline)} body={String(v.body)} typing={Boolean(v.typing)} haptics={Boolean(v.haptics)} />,
-};
-
-/* 2. Value carousel (3-slide loader) */
-export const OnboardingValueCarouselStudy: Study = {
-  name: "OnboardingValueCarousel", group: GROUP,
-  render: () => (
-    <Frame>
-      <OnboardingValueCarousel slides={[
-        { title: "Custom meal plans", caption: "Built around what you actually like." },
-        { title: "For your family", caption: "Portioned for everyone at your table." },
-        { title: "Every week", caption: "A fresh plan and a ready shopping list." },
-      ]} />
-    </Frame>
-  ),
 };
 
 /* 3. Chip grid (goals / time-bands / equipment) */
@@ -71,10 +60,10 @@ function StorePickerView() {
 }
 export const OnboardingStorePickerStudy: Study = { name: "OnboardingStorePicker", group: GROUP, render: () => <StorePickerView /> };
 
-/* 5. Budget */
+/* 5. Slider step (budget / time) */
 function BudgetView() {
   const [cents, setCents] = React.useState(15500);
-  return <Frame><OnboardingBudget cents={cents} onChange={setCents} /></Frame>;
+  return <Frame><OnboardingSliderStep title="What’s your weekly budget?" subtitle="We’ll keep your plan under it." value={cents} min={3000} max={40000} step={1000} format={money} caption="this week" onChange={setCents} /></Frame>;
 }
 export const OnboardingBudgetStudy: Study = { name: "OnboardingBudget", group: GROUP, render: () => <BudgetView /> };
 

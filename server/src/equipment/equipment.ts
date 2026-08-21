@@ -36,6 +36,11 @@ export interface EquipmentType {
 }
 
 export const EQUIPMENT: EquipmentType[] = [
+  // Baseline gear the onboarding offers as reassurance defaults — always `recommended`, so it never
+  // becomes a required-equipment filter (the ranker only filters on `required` gear the user lacks).
+  { canonical: 'oven', defaultEssentiality: 'recommended', aliases: ['oven'] },
+  { canonical: 'stovetop', defaultEssentiality: 'recommended', aliases: ['stovetop', 'stove', 'hob'] },
+  { canonical: 'microwave', defaultEssentiality: 'recommended', aliases: ['microwave'] },
   { canonical: 'air_fryer', defaultEssentiality: 'recommended', aliases: ['air fryer', 'air-fryer', 'airfryer'] },
   { canonical: 'slow_cooker', defaultEssentiality: 'recommended', aliases: ['slow cooker', 'crock pot', 'crockpot'] },
   { canonical: 'pressure_cooker', defaultEssentiality: 'recommended', aliases: ['pressure cooker', 'instant pot', 'instapot'] },

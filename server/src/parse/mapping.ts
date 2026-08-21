@@ -75,7 +75,7 @@ function stripSteps(
 ): { steps: string[]; stepTechniques?: string[][]; stepEquipment?: Equipment[][] } {
   if (!stepTechniques && !stepEquipment) return { steps: stripSectionLabels(steps) };
   const zip = steps.map((step, i) => ({ step, techniques: stepTechniques?.[i] ?? [], equipment: stepEquipment?.[i] ?? [] }));
-  const kept = zip.filter((p) => !isSectionLabel(p.step));
+  const kept = zip.filter((p) => !isSectionLabel(p.step) && !isBareMarker(p.step));
   const rows = kept.length ? kept : zip;
   return {
     steps: rows.map((r) => r.step),
@@ -120,8 +120,15 @@ export function isSectionLabel(text: string): boolean {
   return /^(for the\b|to (finish|serve|assemble|garnish|top|decorate|make|prepare)\b)/i.test(line) || /:$/.test(line);
 }
 
-/** Drop bare section headers from step text, but never empty a non-empty list. */
+/** A step that's just a list marker or punctuation ("1.", "2)", "—") — a JSON-LD
+ * extraction artifact, never real instruction text. */
+export function isBareMarker(text: string): boolean {
+  return /^[\s\d.):–—-]+$/.test(text);
+}
+
+/** Drop bare section headers + stray list markers from step text, but never empty a
+ * non-empty list. */
 export function stripSectionLabels(list: string[]): string[] {
-  const kept = list.filter((item) => !isSectionLabel(item));
+  const kept = list.filter((item) => !isSectionLabel(item) && !isBareMarker(item));
   return kept.length ? kept : list;
 }

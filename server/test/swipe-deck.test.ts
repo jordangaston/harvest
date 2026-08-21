@@ -297,7 +297,42 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(card.allergens).toEqual(["peanut"]);
     expect(card.diets).toEqual(["vegetarian"]);
   });
+
+  it("TC12: no ?categories → deck filters to the user's planned meal types (server-side default)", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const dinner = await seedRecipe(userId, { title: "Dinner", nrfScore: 90 });
+    const dessert = await seedRecipe(userId, { title: "Dessert", nrfScore: 60 });
+    await db.insert(recipeCategories).values([
+      { recipeId: dinner, facet: "meal_type", value: "dinner" },
+      { recipeId: dessert, facet: "dish_type", value: "dessert" },
+    ]);
+    await planMeals(userId, { dinner: 5 }); // plans dinner only
+
+    const { body } = await getDeck(token); // no explicit categories
+    expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dinner]);
+  });
+
+  it("TC13: the meal-type filter never returns an empty deck — it relaxes to the catalog", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    const dessert = await seedRecipe(userId, { title: "Dessert", nrfScore: 60 });
+    await db.insert(recipeCategories).values({ recipeId: dessert, facet: "dish_type", value: "dessert" });
+    await planMeals(userId, { dinner: 5 }); // plans dinner, but no dinner recipes exist
+
+    const { body } = await getDeck(token);
+    expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dessert]);
+  });
 });
+
+/** Sets the user's planned weekly meal counts (drives the default deck meal-type filter). */
+async function planMeals(userId: string, meals: Partial<{ breakfast: number; lunch: number; dinner: number; snack: number }>) {
+  await db
+    .insert(userPreferences)
+    .values({ userId, weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0, ...meals } })
+    .onConflictDoUpdate({
+      target: userPreferences.userId,
+      set: { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0, ...meals } },
+    });
+}
 
 async function prefsRow(userId: string) {
   const [row] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));

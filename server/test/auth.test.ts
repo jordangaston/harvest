@@ -75,11 +75,11 @@ describe("UserService", () => {
     const users = UserService.create(db);
     const { user } = await users.createUser({
       phoneNumber: "+15555550124",
-      onboarding: { goals: ["eat_healthier"], cook_days: ["mon", "wed"], age: "from_25_to_34" },
+      onboarding: { goals: ["eat_healthier"], cook_days_count: 3, age: "from_25_to_34" },
     });
     const row = await UserRepository.create(db).findById(user.id);
     expect(row?.goals).toEqual(["eat_healthier"]);
-    expect(row?.cookDays).toEqual(["mon", "wed"]);
+    expect(row?.cookDaysCount).toEqual(3);
     expect(row?.age).toBe("from_25_to_34");
     expect(row?.onboardingCompletedAt).toBeInstanceOf(Date);
   });
@@ -103,6 +103,24 @@ describe("UserService", () => {
 
     expect((await users.getMe(finished.user.id))?.finished_onboarding).toBe(true);
     expect((await users.getMe(midFlow.user.id))?.finished_onboarding).toBe(false);
+  });
+
+  it("createAnonymousUser provisions a keyed, phoneless user (stamping onboarding), and resolves the same user by device_key", async () => {
+    const users = UserService.create(db);
+    const first = await users.createAnonymousUser({ onboarding: { goals: ["quick_meals"], cook_days_count: 4 } });
+    expect(first.isNew).toBe(true);
+    expect(first.user.phone).toBeNull();
+    expect(first.user.deviceKey).toEqual(expect.any(String));
+
+    const row = await UserRepository.create(db).findById(first.user.id);
+    expect(row?.goals).toEqual(["quick_meals"]);
+    expect(row?.onboardingCompletedAt).toBeInstanceOf(Date);
+
+    // Same device_key → same account (reinstall resume); a keyless call is a new user.
+    const resumed = await users.createAnonymousUser({ deviceKey: first.user.deviceKey! });
+    expect(resumed.isNew).toBe(false);
+    expect(resumed.user.id).toBe(first.user.id);
+    expect((await users.createAnonymousUser({})).user.id).not.toBe(first.user.id);
   });
 
   it("signs in by OTP (fixed stub code), and by refresh_token", async () => {
@@ -139,6 +157,21 @@ describe("authGuard (Hono app.request)", () => {
 
     const noAuth = await app.request("/v1/users/me");
     expect(noAuth.status).toBe(401);
+
+    // Anonymous signup: returns a device_key + a session that authenticates /me.
+    const anon = await app.request("/v1/users/anonymous", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ onboarding: { goals: ["save_money"] } }),
+    });
+    expect(anon.status).toBe(201);
+    const anonBody = await anon.json();
+    expect(typeof anonBody.device_key).toBe("string");
+    expect(anonBody.user.phone).toBeNull();
+    const anonMe = await app.request("/v1/users/me", {
+      headers: { authorization: `Bearer ${anonBody.auth.access_token.jwt}` },
+    });
+    expect((await anonMe.json()).user.finished_onboarding).toBe(true);
 
     const withAuth = await app.request("/v1/users/me", {
       headers: { authorization: `Bearer ${body.auth.access_token.jwt}` },
