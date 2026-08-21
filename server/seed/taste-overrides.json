@@ -5,14 +5,15 @@
   "excludeCategoryContains": [
     "mixed dish", "baby food", "infant formula", "infant and toddler",
     "protein and nutritional powders", "formula, ready", "formula, prepared",
-    "sandwich", "pizza", "liquor and cocktail", "soup"
+    "sandwich", "pizza", "liquor and cocktail", "soup",
+    "burger", "burrito", "nachos", "egg roll", "dumpling", "sushi", "pancake", "doughnut", "pastries", "brownie", "cakes and pies", "pudding", "sorbet", "gelatin", "ice cream", "stir-fry", "fried rice", "macaroni and cheese", "vegetable dishes", "legume dishes", "gravies", "pasta sauce", "turnover", "coleslaw", "milk shake", "smoothie"
   ],
   "excludeCategoryExact": ["water", "other", "not included in a food category"],
 
   "excludeFoodGroups": [],
 
   "_nameNote": "If the de-qualified base name contains any of these, it reads as a composite dish, not a base ingredient.",
-  "excludeNameContains": [" and ", " or ", " with "],
+  "excludeNameContains": [" and ", " or ", " with ", "mixed dish"],
 
   "qualifiers": [
     "grilled", "fried", "deep fried", "pan fried", "stir fried", "baked", "boiled", "raw",
