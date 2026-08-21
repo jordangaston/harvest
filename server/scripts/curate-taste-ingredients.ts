@@ -138,9 +138,27 @@ export function curate(foods: CurationFood[], overrides: TasteOverrides, newId: 
       });
   }
 
+  // Merge clusters that surface under the same display label — one ingredient USDA files under two
+  // food groups (lima bean as legume + starchy vegetable; chicken and its meatless analogue). One
+  // entry per label; section/group follow the food group contributing the most members.
+  const byLabel = new Map<string, { label: string; section: string; foodGroup: number; fdcIds: number[]; dominant: number }>();
+  for (const cluster of clusters.values()) {
+    const ex = byLabel.get(cluster.label);
+    if (!ex) {
+      byLabel.set(cluster.label, { ...cluster, dominant: cluster.fdcIds.length });
+    } else {
+      ex.fdcIds.push(...cluster.fdcIds);
+      if (cluster.fdcIds.length > ex.dominant) {
+        ex.section = cluster.section;
+        ex.foodGroup = cluster.foodGroup;
+        ex.dominant = cluster.fdcIds.length;
+      }
+    }
+  }
+
   const ingredients: CuratedIngredient[] = [];
   const stamps: { fdcId: number; baseIngredientId: string }[] = [];
-  for (const cluster of clusters.values()) {
+  for (const cluster of byLabel.values()) {
     const id = newId();
     ingredients.push({ id, label: cluster.label, section: cluster.section, foodGroup: cluster.foodGroup, fdcIds: cluster.fdcIds });
     for (const fdcId of cluster.fdcIds) stamps.push({ fdcId, baseIngredientId: id });
