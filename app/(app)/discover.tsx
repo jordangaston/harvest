@@ -7,33 +7,13 @@ import { useRealDeck } from "../../components/swipe/useRealDeck";
 import { usePreferences, useUpdatePreferences } from "../../lib/api/hooks";
 import { getRecipeFields } from "../../lib/api/recipes";
 import { apiToClient, clientToApi } from "../../lib/api/preferences-map";
-import { ScrollView, Pressable, Text } from "../../components/ui";
-import { ELEVATION } from "../../lib/elevation";
+import { defaultMealSelection, categoriesForSelection } from "../../components/swipe/mealFilters";
 import type { Preferences } from "../../components/swipe/mock";
 
-/** Meal-type filter chips → the recipe_categories values (any facet) they select. */
-const MEAL_FILTERS: { label: string; values: string[] }[] = [
-  { label: "Mains", values: ["main_course"] },
-  { label: "Breakfast", values: ["breakfast", "brunch"] },
-  { label: "Lunch", values: ["lunch"] },
-  { label: "Dinner", values: ["dinner"] },
-  { label: "Snacks", values: ["snack", "appetizer"] },
-  { label: "Salads", values: ["salad"] },
-  { label: "Desserts", values: ["dessert", "cookie", "ice_cream", "pie"] },
-  { label: "Drinks", values: ["beverage", "cocktail"] },
-];
-
-/** Default the filter to the meal slots the user plans (from onboarding weekly_meals). */
-function defaultSelection(weeklyMeals?: Record<string, number>): string[] {
-  const slots: [string, string][] = [["breakfast", "Breakfast"], ["lunch", "Lunch"], ["dinner", "Dinner"], ["snack", "Snacks"]];
-  const sel = slots.filter(([slot]) => (weeklyMeals?.[slot] ?? 0) > 0).map(([, label]) => label);
-  return sel.length ? sel : ["Dinner"];
-}
-
 /**
- * Discover = the recipe swipe deck. Meal-type chips (defaulted to what the user plans) filter the
- * deck by category; the gear opens the settings modal seeded from — and saved back to — the real
- * preference model. Preferences also supply the "owned equipment" set the accent badge uses.
+ * Discover = the recipe swipe deck. The meal-type filter (defaulted to what the user plans) lives
+ * in the deck's settings sheet, alongside the ranking preferences seeded from — and saved back to —
+ * the real preference model. Preferences also supply the "owned equipment" set the accent badge uses.
  */
 export default function Discover() {
   const prefs = usePreferences();
@@ -42,13 +22,10 @@ export default function Discover() {
   // Filter selection defaults to the planned meal slots once preferences load, then the user owns it.
   const [selected, setSelected] = React.useState<string[] | null>(null);
   React.useEffect(() => {
-    if (selected === null && prefs.data) setSelected(defaultSelection(prefs.data.weekly_meals as Record<string, number>));
+    if (selected === null && prefs.data) setSelected(defaultMealSelection(prefs.data.weekly_meals as Record<string, number>));
   }, [prefs.data, selected]);
   const active = selected ?? [];
-  const categories = React.useMemo(
-    () => MEAL_FILTERS.filter((m) => active.includes(m.label)).flatMap((m) => m.values),
-    [active],
-  );
+  const categories = React.useMemo(() => categoriesForSelection(active), [active]);
   const toggle = React.useCallback((label: string) => {
     setSelected((cur) => {
       const s = cur ?? [];
@@ -77,38 +54,15 @@ export default function Discover() {
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={["top"]}>
       <Backdrop />
-      <MealFilterBar selected={active} onToggle={toggle} />
       <View className="flex-1 justify-center">
-        <SwipeDeck controller={controller} settingsInitial={settingsInitial} onSaveSettings={onSaveSettings} hydrateDetail={hydrateDetail} />
+        <SwipeDeck
+          controller={controller}
+          settingsInitial={settingsInitial}
+          onSaveSettings={onSaveSettings}
+          hydrateDetail={hydrateDetail}
+          mealFilter={{ selected: active, onToggle: toggle }}
+        />
       </View>
     </SafeAreaView>
-  );
-}
-
-/** Horizontal multi-select meal-type chips. Selected = solid brand; unselected = lifted card. */
-function MealFilterBar({ selected, onToggle }: { selected: string[]; onToggle: (label: string) => void }) {
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ flexGrow: 0, flexShrink: 0, height: 56 }}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: "center" }}
-    >
-      {MEAL_FILTERS.map((m) => {
-        const on = selected.includes(m.label);
-        return (
-          <Pressable
-            key={m.label}
-            onPress={() => onToggle(m.label)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            className={`h-9 justify-center rounded-full px-4 ${on ? "bg-brand" : "bg-card"}`}
-            style={on ? undefined : ELEVATION.low}
-          >
-            <Text className={`text-sm font-semibold ${on ? "text-white" : "text-muted"}`}>{m.label}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
   );
 }

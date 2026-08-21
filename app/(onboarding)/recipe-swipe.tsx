@@ -71,6 +71,8 @@ export default function RecipeSwipe() {
 
 /** Rendered only after the session exists, so the deck fetch is authed. */
 function WarmUpDeck({ onDone }: { onDone: () => void }) {
+  // No categories passed — the deck service applies the user's default meal-type filter
+  // (derived from their onboarding plan) server-side, with a fallback so it's never empty.
   const controller = useRealDeck({ refill: false });
 
   const hydrateDetail = React.useCallback(async (id: string) => {

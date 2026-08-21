@@ -28,7 +28,7 @@ type StartState = "deck" | "empty" | "error";
  */
 export function SwipeDeck({
   initial = "deck", failSaves = false, forceReduceMotion, controller, settingsInitial, onSaveSettings, hydrateDetail,
-  headerTitle = "Tonight", showSettings = true, onExhausted,
+  headerTitle = "Tonight", showSettings = true, onExhausted, mealFilter,
 }: {
   initial?: StartState;
   failSaves?: boolean;
@@ -37,6 +37,8 @@ export function SwipeDeck({
   controller?: DeckController;
   settingsInitial?: Preferences;
   onSaveSettings?: (p: Preferences) => void;
+  /** Meal-type deck filter, surfaced in the settings sheet (Discover only). Applies live. */
+  mealFilter?: { selected: string[]; onToggle: (label: string) => void };
   /** Lazily fetches a card's ingredients/steps when the DetailSheet opens (real deck only). */
   hydrateDetail?: (recipeId: string) => Promise<{ ingredients: DeckCard["recipe"]["ingredients"]; steps: string[] }>;
   headerTitle?: string;
@@ -53,7 +55,6 @@ export function SwipeDeck({
   const [reasonFor, setReasonFor] = React.useState<{ id: string; title: string } | null>(null);
   const [cookbookFor, setCookbookFor] = React.useState<DeckCard | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
-  const [showHint, setShowHint] = React.useState(true);
   const [osReduceMotion, setOsReduceMotion] = React.useState(false);
   const reduceMotion = forceReduceMotion ?? osReduceMotion;
 
@@ -90,7 +91,6 @@ export function SwipeDeck({
     (direction: Direction, method: "gesture" | "button", cookbook?: string, reason?: DislikeReason, detail?: string) => {
       const card = deck.cards[0];
       if (!card) return;
-      setShowHint(false);
       analytics.track("Recipe Swiped", {
         recipeId: card.recipe.id, direction, method, score: card.score,
         msVisible: Date.now() - shownAt.current,
@@ -141,7 +141,6 @@ export function SwipeDeck({
   const requestDislike = React.useCallback(() => {
     const card = deck.cards[0];
     if (!card) return;
-    setShowHint(false);
     springBack();
     setReasonFor({ id: card.recipe.id, title: card.recipe.title });
   }, [deck, springBack]);
@@ -230,7 +229,6 @@ export function SwipeDeck({
             <Disc opacity={likeOpacity} side="right" icon="checkmark" />
             <Disc opacity={nopeOpacity} side="left" icon="close" />
             <Disc opacity={saveOpacity} side="top" icon="arrow-up" />
-            {showHint ? <GestureHint /> : null}
             {deck.failedSave?.recipe.id === top.recipe.id ? (
               <View className="absolute inset-x-4 top-4 flex-row items-center justify-center rounded-full bg-error px-3 py-2" style={{ gap: 6 }}>
                 <Icon name="refresh" size={14} color="#fff" />
@@ -255,7 +253,7 @@ export function SwipeDeck({
       <DetailSheet card={detail} visible={!!detail} onClose={() => setDetail(null)} />
       <ReasonSheet visible={!!reasonFor} onChoose={chooseReason} onSkip={skipReason} />
       <CookbookPicker visible={!!cookbookFor} recipeTitle={cookbookFor?.recipe.title ?? null} onSelect={saveToCookbook} onClose={() => setCookbookFor(null)} />
-      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} initial={settingsInitial} onSave={onSaveSettings} />
+      <SettingsScreen visible={settingsOpen} onClose={() => setSettingsOpen(false)} initial={settingsInitial} onSave={onSaveSettings} mealFilter={mealFilter} />
     </View>
   );
 }
@@ -369,30 +367,6 @@ function CookbookPicker({ visible, recipeTitle, onSelect, onClose }: { visible: 
         </View>
       </View>
     </Modal>
-  );
-}
-
-/* ---------- First-use gesture hint (the only tutorial element in scope) ---------- */
-function GestureHint() {
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
-      <View className="items-center rounded-2xl px-5 py-4" style={{ backgroundColor: "rgba(20,12,4,0.62)", gap: 8 }}>
-        <View className="flex-row items-center" style={{ gap: 14 }}>
-          <HintArrow icon="arrow-back" text="Pass" />
-          <HintArrow icon="arrow-up" text="Cook" />
-          <HintArrow icon="arrow-forward" text="Like" />
-        </View>
-        <Text className="text-sm font-semibold text-white">Swipe or use the buttons below</Text>
-      </View>
-    </View>
-  );
-}
-function HintArrow({ icon, text }: { icon: React.ComponentProps<typeof Icon>["name"]; text: string }) {
-  return (
-    <View className="items-center" style={{ gap: 2 }}>
-      <Icon name={icon} size={20} color="#fff" />
-      <Text className="text-xs text-white/90">{text}</Text>
-    </View>
   );
 }
 

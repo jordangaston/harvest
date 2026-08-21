@@ -12,6 +12,7 @@ import {
 import {
   Preferences, DEFAULT_PREFERENCES, COMMON_INGREDIENTS, money, formatTime, DifficultyBand, MealType,
 } from "./mock";
+import { MEAL_FILTERS } from "./mealFilters";
 
 /**
  * The preferences surface — declarative, not explanatory: the user sets what they want;
@@ -22,7 +23,7 @@ import {
  * Its building blocks (Chip, Segmented, Slider, …) and option corpora live in
  * components/onboarding/primitives.tsx so onboarding and Settings share one source of truth.
  */
-export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_PREFERENCES, onSave }: { onClose: () => void; embedded?: boolean; initial?: Preferences; onSave?: (p: Preferences) => void }) {
+export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_PREFERENCES, onSave, mealFilter }: { onClose: () => void; embedded?: boolean; initial?: Preferences; onSave?: (p: Preferences) => void; mealFilter?: { selected: string[]; onToggle: (label: string) => void } }) {
   const [p, setP] = React.useState<Preferences>(initial);
   const [cuisineSearch, setCuisineSearch] = React.useState(false);
   const [ingredientSearch, setIngredientSearch] = React.useState(false);
@@ -59,6 +60,18 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
 
   const body = (
     <>
+              {/* Deck filter: which meal types to show. Applies live (independent of Save). */}
+              {mealFilter ? (
+                <Card>
+                  <Text className="text-sm font-bold text-ink">Meal types</Text>
+                  <View className="flex-row flex-wrap" style={{ gap: 8, marginTop: 8 }}>
+                    {MEAL_FILTERS.map((m) => (
+                      <Chip key={m.label} label={m.label} active={mealFilter.selected.includes(m.label)} onToggle={() => mealFilter.onToggle(m.label)} />
+                    ))}
+                  </View>
+                </Card>
+              ) : null}
+
               {/* Most-likely-to-change first, each its own card. */}
               <VStack space={14}>
                 <MealCounts value={p.weeklyMeals} onChange={setMeal} />
@@ -185,12 +198,12 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
 }
 
 /** The deck's gear opens this — the settings content in a bottom-sheet Modal. */
-export function SettingsScreen({ visible, onClose, initial, onSave }: { visible: boolean; onClose: () => void; initial?: Preferences; onSave?: (p: Preferences) => void }) {
+export function SettingsScreen({ visible, onClose, initial, onSave, mealFilter }: { visible: boolean; onClose: () => void; initial?: Preferences; onSave?: (p: Preferences) => void; mealFilter?: { selected: string[]; onToggle: (label: string) => void } }) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
         <View className="overflow-hidden rounded-t-3xl bg-cream" style={{ height: "92%" }}>
-          {visible ? <SettingsContent onClose={onClose} initial={initial} onSave={onSave} /> : null}
+          {visible ? <SettingsContent onClose={onClose} initial={initial} onSave={onSave} mealFilter={mealFilter} /> : null}
         </View>
       </View>
     </Modal>
