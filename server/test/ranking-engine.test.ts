@@ -18,6 +18,7 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     mealPrepFit: null,
     nrfScore: 50,
     totalMinutes: 30,
+    mealTypes: [],
     categories: { cuisine: [], dishType: [], primaryIngredient: [] },
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
@@ -35,6 +36,7 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
     budgetCentsPerServing: 400,
     weeklyBudgetCents: null,
     timeBudgetMinutes: 30,
+    timeByMeal: null,
     weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
     weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 0 },
     allergens: [],
@@ -68,6 +70,46 @@ describe('scorer normalization (Test Case 1)', () => {
     expect(time.score(rankableRecipe({ totalMinutes: 30 }), p)).toBe(1);
     expect(time.score(rankableRecipe({ totalMinutes: 60 }), p)).toBe(0);
     expect(time.score(rankableRecipe({ totalMinutes: null }), p)).toBeNull();
+  });
+
+  describe('time: per-meal budget (pickBudget)', () => {
+    const time = new TimeScorer();
+    // dinner budget 40 → at 40min = 1, at 80 = 0; breakfast budget 20; lunch 60.
+    const perMeal = preferences({ timeByMeal: { breakfast: 20, lunch: 60, dinner: 40 }, timeBudgetMinutes: 60 });
+
+    it('single meal_type uses that meal’s budget', () => {
+      expect(time.score(rankableRecipe({ mealTypes: ['dinner'], totalMinutes: 40 }), perMeal)).toBe(1);
+      expect(time.score(rankableRecipe({ mealTypes: ['dinner'], totalMinutes: 80 }), perMeal)).toBe(0);
+      // Same 40-min recipe scored against the tighter breakfast budget (20) is over budget → 0.
+      expect(time.score(rankableRecipe({ mealTypes: ['breakfast'], totalMinutes: 40 }), perMeal)).toBe(0);
+    });
+
+    it('multi meal_type uses the most-generous applicable budget (max)', () => {
+      // breakfast(20) + lunch(60) → budget 60: (120-90)/60 = 0.5. The tighter breakfast(20) would give 0.
+      expect(time.score(rankableRecipe({ mealTypes: ['breakfast', 'lunch'], totalMinutes: 90 }), perMeal)).toBe(0.5);
+    });
+
+    it('brunch resolves to the breakfast budget', () => {
+      expect(time.score(rankableRecipe({ mealTypes: ['brunch'], totalMinutes: 20 }), perMeal)).toBe(1);
+      expect(time.score(rankableRecipe({ mealTypes: ['brunch'], totalMinutes: 40 }), perMeal)).toBe(0);
+    });
+
+    it('no applicable meal_type falls back to the most-generous overall budget', () => {
+      // [] and snack-only both use max(20,60,40)=60 → (120-90)/60 = 0.5.
+      expect(time.score(rankableRecipe({ mealTypes: [], totalMinutes: 90 }), perMeal)).toBe(0.5);
+      expect(time.score(rankableRecipe({ mealTypes: ['snack'], totalMinutes: 90 }), perMeal)).toBe(0.5);
+    });
+
+    it('null timeByMeal falls back to the scalar; both null → null', () => {
+      const scalarOnly = preferences({ timeByMeal: null, timeBudgetMinutes: 30 });
+      expect(time.score(rankableRecipe({ mealTypes: ['dinner'], totalMinutes: 30 }), scalarOnly)).toBe(1);
+      const neither = preferences({ timeByMeal: null, timeBudgetMinutes: null });
+      expect(time.score(rankableRecipe({ mealTypes: ['dinner'], totalMinutes: 30 }), neither)).toBeNull();
+    });
+
+    it('null totalMinutes → null even with a per-meal budget', () => {
+      expect(time.score(rankableRecipe({ mealTypes: ['dinner'], totalMinutes: null }), perMeal)).toBeNull();
+    });
   });
 
   it('difficulty: match → 1, one-easier → 0.85, two-harder → 0.20, null → null', () => {

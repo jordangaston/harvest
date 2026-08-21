@@ -9,6 +9,8 @@ export type RankableRecipe = {
   mealPrepFit: 'unsuitable' | 'suitable' | 'designed' | null;
   nrfScore: number | null;
   totalMinutes: number | null;
+  // The recipe's meal_type facets (breakfast/brunch/lunch/dinner/snack); picks the time budget.
+  mealTypes: string[];
   categories: { cuisine: string[]; dishType: string[]; primaryIngredient: string[] };
   allergens: { contains: string[]; mayContain: string[]; complete: boolean };
   dietFit: Record<string, 'compatible' | 'incompatible' | 'unknown'>;

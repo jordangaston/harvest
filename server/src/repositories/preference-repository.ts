@@ -51,6 +51,7 @@ export class PreferenceRepository {
       budgetCentsPerServing: prefs.budgetCentsPerServing,
       weeklyBudgetCents: prefs.weeklyBudgetCents,
       timeBudgetMinutes: prefs.timeBudgetMinutes,
+      timeByMeal: prefs.timeByMeal ?? null,
       weeklyMeals: prefs.weeklyMeals ?? ZERO_MEALS,
       weights: {
         cost: prefs.weightCost,
@@ -78,6 +79,7 @@ export class PreferenceRepository {
     return UserPreferencesSchema.parse({
       ...row,
       weeklyBudgetCents: null,
+      timeByMeal: null,
       weeklyMeals: ZERO_MEALS,
       weights: {
         cost: row.weightCost,
@@ -174,12 +176,19 @@ export class PreferenceRepository {
       const [before] = await tx.select({ eatsLeftovers: userPreferences.eatsLeftovers }).from(userPreferences).where(eq(userPreferences.userId, userId));
       const leftoversTurnedOn = input.eatsLeftovers && before && !before.eatsLeftovers;
 
+      // `time_budget_minutes` is the derived max(...) scalar (back-compat + cold-start); when the
+      // client sends per-meal budgets it wins, else the client's own scalar is kept.
+      const timeBudgetMinutes = input.timeByMeal
+        ? Math.max(input.timeByMeal.breakfast, input.timeByMeal.lunch, input.timeByMeal.dinner)
+        : input.timeBudgetMinutes;
+
       await tx
         .update(userPreferences)
         .set({
           skillLevel: input.skillLevel,
           weeklyBudgetCents: input.weeklyBudgetCents,
-          timeBudgetMinutes: input.timeBudgetMinutes,
+          timeBudgetMinutes,
+          timeByMeal: input.timeByMeal,
           weeklyMeals: input.weeklyMeals,
           equipmentReviewed: true,
           // Domain model keeps stores as string[]; the wire DTO already validated them against
