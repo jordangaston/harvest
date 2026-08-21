@@ -2,12 +2,13 @@ import { z } from 'zod';
 import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES } from './schema.js';
 import { WeeklyMealsSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
 
-// The wire facet vocab (`ingredient` reads cleaner than the domain's `primary_ingredient`).
+// The picker's facets. `ingredient` is now its own affinity facet (value = a base_ingredient_id
+// uuid), so wire and domain names match 1:1 — no more `ingredient`↔`primary_ingredient` remap.
+// A legacy `primary_ingredient` food-pref (from the swipe dislike-loop) simply isn't a picker
+// facet: it's dropped from the DTO but survives a Save (dislikes replace only re-supplied values).
 const WIRE_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
 type WireFacet = (typeof WIRE_FACETS)[number];
-type DomainFacet = 'cuisine' | 'dish_type' | 'primary_ingredient';
-const toDomainFacet = (f: WireFacet): DomainFacet => (f === 'ingredient' ? 'primary_ingredient' : f);
-const toWireFacet = (f: DomainFacet): WireFacet => (f === 'primary_ingredient' ? 'ingredient' : f);
+const isWireFacet = (f: string): f is WireFacet => (WIRE_FACETS as readonly string[]).includes(f);
 
 const affinitySelection = z.object({ facet: z.enum(WIRE_FACETS), value: z.string() });
 
@@ -29,10 +30,13 @@ export const preferencesBodySchema = z.object({
 });
 export type PreferencesBody = z.infer<typeof preferencesBodySchema>;
 
-/** Domain model → wire DTO. Folds the food-pref facets into like/dislike lists over all facets. */
+/** Domain model → wire DTO. Surfaces only the picker's facets (cuisine/dish_type/ingredient);
+ * a legacy `primary_ingredient` pref isn't editable in the picker, so it's omitted here. */
 export function toPreferencesDTO(p: UserPreferences) {
   const selections = (sentiment: 'like' | 'dislike') =>
-    p.foodPrefs.filter((f) => f.sentiment === sentiment).map((f) => ({ facet: toWireFacet(f.facet as DomainFacet), value: f.value }));
+    p.foodPrefs
+      .filter((f) => f.sentiment === sentiment && isWireFacet(f.facet))
+      .map((f) => ({ facet: f.facet as WireFacet, value: f.value }));
   return {
     skill_level: p.skillLevel,
     weekly_budget_cents: p.weeklyBudgetCents,
@@ -50,16 +54,15 @@ export function toPreferencesDTO(p: UserPreferences) {
   };
 }
 
-/** Wire DTO → the repository's editable-subset input. */
+/** Wire DTO → the repository's editable-subset input. Facet names pass through 1:1 now. */
 export function fromPreferencesDTO(b: PreferencesBody): PreferencesUpdate {
-  const toDomain = (s: { facet: WireFacet; value: string }) => ({ facet: toDomainFacet(s.facet), value: s.value });
   return {
     skillLevel: b.skill_level,
     weeklyBudgetCents: b.weekly_budget_cents,
     timeBudgetMinutes: b.time_budget_minutes,
     weeklyMeals: b.weekly_meals,
-    likes: b.likes.map(toDomain),
-    dislikes: b.dislikes.map(toDomain),
+    likes: b.likes,
+    dislikes: b.dislikes,
     allergens: b.allergens,
     diets: b.diets.map((d) => ({ dietId: d.diet, strictness: d.strictness })),
     ownedEquipment: b.owned_equipment,
