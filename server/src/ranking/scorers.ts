@@ -48,7 +48,9 @@ export class NutritionScorer implements SignalScorer {
 
 const FACET_KEY = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient' } as const;
 
-/** Per facet: +1 shares a liked value, −1 shares a disliked (no liked), else 0; centered on 0.5. */
+/** Per facet: +1 shares a liked value, −1 shares a disliked (no liked), else 0; centered on 0.5.
+ * Four facets: the three `recipe.categories` facets plus `ingredient`, matched on the recipe's
+ * rolled-up `baseIngredientIds` (so an "okra" like/dislike bites at base-ingredient granularity). */
 export class AffinityScorer implements SignalScorer {
   key = 'affinity';
   weight = (p: UserPreferences) => p.weights.affinity;
@@ -58,6 +60,9 @@ export class AffinityScorer implements SignalScorer {
       const values = recipe.categories[FACET_KEY[facet]];
       if (values.length === 0) continue;
       sentiments.push(this.facetSentiment(facet, values, prefs));
+    }
+    if (recipe.baseIngredientIds.length > 0) {
+      sentiments.push(this.facetSentiment('ingredient', recipe.baseIngredientIds, prefs));
     }
     if (sentiments.length === 0) return null;
     const mean = sentiments.reduce((a, b) => a + b, 0) / sentiments.length;
