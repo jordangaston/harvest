@@ -178,9 +178,9 @@ classDiagram
     FdcFood "*" ..> "1" TasteOption : ingredient option
 ```
 
-`TasteOption` is a **view** over VOCAB (cuisines, dish types) and the curated `FdcFood` subset, not a
-stored table — it is assembled by the endpoint. `UserFoodPref.facet` now admits `ingredient`, whose
-`value` is a stringified `fdc_id`.
+`TasteOption` is a **view** over VOCAB (cuisines, dish types) and the curated base-ingredient set
+(`taste_ingredients`), not a stored table — it is assembled by the endpoint. `UserFoodPref.facet` now
+admits `ingredient`, whose `value` is a `base_ingredient_id` (the curated cluster, resolves Q-03).
 
 ---
 
@@ -211,12 +211,35 @@ No schema change. `value` is a free string validated in app code, not a DB enum
 
 `facet` is `AFFINITY_FACETS` (`server/src/schema.ts:529`). `AFFINITY_FACETS` gains `ingredient`
 (`server/src/schema.ts:636`), an app-level tuple change, not a DB migration — the column is
-`text`. `value` for an `ingredient` pref is the `fdc_id` as text.
+`text`. `value` for an `ingredient` pref is a `base_ingredient_id` — the curated cluster the pick
+rolls up to, **not** a raw `fdc_id` (resolves Q-03).
 
-## fdc_foods / fdc_foods_fts — unchanged
+## fdc_foods / fdc_foods_fts — changed
 
-Read as-is (`server/src/schema.ts:406`, FTS mirror `server/drizzle/0002_fdc_fts.sql`). The
-taste-options endpoint reads a curated subset; the affinity join reads `ingredients.fdc_id`.
+Adds three columns so foods can be clustered into a base-ingredient picker. The current real seed has
+5,432 `fdc_foods` rows with `category` populated (172 distinct, 0 nulls) but carries only the FDC
+`fdc_id` (e.g. `2705383`), **not** the FNDDS `food_code` — hence the re-seed
+(`server/src/schema.ts:406`, FTS mirror `server/drizzle/0002_fdc_fts.sql`).
+
+| Column Name | Type | Constraints | Notes |
+|---|---|---|---|
+| food_code | integer | null | 8-digit FNDDS code, from the FDC Survey JSON `foodCode`; the hierarchical key that drives clustering |
+| wweia_category_code | integer | null | 4-digit `wweiaFoodCategory.wweiaFoodCategoryCode`; the existing `category` description stays |
+| base_ingredient_id | text | null, fk → taste_ingredients.id | The curated cluster this food rolls up to; the affinity join target |
+
+## taste_ingredients — new
+
+The picker options — a few-hundred curated base ingredients the ~5,432 foods collapse into. Populated
+by the curation pass (see *Ingredient Curation*). The affinity join is
+`ingredients.fdc_id → fdc_foods.base_ingredient_id`, and a user ingredient pref's `value` is a
+`base_ingredient_id`.
+
+| Column Name | Type | Constraints | Notes |
+|---|---|---|---|
+| id | text | pk | Slug (the `base_ingredient_id` foods point to) |
+| label | text | not null | Canonical consumer name (e.g. `Chicken`, `Bell pepper`) |
+| section | text | not null | One of the 9 FNDDS groups, or a ~13 grocery-aisle remap — the picker's section header |
+| food_group | integer | not null | FNDDS major group, 1–9 (= `food_code[0]`) |
 
 ---
 
@@ -266,6 +289,49 @@ flowchart LR
 `RankableRecipe` (`server/src/ranking/types.ts:4`) gains `foodIds: number[]`, batched into
 `assembleRankable()` alongside categories/diets/equipment
 (`server/src/repositories/recipe-repository.ts:461`) — no N+1.
+
+---
+
+# Ingredient Curation (fdc_foods → base ingredients)
+
+The 5,432 foods are too many and too qualified to be picker chips — a raw FNDDS description carries
+form, prep, part, and survey `NS`/`NFS` tokens ("Chicken breast, grilled, skin not eaten"). Curation
+collapses them ~42:1 into a **few hundred** base ingredients, grouped into sections, keyed by the
+FNDDS food code.
+
+**Derived keys.** The 8-digit `food_code` is hierarchical, so two slices give the structure for free:
+- `food_group = food_code[0]` — 9 FNDDS majors: 1 Dairy, 2 Meat/Protein, 3 Eggs,
+  4 Legumes/Nuts/Seeds, 5 Grains, 6 Fruits, 7 Vegetables, 8 Fats/Oils, 9 Sugars/Sweets/Beverages.
+- `subgroup = food_code[:4]` — ~280 coherent families. The subgroup is what keeps clustering honest:
+  coconut milk and dairy milk share the word "milk" but live in different subgroups, so they never
+  merge.
+
+**Pipeline.**
+1. **Exclude non-ingredients.** Drop foods whose WWEIA category rolls to Mixed Dishes (those are
+   `dish_type`, not ingredients), plus Baby Foods, Water, and Other. Decide once whether Beverages +
+   Alcohol get their own section or are excluded.
+2. **De-qualify to a base name.** FNDDS descriptions are comma-delimited, head-first: take the first
+   segment as head noun, then strip a qualifier lexicon from every segment — cooking methods
+   (grilled/fried/baked/boiled/raw/cooked/steamed), forms (fresh/frozen/canned/dried/from
+   concentrate), fat-percent (`low fat`, `(1%)`, `reduced fat`, `NS as to percent lean`), part/prep
+   (`skin not eaten`, `without sauce`), and the survey `NS`/`NFS` tokens + parentheticals. Normalize:
+   lowercase, singularize, trim.
+3. **Cluster by `(subgroup, base_name)`.** The code subgroup prevents lexical false-merges; the name
+   gives the label.
+4. **Granularity knobs.** A small hand-authored config of merge rules ("chicken breast/thigh" →
+   Chicken) and keep-split rules ("bell pepper" ≠ "pepper"). This config is the calibration surface —
+   the tuning knob the physical corpus needs — not per-food labeling.
+5. **Label.** Title-case the base name; borrow a USDA Foundation Foods commodity label where one
+   matches by normalized name; else an overrides map for the residual ugly names.
+6. **Section.** The 9 FNDDS group label (or a ~13 grocery-aisle remap).
+7. **Emit + QA.** Set `fdc_foods.base_ingredient_id`, insert `taste_ingredients`. Assert the cluster
+   count lands in a sane band (~200–500), that 100% of non-excluded foods map, and eyeball a sample
+   per section.
+
+**Target.** A few hundred base ingredients, sectioned — not a flat 5K list. We **rejected** keying
+against FoodOn / Open Food Facts / LanguaL (their terminology, unit, and granularity mismatches are
+non-trivial to reconcile for little payoff) and **rejected** Foundation Foods as the source (too
+sparse, ~73 foods) — but we borrow its labels where they match.
 
 ---
 
@@ -376,9 +442,9 @@ target. Extend the existing WI-1 nutrition fixture rather than adding a new one.
 
 | Order | Type | Description | Backwards-Compatible |
 |---|---|---|---|
-| 1 | schema | `ingredients.fdc_id`, `ingredients.match_quality`, `ingredients_fdc_idx` (adds only) | yes |
+| 1 | schema | `ingredients.fdc_id`, `ingredients.match_quality`, `ingredients_fdc_idx`; `fdc_foods.{food_code, wweia_category_code, base_ingredient_id}`; `taste_ingredients` table (adds only) | yes |
 | 2 | code | Expand `VOCAB.cuisine`; add `ingredient` to `AFFINITY_FACETS` | yes |
-| 3 | data | Re-seed recipes (reproducible seed) to re-classify against expanded vocab **and** backfill `ingredients.fdc_id` | n/a (rebuild) |
+| 3 | data | Re-seed recipes + foods (reproducible seed): re-classify against expanded vocab, capture `food_code`/`wweia_category_code`, run curation to fill `base_ingredient_id` + `taste_ingredients`, and backfill `ingredients.fdc_id` | n/a (rebuild) |
 
 Migration 1 adds only — never a drop-plus-add on one table — so `drizzle-kit generate` stays
 non-interactive (`docs/harvest-principles.md`, "stage destructive-plus-additive schema changes").
@@ -390,8 +456,10 @@ so the feature is dark until data lands.
 
 The recipe seed is **reproducible** (per memory: "the recipe seed is reproducible"). Re-running it
 re-classifies every recipe against the expanded `VOCAB` and populates `ingredients.fdc_id` from the
-same match the nutrition step runs — no separate, costly LLM backfill over the live corpus. See the
-Decisions section.
+same match the nutrition step runs — no separate, costly LLM backfill over the live corpus. The
+re-seed also captures `food_code` + `wweia_category_code` on each `fdc_food` and runs the curation
+pass (see *Ingredient Curation*) to populate `base_ingredient_id` and insert `taste_ingredients`. See
+the Decisions section.
 
 ## Deploy Sequence
 
@@ -458,7 +526,7 @@ already done, (3) no new LLM cost, (4) small diff.
 - **New recipe_foods join table:** redundant — the match is per-ingredient and `ingredients` already
   is that grain; a join table would denormalize what one nullable column expresses.
 
-## Flat expanded cuisine list with parent fallback, re-seed to re-classify
+## Two-level cuisine hierarchy with parent fallback, re-seed to re-classify
 
 **Framework:** Fermi ROI.
 
@@ -470,11 +538,56 @@ already done, (3) no new LLM cost, (4) small diff.
 - **A backfill LLM pass over the live corpus** is higher effort (a new batch job, rate-limit handling
   per `docs/harvest-principles.md` tiered-escalation) for the same end state.
 
-**Choice:** Flat list plus a parent map (`tex_mex → mexican`) used only as a **display/fallback**
-grouping, not a second stored value; re-seed to re-classify. Highest ROI — biggest unlock for a
-code-edit-plus-reseed.
+**Choice:** `VOCAB.cuisine` is a two-level parent→child hierarchy — ~40–70 entries, authored from
+Wikipedia's *List of cuisines* and *List of American regional and fusion cuisines* (geographic tree
+only; we drop the religious/style/historical axes). A child that a recipe rarely hits **falls back to
+its parent** for ranking, so a sparse leaf still scores. The tree is a display/fallback grouping the
+picker computes from the flat list — not a second stored value. Cajun and Creole are modeled as
+**siblings** under Southern (they are distinct culinary practices), not nested one under the other.
+Re-seed to re-classify. Highest ROI — biggest unlock for a code-edit-plus-reseed.
+
+Over-granular leaves fragment recipe density and hurt LLM classification accuracy, so the hierarchy
+stays shallow (two levels) and parent-fallback covers the thin leaves.
+
+**Proposed `VOCAB.cuisine` (parent → children):**
+
+| Parent | Children |
+|---|---|
+| American | Southern (→ Cajun, Creole, Soul food, Lowcountry), Southwestern (→ Tex-Mex), New England, Midwestern, Californian, Hawaiian, Floribbean |
+| Mexican | Baja, Oaxacan, Yucatecan |
+| Caribbean | — |
+| Peruvian | — |
+| Brazilian | — |
+| Argentine | — |
+| Italian | — |
+| French | — |
+| Spanish | — |
+| Greek | — |
+| Mediterranean | *(cross-cutting; no parent)* |
+| German | — |
+| British | — |
+| Eastern European | — |
+| Nordic | — |
+| Middle Eastern | Lebanese, Turkish, Persian |
+| North African | Moroccan |
+| Ethiopian | — |
+| West African | — |
+| Indian | North Indian, South Indian, Punjabi |
+| Thai | — |
+| Vietnamese | — |
+| Chinese | Sichuan, Cantonese, Hunan |
+| Japanese | — |
+| Korean | — |
+| Filipino | — |
+| Indonesian | — |
+| Malaysian | — |
+
+Southern nests one level deeper (Cajun/Creole/Soul food/Lowcountry) and Southwestern → Tex-Mex; those
+sit under American. Total stays in the ~40–70 band.
 
 ### Alternatives Considered
+- **Flat list, no hierarchy:** loses the parent-fallback that keeps sparse leaves (baja, lowcountry)
+  scoring; the picker also can't section without a tree.
 - **Hierarchy stored as parent+child rows:** doubles the affinity match surface and complicates the
   scorer for a grouping the picker can compute client-side from the flat list.
 - **Backfill LLM pass:** same result, higher cost and operational risk than re-seeding a reproducible
@@ -496,11 +609,12 @@ TanStack Query + AsyncStorage model (`docs/client-caching.md`), keyed and revali
 
 | ID | Question | Status | Resolution |
 |---|---|---|---|
-| Q-01 | Which foods are "taste-selectable"? All ~5,000 fdc_foods is a large payload; do we curate to the ingredient-like subset (exclude prepared dishes, beverages) and section by `category`? | open | [ASSUMPTION: serve a curated ingredient subset grouped by `category`; exclude non-ingredient WWEIA groups via the same rules `toPrimaryIngredient` already encodes at `server/src/categorize/fdc-category-map.ts:13`.] |
-| Q-02 | Exact expanded cuisine list — which of tex-mex, baja, cajun, creole, soul_food, etc. does the founder want, and their parent-fallback map? | open | [ASSUMPTION: adopt the client's `ALL_CUISINES` set, snake_cased, as the seed list pending founder sign-off — same posture as the original `VOCAB` Q-01.] |
-| Q-03 | Does an `ingredient` affinity pref match on the exact `fdc_id`, or also on the food's WWEIA `category` (so "no shellfish" catches every shellfish food)? | open | [ASSUMPTION: exact `fdc_id` for v1 (precise, uses the persisted match directly); category-level match is a fast follow if picks feel too narrow.] |
+| Q-01 | Which foods are "taste-selectable"? All ~5,000 fdc_foods is a large payload; do we curate to the ingredient-like subset (exclude prepared dishes, beverages) and section by `category`? | resolved | Re-seed to capture the FNDDS `food_code`, then cluster to a few-hundred base-ingredient picker — see *Ingredient Curation*. The picker options live in `taste_ingredients`, sectioned by FNDDS group. |
+| Q-02 | Exact expanded cuisine list — which of tex-mex, baja, cajun, creole, soul_food, etc. does the founder want, and their parent-fallback map? | resolved | Two-level parent→child hierarchy, ~40–70 entries from Wikipedia's cuisine lists — see the proposed `VOCAB.cuisine` table in *Decisions*. Cajun/Creole are siblings under Southern. |
+| Q-03 | Does an `ingredient` affinity pref match on the exact `fdc_id`, or also on the food's WWEIA `category` (so "no shellfish" catches every shellfish food)? | resolved | Match on `base_ingredient_id` — the curated cluster: coarser than a raw `fdc_id`, finer than the WWEIA `category`. A pick stores a `base_ingredient_id`; the join is `ingredients.fdc_id → fdc_foods.base_ingredient_id`. |
 | Q-04 | ~5K-food payload size and shape — is one `GET` acceptable, or do we need gzip/field-trimming/pagination? | open | [ASSUMPTION: a curated subset (Q-01) gzips small enough for one cached response; measure before adding pagination — don't build it speculatively.] |
 | Q-05 | Should the client fully drop its hardcoded corpora now, or read `GET /v1/taste-options` behind a fallback for one release? | open | [ASSUMPTION: read the endpoint as the single source of truth; keep the hardcoded list only as an offline-first render seed, deleted once the cache proves reliable.] |
+| Q-06 | Per-cuisine recipe density in the current corpus — how many seeded recipes land on each leaf? This is empirical and sets how granular the cuisine leaves can safely go before parent-fallback has to carry them. No external source answers it; measure against the seeded recipes. | open | [Measure after the first re-seed classifies against the expanded vocab; thin leaves either merge upward or lean on parent-fallback.] |
 
 ---
 
@@ -509,3 +623,31 @@ TanStack Query + AsyncStorage model (`docs/client-caching.md`), keyed and revali
 | Date | Author | Change |
 |---|---|---|
 | 2026-08-20 | Feature Lead (design agent) | Initial draft |
+| (this revision) | Feature Lead (design agent) | Fold in research: resolve Q-01/Q-02/Q-03. Add the *Ingredient Curation* algorithm (fdc_foods → few-hundred base ingredients via the FNDDS food code), `taste_ingredients` table, and `fdc_foods` code columns. Author the two-level cuisine hierarchy (~40–70 entries). Add Q-06 (empirical per-cuisine density) and Appendix B (research + sources). |
+
+---
+
+# Appendix B — Research
+
+The design rests on the USDA FNDDS food-code structure and the absence of any standard cuisine
+vocabulary. Verified findings:
+
+- **Raw FNDDS descriptions make poor chips.** They carry form/prep/part qualifiers and survey
+  `NS`/`NFS` tokens ("Chicken breast, grilled, skin not eaten"), so they must be de-qualified before
+  they read as ingredient names.
+- **The 8-digit food code is a hierarchical key.** The 1st digit is one of 9 food groups; digits 2–4
+  give ~280 subgroups. This is what lets clustering group by `(subgroup, base_name)` without lexical
+  false-merges, and gives sections for free.
+- **WWEIA is "as-consumed", 172 categories rolling to ~15 groups.** A good *sectioning* axis, but its
+  categories are dish-level, not ingredient labels — so it sections, it doesn't name.
+- **The catalog collapses ~42:1** — 5,432 foods into a few-hundred base ingredients.
+- **schema.org has no cuisine enum** (`recipeCuisine` is free text), so the cuisine vocabulary is
+  authored from Wikipedia's geographic cuisine tree rather than a standard.
+
+Sources:
+- USDA FNDDS 2021–2023 Documentation — https://www.ars.usda.gov/ARSUserFiles/80400530/pdf/fndds/2021_2023_FNDDS_Doc.pdf
+- WWEIA Food Categories (USDA ARS FSRG) — https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/dmr-food-categories/
+- USDA Foundation Foods Documentation — https://fdc.nal.usda.gov/Foundation_Foods_Documentation/
+- schema.org/recipeCuisine (no controlled vocab; free text) — https://schema.org/recipeCuisine
+- Wikipedia "List of cuisines" — https://en.wikipedia.org/wiki/List_of_cuisines
+- Wikipedia "List of American regional and fusion cuisines" — https://en.wikipedia.org/wiki/List_of_American_regional_and_fusion_cuisines
