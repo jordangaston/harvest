@@ -206,8 +206,21 @@ matched food X."
 ## recipe_categories — unchanged
 
 No schema change. `value` is a free string validated in app code, not a DB enum
-(`server/src/schema.ts:246`), so expanding the cuisine vocabulary needs **no migration** — only a
-`VOCAB` edit plus re-classification. This is the design's key affordance.
+(`server/src/schema.ts:246`), so a recipe's cuisine tag (the slug) needs **no migration** — expanding
+the vocabulary is a re-seed, not a data migration. This is the design's key affordance.
+
+## cuisines — new
+
+The authored cuisine hierarchy, seeded from `server/seed/cuisines.json` by `seed:cuisines`. `slug` is
+a **natural** key (the slug *is* the cuisine's identity, and `recipe_categories.value` stores it
+directly); `parent_slug` self-references for parent-fallback ranking (leaf → parent when a leaf is
+sparse). A few dozen rows.
+
+| Column Name | Type | Constraints | Notes |
+|---|---|---|---|
+| slug | text | pk | Natural key; the value stored on `recipe_categories` (e.g. `tex_mex`) |
+| label | text | not null | Display name (e.g. `Tex-Mex`) |
+| parent_slug | text | null, fk → cuisines.slug | Parent for fallback ranking; null for a top-level cuisine |
 
 ## user_food_prefs — unchanged schema, widened enum
 
@@ -580,24 +593,27 @@ pref. Keying on `uuidPk()` also matches every other id in the app, so nothing be
 
 - **Impact:** high — unlocks tex-mex/cajun/creole/baja end to end; these are common and currently
   silently unmatched.
-- **Effort:** low. Expanding `VOCAB.cuisine` is a code edit; because `recipe_categories.value` is a
-  free string (`server/src/schema.ts:246`), **no migration**. Re-classification rides the reproducible
-  re-seed — near-zero marginal effort vs. a bespoke backfill.
+- **Effort:** low. The cuisine **values** on recipes still need **no data migration** —
+  `recipe_categories.value` is a free string (`server/src/schema.ts:246`) storing the slug, and
+  re-classification rides the reproducible re-seed. The only new schema is the `cuisines` table
+  itself, seeded from `server/seed/cuisines.json` by `seed:cuisines`.
 - **A backfill LLM pass over the live corpus** is higher effort (a new batch job, rate-limit handling
   per `docs/harvest-principles.md` tiered-escalation) for the same end state.
 
-**Choice:** `VOCAB.cuisine` is a two-level parent→child hierarchy — ~40–70 entries, authored from
-Wikipedia's *List of cuisines* and *List of American regional and fusion cuisines* (geographic tree
-only; we drop the religious/style/historical axes). A child that a recipe rarely hits **falls back to
-its parent** for ranking, so a sparse leaf still scores. The tree is a display/fallback grouping the
-picker computes from the flat list — not a second stored value. Cajun and Creole are modeled as
-**siblings** under Southern (they are distinct culinary practices), not nested one under the other.
-Re-seed to re-classify. Highest ROI — biggest unlock for a code-edit-plus-reseed.
+**Choice:** A two-level parent→child hierarchy of ~40–70 entries, authored from Wikipedia's *List of
+cuisines* and *List of American regional and fusion cuisines* (geographic tree only; we drop the
+religious/style/historical axes). It lives in **one source of truth** —
+`server/seed/cuisines.json` — which drives both `VOCAB.cuisine` (the categorizer's allowed set for
+the LLM prompt and `constrain()`, derived from the file rather than a duplicate hand-list) and the
+seeded `cuisines` table. A child a recipe rarely hits **falls back to its parent** for ranking (via
+`cuisines.parent_slug`), so a sparse leaf still scores. Cajun and Creole are modeled as **siblings**
+under Southern (distinct culinary practices), not nested one under the other. Re-seed to re-classify.
+Highest ROI — biggest unlock for a file edit plus `seed:cuisines`.
 
 Over-granular leaves fragment recipe density and hurt LLM classification accuracy, so the hierarchy
 stays shallow (two levels) and parent-fallback covers the thin leaves.
 
-**Proposed `VOCAB.cuisine` (parent → children):**
+**The hierarchy (`cuisines.json`, parent → children):**
 
 | Parent | Children |
 |---|---|
@@ -636,8 +652,9 @@ sit under American. Total stays in the ~40–70 band.
 ### Alternatives Considered
 - **Flat list, no hierarchy:** loses the parent-fallback that keeps sparse leaves (baja, lowcountry)
   scoring; the picker also can't section without a tree.
-- **Hierarchy stored as parent+child rows:** doubles the affinity match surface and complicates the
-  scorer for a grouping the picker can compute client-side from the flat list.
+- **Code-only `VOCAB.cuisine` (no table):** the picker and parent-fallback would each re-derive the
+  tree, and nothing outside the categorizer could read it; the seeded `cuisines` table is the shared
+  read model, still driven from the same `cuisines.json`.
 - **Backfill LLM pass:** same result, higher cost and operational risk than re-seeding a reproducible
   corpus.
 
