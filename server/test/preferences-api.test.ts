@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { type Database } from "../src/db.js";
 import { buildApp } from "../src/index.js";
+import { tasteIngredients } from "../src/schema.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
+
+// A base ingredient the picker offers; an `ingredient` pref's value must be its id.
+const LIVER_ID = "ti-liver";
 
 /**
  * WI-1: GET/PUT /v1/preferences. Offline against a migrated `file:` libSQL db. Mint a bearer
@@ -15,6 +19,7 @@ let phoneSeq = 0;
 beforeEach(async () => {
   ({ db, cleanup } = await migratedFileDb());
   app = buildApp(db);
+  await db.insert(tasteIngredients).values({ id: LIVER_ID, label: "Liver", section: "Meat & Seafood", foodGroup: 2 });
 });
 afterEach(() => cleanup());
 
@@ -48,7 +53,7 @@ const VALID = {
   time_budget_minutes: 45,
   weekly_meals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
   likes: [{ facet: "cuisine", value: "italian" }, { facet: "dish_type", value: "bowls" }],
-  dislikes: [{ facet: "ingredient", value: "liver" }],
+  dislikes: [{ facet: "ingredient", value: LIVER_ID }],
   allergens: [{ allergen: "peanut", severity: "severe" }],
   diets: [{ diet: "pescatarian", strictness: "flexible" }],
   owned_equipment: ["blender", "slow_cooker"],
@@ -88,13 +93,22 @@ describe("preferences API (WI-1)", () => {
     expect(body.preferences.weekly_meals).toEqual(VALID.weekly_meals);
     expect(body.preferences.likes).toContainEqual({ facet: "cuisine", value: "italian" });
     expect(body.preferences.likes).toContainEqual({ facet: "dish_type", value: "bowls" });
-    expect(body.preferences.dislikes).toEqual([{ facet: "ingredient", value: "liver" }]);
+    expect(body.preferences.dislikes).toEqual([{ facet: "ingredient", value: LIVER_ID }]);
     expect(body.preferences.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
     expect(body.preferences.diets).toContainEqual({ diet: "pescatarian", strictness: "flexible" });
     expect(body.preferences.owned_equipment.sort()).toEqual(["blender", "slow_cooker"]);
     expect(body.preferences.grocery_stores.sort()).toEqual(["kroger", "walmart"]);
     expect(body.preferences.household_kids).toBe(3);
     expect(body.preferences.eats_leftovers).toBe(true);
+  });
+
+  it("rejects an ingredient pref whose value is not a known base_ingredient_id with 422", async () => {
+    const token = await mintToken();
+    const bad = await putPrefs(token, { ...VALID, dislikes: [{ facet: "ingredient", value: "not-a-real-id" }] });
+    expect(bad.status).toBe(422);
+    // Cuisine/dish_type values are code-vocab, not DB-checked here — an unknown one is accepted.
+    const okCuisine = await putPrefs(token, { ...VALID, likes: [{ facet: "cuisine", value: "anything" }], dislikes: [] });
+    expect(okCuisine.status).toBe(200);
   });
 
   it("rejects an unknown grocery store with 400 (Test Case 4)", async () => {

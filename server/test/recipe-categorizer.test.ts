@@ -42,6 +42,16 @@ describe("VOCAB", () => {
     expect(inVocab("cuisine", "klingon")).toBe(false);
     expect(inVocab("primaryIngredient", "seafood")).toBe(true);
   });
+
+  // O-CL-1: the expanded cuisine vocabulary (from seed/cuisines.json) is the exact chokepoint
+  // that silently swallowed richer picks before the overhaul.
+  it("includes the expanded cuisine hierarchy (tex_mex, cajun, …) so constrain keeps them", () => {
+    expect(inVocab("cuisine", "tex_mex")).toBe(true);
+    expect(inVocab("cuisine", "cajun")).toBe(true);
+    expect(inVocab("cuisine", "soul_food")).toBe(true);
+    expect(inVocab("cuisine", "baja")).toBe(true);
+    expect(inVocab("cuisine", "narnian")).toBe(false); // a bogus value is still dropped
+  });
 });
 
 describe("FdcCategoryMap.toPrimaryIngredient", () => {
@@ -114,6 +124,16 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
     expect(categories.cuisine).toEqual(["italian"]); // non-VOCAB "klingon" dropped
     expect(categories.mealType).toEqual(["brunch"]); // non-VOCAB "teatime" dropped
     expect(categories.dishType).toEqual(["pasta"]); // non-VOCAB "warp" dropped
+  });
+
+  it("keeps an expanded-vocab cuisine (tex_mex) through constrain", async () => {
+    const cat = new RecipeCategorizer(
+      matcherOf({}),
+      new RuleTagger(),
+      analyzerOf({ cuisine: ["tex_mex"], mealType: ["dinner"], dishType: ["taco"] }),
+    );
+    const { categories } = await cat.analyze("Tex-Mex Tacos", [{ name: "tortilla" }], []);
+    expect(categories.cuisine).toEqual(["tex_mex"]);
   });
 
   it("returns all-empty and never throws when nothing matches (no network via stub)", async () => {

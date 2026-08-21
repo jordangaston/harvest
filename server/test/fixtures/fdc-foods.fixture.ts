@@ -22,7 +22,8 @@ function panel(amounts: Partial<Record<keyof typeof FDC_NUTRIENT, number>>) {
 const RAW: Array<{
   fdcId: number;
   description: string;
-  wweiaFoodCategory?: { wweiaFoodCategoryDescription?: string };
+  foodCode?: number;
+  wweiaFoodCategory?: { wweiaFoodCategoryDescription?: string; wweiaFoodCategoryCode?: number };
   foodPortions?: { portionDescription?: string; gramWeight?: number }[];
   foodNutrients: { amount: number; nutrient: { number: string } }[];
 }> = [
@@ -152,6 +153,28 @@ export const FDC_FIXTURE: FdcFoodRow[] = RAW.map(toFdcFoodRow);
 
 /** The salmon fixture id — the one carrying DHA/EPA/vitamin D (used by search + panel tests). */
 export const SALMON_FDC_ID = 100002;
+
+/** The okra fixture id — the ingredient-affinity target (rolls up to an okra base ingredient).
+ * Seeded on demand by {@link seedOkraFood}, NOT part of the shared FDC_FIXTURE — adding a doc
+ * shifts FTS bm25 rankings, which would perturb the bm25-tuned allergen/matching suites. */
+export const OKRA_FDC_ID = 100013;
+
+/** The okra food (with its FNDDS food code), for the ingredient-affinity flow. */
+export const OKRA_FOOD: FdcFoodRow = toFdcFoodRow({
+  fdcId: OKRA_FDC_ID,
+  description: 'Okra, cooked',
+  foodCode: 75109000,
+  wweiaFoodCategory: { wweiaFoodCategoryDescription: 'Other vegetables and combinations', wweiaFoodCategoryCode: 6412 },
+  foodPortions: [{ portionDescription: '1 cup', gramWeight: 160 }],
+  foodNutrients: panel({ calories: 22, protein: 1.9, fat: 0.2, carbohydrate: 4.5, fiber: 3.2, sodium: 6 }).map(
+    (n) => ({ amount: n.amount, nutrient: { number: n.number } }),
+  ),
+});
+
+/** Inserts the okra food into a migrated db (in addition to {@link seedFdcFixture}). */
+export async function seedOkraFood(db: Database): Promise<void> {
+  await insertFdcFoods(db, [OKRA_FOOD]);
+}
 
 /** Inserts the fixture into a migrated db. Reused by WI-2/WI-3 tests. */
 export async function seedFdcFixture(db: Database): Promise<void> {
