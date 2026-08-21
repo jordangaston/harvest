@@ -55,7 +55,7 @@ sequenceDiagram
     Svc->>Eng: rank(recipes, prefs)
     loop each recipe
         Eng->>TS: score(recipe, prefs)
-        note over TS: budget = pickBudget(recipe.mealTypes, prefs.timeByMeal)<br/>most-generous applicable; global fallback
+        note over TS: budget = pickBudget(recipe.mealTypes, prefs.timeByMeal)<br/>most-generous applicable, global fallback
         TS-->>Eng: clamp01((2*budget - totalMinutes)/budget)
     end
     Eng-->>Svc: RankedRecipe[]
