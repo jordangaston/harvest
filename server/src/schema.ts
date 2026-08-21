@@ -64,7 +64,7 @@ export const SENTIMENTS = ['like', 'dislike'] as const;
 // per-recipe essentiality the LLM judges (required = non-substitutable, recommended =
 // convenient). Like `MAJOR_ALLERGENS`, a code tuple, not a table — adding one is a one-line
 // change plus its `EQUIPMENT` config entry (src/equipment/equipment.ts).
-export const EQUIPMENT_TYPES = ['air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
+export const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 export const ESSENTIALITY = ['required', 'recommended'] as const;
 // Swipe deck (WI-RANK-4): swipe direction and the optional dislike reason.
 // `save` ("cook this week") files the recipe into the caller's Saved cookbook (like `like` → Liked).

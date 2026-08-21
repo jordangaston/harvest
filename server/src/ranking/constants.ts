@@ -47,4 +47,4 @@ export const PENALTY_MISSING_EQUIPMENT = 0.1;
 // Swipe deck (WI-RANK-4). Tunable: how long a swiped card stays out of the deck, and
 // the default/max deck batch size.
 export const SWIPE_COOLDOWN_DAYS = 7;
-export const DECK_DEFAULT_LIMIT = 5;
+export const DECK_DEFAULT_LIMIT = 10;
