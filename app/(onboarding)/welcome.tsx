@@ -37,9 +37,9 @@ export default function Welcome() {
                 fontFamily: "Lora_700Bold",
                 fontSize: 54,
                 lineHeight: 60,
-                textShadowColor: "rgba(38,28,18,0.35)",
+                textShadowColor: "rgba(38,28,18,0.22)",
                 textShadowOffset: { width: 0, height: 1 },
-                textShadowRadius: 12,
+                textShadowRadius: 4,
               }}
             >
               Harvest
@@ -50,13 +50,13 @@ export default function Welcome() {
                 fontSize: 19,
                 lineHeight: 26,
                 fontFamily: "Karla_600SemiBold",
-                textShadowColor: "rgba(38,28,18,0.55)",
+                textShadowColor: "rgba(38,28,18,0.4)",
                 textShadowOffset: { width: 0, height: 1 },
-                textShadowRadius: 10,
+                textShadowRadius: 3,
               }}
               className="mt-4 text-center"
             >
-              Import recipes, shop for groceries, and meal plan like a pro
+              Meal plan like a pro.
             </Text>
           </View>
 

@@ -8,10 +8,10 @@ import {
 } from "../../components/onboarding/screens";
 import { MealCounts } from "../../components/planner/MealPlanIntake";
 import { OptionRow } from "../../components/recime/OptionRow";
-import { VStack } from "../../components/ui";
+import { VStack, HStack, Text } from "../../components/ui";
 import {
-  ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, EQUIP_LABEL_TO_TYPE,
-  TASTE_PRESETS, TASTE_CORPUS, tasteFacet,
+  ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, EQUIP_TYPE_TO_LABEL,
+  TASTE_PRESETS, TASTE_CORPUS, tasteFacet, Slider, Card,
 } from "../../components/onboarding/primitives";
 import { setGoals, setCookDaysCount, setPreferences, getPreferencesDraft } from "../../lib/onboarding";
 import { money, formatTime } from "../../components/swipe/mock";
@@ -44,7 +44,7 @@ const VALUE_CARDS = [
   "Swipe to tell us what you like",
   "Import your favorite recipes",
   "Harvest creates custom meal plans just for you!",
-  "To get started, we have a few questions",
+  "Let's get started with a few questions",
 ];
 
 const COOK_DAYS_OPTIONS = [
@@ -60,6 +60,27 @@ const CONFIDENCE_OPTIONS = [
 
 const EQUIPMENT_OPTIONS = EQUIPMENT.map((e) => ({ value: e.type, label: e.label }));
 
+const MEAL_TIME_ROWS: { key: "breakfast" | "lunch" | "dinner"; label: string }[] = [
+  { key: "breakfast", label: "Breakfast" }, { key: "lunch", label: "Lunch" }, { key: "dinner", label: "Dinner" },
+];
+
+/** Three per-meal cook-time sliders on one card — modeled after MealCounts. */
+function MealTimeSliders({ value, onChange }: { value: Record<"breakfast" | "lunch" | "dinner", number>; onChange: (m: "breakfast" | "lunch" | "dinner", v: number) => void }) {
+  return (
+    <Card>
+      {MEAL_TIME_ROWS.map((m) => (
+        <VStack key={m.key} space={4}>
+          <HStack className="items-center justify-between">
+            <Text className="text-base text-ink">{m.label}</Text>
+            <Text className="text-base font-bold text-brand">{formatTime(value[m.key])}</Text>
+          </HStack>
+          <Slider value={value[m.key]} min={10} max={120} step={5} hideValue format={formatTime} onChange={(v) => onChange(m.key, v)} />
+        </VStack>
+      ))}
+    </Card>
+  );
+}
+
 export default function OnboardingFlow() {
   const router = useRouter();
   const [step, setStep] = React.useState(0);
@@ -71,7 +92,7 @@ export default function OnboardingFlow() {
   const [household, setHousehold] = React.useState<Household>(draft.household);
   const [meals, setMeals] = React.useState<WeeklyMeals>(draft.weeklyMeals);
   const [cookDays, setCookDays] = React.useState<string | null>(null);
-  const [time, setTime] = React.useState<number>(draft.timeBudgetMin);
+  const [mealTimes, setMealTimes] = React.useState({ breakfast: draft.timeBudgetMin, lunch: draft.timeBudgetMin, dinner: draft.timeBudgetMin });
   const [leftovers, setLeftovers] = React.useState<boolean | null>(draft.eatsLeftovers);
   const [allergens, setAllergens] = React.useState<AllergenPref[]>(draft.allergens);
   const [diets, setDiets] = React.useState<DietPref[]>(draft.diets);
@@ -130,7 +151,7 @@ export default function OnboardingFlow() {
       commit: () => setPreferences({ weeklyMeals: meals }),
       body: (
         <VStack style={{ paddingTop: 8 }} space={16}>
-          <StepHeader title="How many meals a week?" subtitle="We’ll build your plan around this." />
+          <StepHeader title="How many recipes this week?" subtitle="We’ll build your plan around this." />
           <MealCounts value={meals} onChange={setMeal} showTitle={false} types={["breakfast", "lunch", "dinner"]} />
         </VStack>
       ),
@@ -151,8 +172,14 @@ export default function OnboardingFlow() {
     },
     {
       ctaLabel: "Continue",
-      commit: () => setPreferences({ timeBudgetMin: time }),
-      body: <OnboardingSliderStep title="How much time to cook?" subtitle="On a typical night" value={time} min={10} max={120} step={5} format={formatTime} caption="per meal" onChange={setTime} />,
+      // placeholder: collapses to max until per-meal-time ranking ships (see design doc)
+      commit: () => setPreferences({ timeBudgetMin: Math.max(mealTimes.breakfast, mealTimes.lunch, mealTimes.dinner) }),
+      body: (
+        <VStack style={{ paddingTop: 8 }} space={16}>
+          <StepHeader title="How much time do you spend?" subtitle="on a typical day" />
+          <MealTimeSliders value={mealTimes} onChange={(m, v) => setMealTimes((s) => ({ ...s, [m]: v }))} />
+        </VStack>
+      ),
     },
     {
       ctaLabel: "Continue", ctaDisabled: leftovers === null,
@@ -163,7 +190,7 @@ export default function OnboardingFlow() {
     {
       ctaLabel: "Continue",
       commit: () => setPreferences({ allergens }),
-      body: <OnboardingSeverityPicker title="Any allergies?" subtitle="We’ll never suggest these." corpus={ALLERGENS}
+      body: <OnboardingSeverityPicker title="Any allergies?" subtitle="We’ll steer clear of these." corpus={ALLERGENS}
         levels={[{ label: "Mild", value: "mild" }, { label: "Moderate", value: "moderate" }, { label: "Severe", value: "severe" }]} defaultLevel="moderate"
         value={allergenLeveled} onChange={(v) => setAllergens(v.map((x) => ({ allergen: x.name, severity: x.level as AllergenPref["severity"] })))} />,
     },
@@ -177,7 +204,7 @@ export default function OnboardingFlow() {
     {
       ctaLabel: "Continue",
       commit: () => setPreferences({ likes }),
-      body: <OnboardingTasteMenu title="What do you love?" subtitle="Cuisines, dishes, ingredients — anything." presets={TASTE_PRESETS} corpus={TASTE_CORPUS} searchTitle="Add a taste"
+      body: <OnboardingTasteMenu title="What do you like to eat?" subtitle="Cuisines, dishes, ingredients — anything." presets={TASTE_PRESETS} corpus={TASTE_CORPUS} searchTitle="Add a taste"
         value={likes.map((t) => t.value)} onChange={(v) => setLikes(toTaste(v))} />,
     },
     {
@@ -189,14 +216,13 @@ export default function OnboardingFlow() {
     {
       ctaLabel: "Continue", ctaDisabled: confidence === null,
       commit: () => confidence && setPreferences({ skillLevel: confidence as typeof draft.skillLevel }),
-      body: <OnboardingSingleSelectList title="How do you cook?" subtitle="We’ll match the difficulty." options={CONFIDENCE_OPTIONS} value={confidence} onSelect={setConfidence} />,
+      body: <OnboardingSingleSelectList title="What is your comfort level in the kitchen?" subtitle="We’ll match the difficulty." options={CONFIDENCE_OPTIONS} value={confidence} onSelect={setConfidence} />,
     },
     {
       ctaLabel: "Continue",
-      // The grid holds preset chips by `type` and search-added chips by `label`; normalise to types.
-      commit: () => setPreferences({ ownedEquipment: equipment.map((v) => EQUIP_LABEL_TO_TYPE[v] ?? v), equipmentReviewed: true }),
+      commit: () => setPreferences({ ownedEquipment: equipment, equipmentReviewed: true }),
       body: <OnboardingChipGrid title="What's in your kitchen?" subtitle="We’ll only suggest recipes you can make." options={EQUIPMENT_OPTIONS} value={equipment} onChange={setEquipment}
-        moreCorpus={ALL_EQUIPMENT.map((e) => e.label)} moreTitle="Add equipment" />,
+        moreCorpus={ALL_EQUIPMENT.map((e) => e.type)} moreLabels={EQUIP_TYPE_TO_LABEL} moreTitle="Add equipment" />,
     },
   ];
 
