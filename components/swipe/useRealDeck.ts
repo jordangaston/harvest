@@ -2,7 +2,7 @@ import React from "react";
 import { getDeck, recordSwipe, unswipe, type ApiDeckCard } from "../../lib/api/swipe";
 import type { DeckCard, DeckController, DeckRecipe, DeckStatus, Direction, DislikeReason, SwipeRecord } from "./mock";
 
-const LIMIT = 5;
+const LIMIT = 10;
 
 const humanize = (type: string) => type.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
