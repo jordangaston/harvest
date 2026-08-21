@@ -458,8 +458,9 @@ export class RecipeRepository {
     rows: (typeof recipes.$inferSelect)[],
   ): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
     const ids = rows.map((r) => r.id);
-    const [categories, diets, equipment] = await Promise.all([
+    const [categories, mealTypes, diets, equipment] = await Promise.all([
       this.affinityCategoriesByRecipe(ids),
+      this.mealTypesByRecipe(ids),
       this.dietFitByRecipe(ids),
       this.equipmentByRecipe(ids),
     ]);
@@ -479,6 +480,7 @@ export class RecipeRepository {
           mealPrepFit: recipe.mealPrepFit,
           nrfScore: nrf,
           totalMinutes: recipe.totalMinutes,
+          mealTypes: mealTypes.get(recipe.id) ?? [],
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
           allergens: {
             contains: allergensContains,
@@ -528,6 +530,22 @@ export class RecipeRepository {
       const cats = map.get(recipeId) ?? { cuisine: [], dishType: [], primaryIngredient: [] };
       cats[BUCKET[facet as keyof typeof BUCKET]].push(value);
       map.set(recipeId, cats);
+    }
+    return map;
+  }
+
+  /** Batches each recipe id → its meal_type facet values (its own concern, distinct from affinity). */
+  private async mealTypesByRecipe(recipeIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: recipeCategories.recipeId, value: recipeCategories.value })
+      .from(recipeCategories)
+      .where(and(inArray(recipeCategories.recipeId, recipeIds), eq(recipeCategories.facet, 'meal_type')));
+    for (const { recipeId, value } of rows) {
+      const values = map.get(recipeId) ?? [];
+      values.push(value);
+      map.set(recipeId, values);
     }
     return map;
   }

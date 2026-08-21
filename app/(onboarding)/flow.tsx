@@ -92,7 +92,7 @@ export default function OnboardingFlow() {
   const [household, setHousehold] = React.useState<Household>(draft.household);
   const [meals, setMeals] = React.useState<WeeklyMeals>(draft.weeklyMeals);
   const [cookDays, setCookDays] = React.useState<string | null>(null);
-  const [mealTimes, setMealTimes] = React.useState({ breakfast: draft.timeBudgetMin, lunch: draft.timeBudgetMin, dinner: draft.timeBudgetMin });
+  const [mealTimes, setMealTimes] = React.useState(draft.timeByMeal);
   const [leftovers, setLeftovers] = React.useState<boolean | null>(draft.eatsLeftovers);
   const [allergens, setAllergens] = React.useState<AllergenPref[]>(draft.allergens);
   const [diets, setDiets] = React.useState<DietPref[]>(draft.diets);
@@ -172,8 +172,7 @@ export default function OnboardingFlow() {
     },
     {
       ctaLabel: "Continue",
-      // placeholder: collapses to max until per-meal-time ranking ships (see design doc)
-      commit: () => setPreferences({ timeBudgetMin: Math.max(mealTimes.breakfast, mealTimes.lunch, mealTimes.dinner) }),
+      commit: () => setPreferences({ timeByMeal: mealTimes }),
       body: (
         <VStack style={{ paddingTop: 8 }} space={16}>
           <StepHeader title="How much time do you spend?" subtitle="on a typical day" />

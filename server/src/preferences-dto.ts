@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES } from './schema.js';
-import { WeeklyMealsSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
+import { WeeklyMealsSchema, TimeByMealSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
 
 // The wire facet vocab (`ingredient` reads cleaner than the domain's `primary_ingredient`).
 const WIRE_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
@@ -16,6 +16,8 @@ export const preferencesBodySchema = z.object({
   skill_level: z.enum(DIFFICULTY_BANDS),
   weekly_budget_cents: z.number().int().nonnegative().nullable(),
   time_budget_minutes: z.number().int().positive().nullable(),
+  // Optional so a not-yet-shipped client that only sends the scalar still validates.
+  time_by_meal: TimeByMealSchema.nullish(),
   weekly_meals: WeeklyMealsSchema,
   likes: z.array(affinitySelection),
   dislikes: z.array(affinitySelection),
@@ -37,6 +39,7 @@ export function toPreferencesDTO(p: UserPreferences) {
     skill_level: p.skillLevel,
     weekly_budget_cents: p.weeklyBudgetCents,
     time_budget_minutes: p.timeBudgetMinutes,
+    time_by_meal: p.timeByMeal,
     weekly_meals: p.weeklyMeals,
     likes: selections('like'),
     dislikes: selections('dislike'),
@@ -57,6 +60,7 @@ export function fromPreferencesDTO(b: PreferencesBody): PreferencesUpdate {
     skillLevel: b.skill_level,
     weeklyBudgetCents: b.weekly_budget_cents,
     timeBudgetMinutes: b.time_budget_minutes,
+    timeByMeal: b.time_by_meal ?? null,
     weeklyMeals: b.weekly_meals,
     likes: b.likes.map(toDomain),
     dislikes: b.dislikes.map(toDomain),

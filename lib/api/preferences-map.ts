@@ -22,12 +22,19 @@ const SERVER_EQUIPMENT = new Set([
   "food_processor", "grill", "dutch_oven", "deep_fryer", "wok", "sous_vide", "smoker", "ice_cream_maker", "waffle_iron",
 ]);
 
+/** A legacy scalar time budget → equal per-meal budgets (the backfill's client mirror). */
+const broadcastTime = (min: number | null): Preferences["timeByMeal"] => {
+  const t = min ?? DEFAULT_PREFERENCES.timeByMeal.breakfast;
+  return { breakfast: t, lunch: t, dinner: t };
+};
+
 /** Server DTO → the client `Preferences` the settings screen seeds from. */
 export function apiToClient(a: ApiPreferences): Preferences {
   return {
     skillLevel: a.skill_level,
     weeklyBudgetCents: a.weekly_budget_cents ?? DEFAULT_PREFERENCES.weeklyBudgetCents,
-    timeBudgetMin: a.time_budget_minutes ?? DEFAULT_PREFERENCES.timeBudgetMin,
+    // Prefer the per-meal budgets; fall back to broadcasting the legacy scalar across all three.
+    timeByMeal: a.time_by_meal ?? broadcastTime(a.time_budget_minutes),
     weeklyMeals: a.weekly_meals,
     weights: DEFAULT_PREFERENCES.weights, // server-owned (D-10); not surfaced in settings
     likes: a.likes.map((t) => ({ facet: t.facet, value: t.value })),
@@ -47,7 +54,9 @@ export function clientToApi(p: Preferences): ApiPreferences {
   return {
     skill_level: p.skillLevel,
     weekly_budget_cents: p.weeklyBudgetCents,
-    time_budget_minutes: p.timeBudgetMin,
+    // Server derives the scalar from time_by_meal, but keep it populated (= max) for back-compat.
+    time_budget_minutes: Math.max(p.timeByMeal.breakfast, p.timeByMeal.lunch, p.timeByMeal.dinner),
+    time_by_meal: p.timeByMeal,
     weekly_meals: p.weeklyMeals,
     likes: p.likes.map((t) => ({ facet: t.facet, value: t.value })),
     dislikes: p.dislikes.map((t) => ({ facet: t.facet, value: t.value })),

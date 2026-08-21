@@ -65,7 +65,7 @@ export interface TastePref { facet: TasteFacet; value: string }
 export interface Preferences {
   skillLevel: DifficultyBand;
   weeklyBudgetCents: number; // max weekly grocery spend (per-serving cost is calculated, not input)
-  timeBudgetMin: number;
+  timeByMeal: { breakfast: number; lunch: number; dinner: number }; // per-meal cook-time budget (min)
   weeklyMeals: WeeklyMeals;
   weights: Weights;
   likes: TastePref[];
@@ -82,7 +82,7 @@ export interface Preferences {
 export const DEFAULT_PREFERENCES: Preferences = {
   skillLevel: "intermediate",
   weeklyBudgetCents: 12000,
-  timeBudgetMin: 35,
+  timeByMeal: { breakfast: 35, lunch: 35, dinner: 35 },
   weeklyMeals: { breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 },
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
   likes: [],

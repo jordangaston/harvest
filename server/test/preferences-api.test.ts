@@ -97,6 +97,18 @@ describe("preferences API (WI-1)", () => {
     expect(body.preferences.eats_leftovers).toBe(true);
   });
 
+  it("PUT then GET round-trips time_by_meal and returns the derived time_budget_minutes", async () => {
+    const token = await mintToken();
+    const put = await putPrefs(token, { ...VALID, time_by_meal: { breakfast: 15, lunch: 30, dinner: 60 } });
+    expect(put.status).toBe(200);
+    expect(put.body.preferences.time_by_meal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(put.body.preferences.time_budget_minutes).toBe(60); // max(15,30,60)
+
+    const { body } = await getPrefs(token);
+    expect(body.preferences.time_by_meal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(body.preferences.time_budget_minutes).toBe(60);
+  });
+
   it("rejects an unknown grocery store with 400 (Test Case 4)", async () => {
     const token = await mintToken();
     const bad = await putPrefs(token, { ...VALID, grocery_stores: ["not_a_store"] });
