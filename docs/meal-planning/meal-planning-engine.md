@@ -47,6 +47,8 @@ The engine is almost entirely an **orchestration** of primitives that already sh
 | Slot intake | `user_preferences.weekly_meals` `{breakfast, lunch, dinner, snack, kids}` | How many slots of each meal-type to fill |
 | Cost signal | `recipes.cost_per_serving_cents` (+ `weekly_budget_cents`) | The budget objective |
 | Time signal | `recipes.total_minutes` (+ `time_budget_minutes`, per-meal `time_by_meal` — see Q-01) | The time objective |
+| Cooking capacity | `users.cook_days_count` | How many cook events the week may ask for (P5) — the leftover trigger |
+| Leftover / meal-prep signals | `user_preferences.eats_leftovers`, `recipes.meal_prep_fit`, `MEAL_PREP_BATCH_SERVINGS`, `MEAL_PREP_KEEPS_WELL_DISH_TYPES` | Gate + eligibility + serving-scale for cook-once-serve-twice batching (P7) |
 | Calendar store | `meal_plan_entries` (`date`, `meal`, `recipe_id`, `position`) | Where generated plans are written, and the cross-week recency history |
 
 The **only new scoring idea** the engine introduces beyond the ranking engine is a **source/ownership
@@ -63,10 +65,19 @@ Given a user `u`, a target week (a set of dates), and `weekly_meals` slot counts
   down-weight recipes cooked in the last *N* days (cross-week recency).
 - **P3 Novelty balance (target).** Neither all-repeats nor all-new — hit a familiar:new ratio.
 - **P4 Budget (soft constraint).** `Σ slot cost ≤ weekly_budget_cents`, cost scaled by household size.
-- **P5 Time (soft, per slot).** Each slot's `total_minutes ≤ time_by_meal[meal]` (fallback:
-  `time_budget_minutes`), reinforced by the ranking engine's existing time signal.
+- **P5 Time & cooking capacity (soft).** Two limits: each slot's `total_minutes ≤ time_by_meal[meal]`
+  (fallback `time_budget_minutes`), reinforced by the ranking engine's time signal; **and** the number of
+  distinct *cook events* the plan asks for should not exceed the user's weekly cooking capacity
+  (`users.cook_days_count` — how many days a week they cook).
 - **P6 Household extensibility.** The same machinery must extend from one user to a household of *M*
   members with distinct preferences (group / multi-stakeholder recommendation).
+- **P7 Leftover batching (cook-once-serve-twice).** When the user doesn't mind leftovers
+  (`user_preferences.eats_leftovers = true`) **and** plans more slots than their cooking capacity
+  (Σ planned cook-slots > `cook_days_count`), the engine should **cook a larger batch of one recipe and
+  serve it across multiple slots** rather than fill every slot with a distinct fresh cook. This closes the
+  capacity gap in P5, and turns intentional repetition into a *feature* (a chosen convenience), not a P2
+  violation. Only keeps-well recipes qualify (`meal_prep_fit ∈ {suitable, designed}`), and the number of
+  leftover slots is bounded by a *leftover budget* so the week doesn't collapse into one pot.
 
 ## Research grounding
 
@@ -230,6 +241,11 @@ classDiagram
         +string recipeId
         +number marginalScore
     }
+    class CookEvent {
+        +string recipeId
+        +int servingsMultiplier
+        +bool isBatch
+    }
     class Household {
         +string ownerId
         +int servings
@@ -249,6 +265,7 @@ classDiagram
     Slot "1" --> "*" CandidateRecipe : ranked pool
     PlanAssignment "1" --> "*" SlotChoice : contains
     SlotChoice "1" --> "1" CandidateRecipe : selects
+    CookEvent "1" --> "*" SlotChoice : covers, batch serves many slots
     Household "1" --> "*" Member : has
     Member "1" --> "1" UserPreferences : profile
     PlanRequest "1" --> "1" UserPreferences : single-user case
@@ -257,6 +274,10 @@ classDiagram
 
 - **Tier** is an enum `imported | liked | saved | global`, ordered by preference; it carries the P1 bonus.
 - **`familiar`** marks a recipe the user has cooked before or swiped *like* (drives P3 novelty balance).
+- **CookEvent** is one act of cooking. Normally it maps 1:1 to a `SlotChoice`; a **batch** (P7) has
+  `servingsMultiplier > 1` and `covers` several same-meal slots (the first is the cook, the rest are
+  leftovers). It is the unit the P5 capacity limit counts — `Σ cook events ≤ cook_days_count` — not the
+  number of slots.
 - **Household / Member** are dormant in the single-user flow (a household of one). They exist so F-03
   drops in without reshaping the model — a new use case fits the existing entities (design-doc principle).
 
@@ -279,6 +300,20 @@ To let the generator replace only its own suggestions without clobbering recipes
 | `source` | text enum | not null, default `'manual'` | `'manual'` (user-placed) or `'generated'` (engine-placed). `replaceGenerated` deletes only `source='generated'` rows in the week. |
 
 Backwards-compatible: existing rows default to `'manual'`, so nothing already placed is ever auto-deleted.
+
+## Change: `meal_plan_entries` — add `batch_id` (P7 leftovers)
+
+A leftover batch is one recipe cooked once and eaten across several slots. The table already permits the
+same `recipe_id` in multiple `(date, meal)` rows (no unique constraint), so a batch needs only a grouping
+marker — not a new table:
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `batch_id` | text | nullable | NULL = a normal single-serve cook. Non-NULL groups the cook slot and its leftover slots so the UI can label "leftovers from Monday" and the grocery list counts the recipe's ingredients **once per batch** (scaled by `servingsMultiplier`), not once per slot. |
+
+Backwards-compatible: existing rows are `batch_id = NULL` (all single cooks). Servings scaling is computed
+at generation time (household size × slots covered); it need not be stored — the count of slots sharing a
+`batch_id` recovers it.
 
 ## Change: `user_preferences` — add `time_by_meal` (Q-01)
 
@@ -512,7 +547,8 @@ new fixtures beyond seed recipes.
 | Order | Type | Description | Backwards-Compatible |
 |---|---|---|---|
 | 1 | schema | Add `meal_plan_entries.source` (default `'manual'`) | yes |
-| 2 | schema | Add `user_preferences.time_by_meal` (nullable JSON) | yes |
+| 2 | schema | Add `meal_plan_entries.batch_id` (nullable) — groups a leftover batch | yes |
+| 3 | schema | Add `user_preferences.time_by_meal` (nullable JSON) | yes |
 
 Both are additive. Per the house principle *stage destructive-plus-additive changes so codegen stays
 non-interactive*, these are **adds-only** on their tables (no drop+add in one migration), so
@@ -546,6 +582,7 @@ Every metric ties to a Flow; nothing speculative (house rule: a metric must answ
 | `mealplan_unfilled_slots` | histogram | F-01 | Slots the engine couldn't fill — rises when pools are too thin (diet/budget too tight, or the corpus is small) |
 | `mealplan_budget_overrun_ratio` | histogram | F-01 | `cost_total / weekly_budget` — how well P4 is met in practice |
 | `mealplan_novelty_ratio` | histogram | F-01 | Fraction of new recipes — validates the P3 target band against real catalogs |
+| `mealplan_leftover_ratio` | histogram | F-01 | Fraction of slots filled by leftover batches (P7) — confirms batching triggers when capacity is short and stays within the leftover budget |
 | `mealplan_regenerate_total` | counter | F-02 | Slot rejections (tag: had_candidate) — high values suggest weak suggestions |
 
 ## Alerts
@@ -621,6 +658,12 @@ One pass, `O(S · C)`. Novelty via a **novelty budget counter**: reserve `k` slo
 **Quality.** Decent but **myopic** — greedy commits early and can't undo, so the last slots can be forced
 over budget or into a repeat when early picks spent the budget. No backtracking.
 
+**Leftovers (P7).** Handled inline: while filling, track `cookEvents` used against `cook_days_count`. When
+capacity is spent but same-meal slots remain and `eats_leftovers`, don't pick a new recipe — **extend the
+last keeps-well pick** (`meal_prep_fit ∈ {suitable, designed}`) into a batch covering this slot
+(`servingsMultiplier++`), exempt from the repeat penalty, up to the leftover budget. Greedy, so it batches
+the *most recent* pick rather than the globally best batch candidate — the myopia shows here too.
+
 **Household (F-03).** `base` becomes the aggregated member score (via `ScoreAggregator`); the greedy loop
 is unchanged. Cheap, but the myopia compounds across members.
 
@@ -658,6 +701,14 @@ recency, cost/time signals for the repair objective. **No new dependency** — M
 **Quality.** **Near-ILP on the dimensions users notice** (variety, novelty, tier-preference). Budget is
 best-effort-then-repaired — not provably optimal, but reliably *within* budget in practice, and it
 **degrades gracefully** (repair improves or leaves the plan; never infeasible, never empty).
+
+**Leftovers (P7).** A natural **third local-search pass**, alongside the budget/time repair. After the MMR
+fill, if `cookEvents > cook_days_count` and `eats_leftovers`, greedily **merge** adjacent same-meal slots
+whose recipe is keeps-well (`meal_prep_fit ∈ {suitable, designed}`) into a batch: keep the higher-scored
+recipe, drop the second cook, set `servingsMultiplier` and a shared `batch_id`, and remove the merged repeat
+from the P2 penalty. Merge in descending `meal_prep_fit` × `base` order until capacity is met or the
+leftover budget (max leftover slots, and a max batch span for food safety — Q-09) is exhausted. Reuses the
+already-shipped `MealPrepScorer` signal; no new machinery beyond one more repair move.
 
 **Household (F-03).** `base` = aggregated member score; MMR runs on the aggregate. **Fairness** aggregation
 (members take turns "owning" a slot) is a natural fit — round-robin ownership across the week. No solver.
@@ -705,6 +756,13 @@ near-infeasible instance can spike, and a WASM solver adds cold-start + bundle w
 **Quality.** **Optimal with respect to the model** — best possible budget adherence and global variety. The
 ceiling of the three.
 
+**Leftovers (P7).** The richest formulation — batching becomes **first-class integer variables** rather than
+a post-pass. Let `y[r,s] ∈ {0,1}` mean "a batch of `r` cooked once covers slot `s`," with one cook slot per
+batch and the rest leftovers; add `Σ (distinct cooks) ≤ cook_days_count` as a hard capacity constraint and
+a small reward for reusing capacity. The solver then trades leftovers against variety **optimally** — it
+knows the true cost of a repeat vs a new cook. Restricted to `meal_prep_fit ∈ {suitable, designed}` recipes.
+This is also the most complex to model and the most solver-time-sensitive.
+
 **Household (F-03).** Households are C's **killer feature**: add per-member **fairness constraints** (each
 member's satisfied-slot count ≥ a floor) or maximize the **minimum** member utility (a **least-misery**
 max-min epigraph variable) — guarantees no member is starved, which A and B can only approximate. If
@@ -734,11 +792,14 @@ stack-ranked priorities using binary materiality (does it *materially* move the 
 | 4 Graceful degradation | ✅ | ✅ (repair) | ⚠️ (goal-prog needed to avoid infeasible) |
 | 5 Households | ⚠️ myopic | ✅ (aggregator + fairness rounds) | ✅ (fairness constraints) |
 | 6 Budget/time optimality | ❌ (myopic) | ⚠️ (best-effort + repair) | ✅ (optimal) |
+| 7 Leftover batching (P7) | ⚠️ (myopic, last-pick) | ✅ (clean merge pass) | ✅ (optimal, integer batches) |
 
 **Choice: Option B.** It is the only option material on the **top five** priorities. It wins P1–P2 by
 adding **zero dependencies**, wins P3 with MMR + a novelty portfolio (the quality users notice), and wins
-P4 by repairing rather than penalizing. It concedes only P6 (provable budget optimality) — the lowest
-priority — and even there its repair keeps plans within budget in practice.
+P4 by repairing rather than penalizing. **Leftover batching (P7) lands as one more repair pass** — the same
+local-search machinery, reusing the shipped `MealPrepScorer` signal — so cook-once-serve-twice needs no new
+subsystem. It concedes only P6 (provable budget optimality) — the lowest priority — and even there its
+repair keeps plans within budget in practice.
 
 A loses P3/P6 to greedy myopia — a weekly plan that runs out of budget on Saturday is exactly the failure a
 user sees. C wins P6 and P5-for-households, but pays priority **2** (a WASM MIP solver: bundle weight,
@@ -796,6 +857,37 @@ members' tastes diverge too far to average.
 - **Bake aggregation into each filler:** rejected — would triple the household work and couple it to the
   engine choice.
 
+## D-05 — Leftover batching (cook-once-serve-twice)
+
+**Framework:** Direct criterion — *reuse the shipped signals, gate it, bound it; don't add a subsystem for a
+convenience*.
+
+**Choice:** When `eats_leftovers = true` **and** the plan's distinct cook events exceed the user's cooking
+capacity (`users.cook_days_count`), the engine **cooks a larger batch of one keeps-well recipe and serves it
+across multiple same-meal slots** instead of filling every slot with a fresh cook. Concretely:
+
+- **Trigger:** `eats_leftovers` AND `Σ planned cook-slots > cook_days_count` (the founder's "more meals than
+  their average time to cook"). If the user *does* mind leftovers, batching is off and every slot is a
+  distinct cook (a thinner pool may then raise `unfilled_slots` — reported, not faked).
+- **Eligibility:** only `meal_prep_fit ∈ {suitable, designed}` recipes batch (the existing keeps-well
+  signal + `MEAL_PREP_KEEPS_WELL_DISH_TYPES` / `MEAL_PREP_BATCH_SERVINGS`). An `unsuitable` recipe is never
+  stretched into leftovers.
+- **Sizing:** `servingsMultiplier` = slots covered × household headcount servings; the grocery list scales
+  that recipe's ingredients once per batch (via `batch_id`), not once per slot.
+- **Repetition:** a batched repeat is a *chosen convenience*, so it is **exempt from the P2 repeat
+  penalty** — but it still counts against a **leftover budget** (a cap on total leftover slots, and a max
+  batch span for food safety — Q-09) so a week never collapses into a single pot.
+
+This is where the `mealPrep` ranking weight pays off: a user whose goal is `meal_prepping` already gets
+`weight_meal_prep = 3`, so keeps-well recipes rank higher *before* batching even runs — the two mechanisms
+compound. In the recommended engine (B) it is one additional local-search pass (see Option B, Leftovers).
+
+### Alternatives Considered
+- **Always one-recipe-per-slot (defer leftovers):** rejected — it ignores `eats_leftovers`/`cook_days_count`
+  and forces users past their real cooking capacity, the exact friction the founder flagged.
+- **Batch by default whenever a recipe keeps well:** rejected — batching is only wanted when capacity is the
+  constraint; gating on the capacity gap keeps variety high for users who cook often.
+
 ---
 
 # Open Questions
@@ -805,9 +897,12 @@ members' tastes diverge too far to average.
 | Q-01 | `time_by_meal` per-meal time budgets: the task cites PR #44, but `main` (6f421f6) has only a single `time_budget_minutes` (onboarding "per-meal time sliders" from `ca6cf59` aren't persisted per-meal). Ship the `time_by_meal` column, or use `time_budget_minutes` for all meals? | open | **Assumption (proceed):** design against `time_by_meal` (Tables) and **degrade to `time_budget_minutes`** when NULL. Confirm whether PR #44 lands the column or the engine owns the migration. |
 | Q-02 | Tier bonuses `Ti > Tl > Ts`: what magnitudes vs the [0,1] ranking score? Large bonuses make tier dominate score (always cook imported even if poorly-ranked); small bonuses make tier a tie-breaker only. | open | Propose tier as the **primary** sort with ranking score secondary within a tier (equivalent to `Ti` ≫ score range), matching "PRIORITIZE liked/imported." Validate against real corpora — a user with 2 imported recipes still needs 19 varied slots. |
 | Q-03 | Recency window for cross-week repetition: reuse `SWIPE_COOLDOWN_DAYS = 7`, or a longer meal-plan-specific window (e.g. 14–21 days)? | open | Default to a **new `MEAL_COOLDOWN_DAYS` (propose 14)** — a served dinner should rest longer than a swiped card. Tune from real usage. |
-| Q-04 | Servings scaling for cost/budget: use `household_adults + household_kids` from `user_preferences`, or the recipe's own `servings`? | open | Propose household headcount × per-serving cost for the budget sum; recipes that yield leftovers (`eats_leftovers`, `meal_prep_fit`) could cover multiple slots — a later optimization, out of v1 scope. |
+| Q-04 | Servings scaling for cost/budget: use `household_adults + household_kids` from `user_preferences`, or the recipe's own `servings`? | open | Propose household headcount × per-serving cost for the budget sum. Leftover batches (D-05) cover multiple slots from one cook, so cost counts **once per batch** at `servingsMultiplier` servings, not once per covered slot. |
 | Q-05 | Does "fill the week" replace existing generated entries, append, or only fill empty slots? | open | Design assumes **replace `source='generated'`, preserve `source='manual'`** (Tables + F-01). Confirm the product intent (regenerate-whole-week vs fill-the-gaps). |
 | Q-06 | Household member preferences: `user_preferences` stores only household **counts** (`adults`, `kids`), not per-member preference profiles. F-03 needs distinct profiles. | open | Out of v1 scope; F-03 requires a `household_members` model (each with its own preferences). The `ScoreAggregator` seam (D-04) is designed so this is additive. |
+| Q-07 | Capacity mapping for P7: `cook_days_count` is days/week overall, but slots are per meal-type. Is one "cook day" one cook event, or can it produce breakfast + dinner? How does overall capacity split across meal-types? | open | Propose treating `cook_days_count` as the weekly budget of **distinct cook events across all meal-types**, decremented per fresh cook. Refine the per-meal split from real onboarding data; if `cook_days_count` is NULL, disable batching (fill every slot fresh). |
+| Q-08 | Should leftover slots be visibly labeled ("leftovers from Monday") and should the grocery list de-duplicate a batch's ingredients? | open | Design adds `batch_id` (Tables) to support both. Confirm the UX copy and that Grocery's list generation scales-once-per-batch — a cross-task seam with the Grocery List feature. |
+| Q-09 | Max batch span for food safety: how many days may one cooked batch be served across (3–4 days is the common fridge guideline)? And what is the leftover budget (max fraction of slots that may be leftovers)? | open | Propose a max span of **3 days** and a leftover budget of **≤ 40% of a meal-type's slots**; both are tunable constants like `MEAL_COOLDOWN_DAYS`. Confirm against product/nutrition guidance. |
 
 ---
 
@@ -816,6 +911,7 @@ members' tastes diverge too far to average.
 | Date | Author | Change |
 |---|---|---|
 | 2026-08-20 | Feature Lead (meal-planning) | Initial draft — three engine options, recommendation of Option B (two-stage MMR + repair) |
+| 2026-08-22 | Feature Lead (meal-planning) | Added P7 leftover batching (cook-once-serve-twice): objective, CookEvent entity, `batch_id` table change, per-option handling, D-05, and Q-07/08/09 (founder clarification) |
 
 ---
 
