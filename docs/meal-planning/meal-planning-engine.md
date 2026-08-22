@@ -48,7 +48,7 @@ The engine is almost entirely an **orchestration** of primitives that already sh
 | Cost signal | `recipes.cost_per_serving_cents` (+ `weekly_budget_cents`) | The budget objective |
 | Time signal | `recipes.total_minutes` (+ `time_budget_minutes`, per-meal `time_by_meal` — see Q-01) | The time objective |
 | Cooking capacity | `users.cook_days_count` | How many cook events the week may ask for (P5) — the leftover trigger |
-| Leftover / meal-prep signals | `user_preferences.eats_leftovers`, `recipes.meal_prep_fit`, `MEAL_PREP_BATCH_SERVINGS`, `MEAL_PREP_KEEPS_WELL_DISH_TYPES` | Gate + eligibility + serving-scale for cook-once-serve-twice batching (P7) |
+| Leftover / meal-prep signals | `user_preferences.eats_leftovers`, `users.when_cook`, `goals`/`weight_meal_prep`, `recipes.meal_prep_fit`, `MEAL_PREP_BATCH_SERVINGS`, `MEAL_PREP_KEEPS_WELL_DISH_TYPES` | Gate + intent + eligibility + serving-scale for cook-once-serve-twice batching (P7) |
 | Calendar store | `meal_plan_entries` (`date`, `meal`, `recipe_id`, `position`) | Where generated plans are written, and the cross-week recency history |
 
 The **only new scoring idea** the engine introduces beyond the ranking engine is a **source/ownership
@@ -71,13 +71,16 @@ Given a user `u`, a target week (a set of dates), and `weekly_meals` slot counts
   (`users.cook_days_count` — how many days a week they cook).
 - **P6 Household extensibility.** The same machinery must extend from one user to a household of *M*
   members with distinct preferences (group / multi-stakeholder recommendation).
-- **P7 Leftover batching (cook-once-serve-twice).** When the user doesn't mind leftovers
-  (`user_preferences.eats_leftovers = true`) **and** plans more slots than their cooking capacity
-  (Σ planned cook-slots > `cook_days_count`), the engine should **cook a larger batch of one recipe and
-  serve it across multiple slots** rather than fill every slot with a distinct fresh cook. This closes the
-  capacity gap in P5, and turns intentional repetition into a *feature* (a chosen convenience), not a P2
-  violation. Only keeps-well recipes qualify (`meal_prep_fit ∈ {suitable, designed}`), and the number of
-  leftover slots is bounded by a *leftover budget* so the week doesn't collapse into one pot.
+- **P7 Leftover / meal-prep batching (cook-once-serve-twice).** The engine should **cook a larger batch of
+  one recipe and serve it across multiple slots** — rather than fill every slot with a distinct fresh cook —
+  in either of two cases: **(a) capacity-driven** — the user doesn't mind leftovers
+  (`user_preferences.eats_leftovers = true`) and plans more slots than their cooking capacity
+  (Σ planned cook-slots > `cook_days_count`); or **(b) intent-driven** — the user *wants* to meal-prep
+  (`users.when_cook ∈ {meal_prep, weekly_schedule}`, or `goals` includes `meal_prepping` → `weight_meal_prep`
+  high), in which case batching is desired *even with time to spare*. Both turn intentional repetition into a
+  *feature* (a chosen convenience), not a P2 violation. Only keeps-well recipes qualify
+  (`meal_prep_fit ∈ {suitable, designed}`, preferring `designed` for the intent-driven case), and the number
+  of leftover slots is bounded by a *leftover budget* so the week doesn't collapse into one pot.
 
 ## Research grounding
 
@@ -862,16 +865,21 @@ members' tastes diverge too far to average.
 **Framework:** Direct criterion — *reuse the shipped signals, gate it, bound it; don't add a subsystem for a
 convenience*.
 
-**Choice:** When `eats_leftovers = true` **and** the plan's distinct cook events exceed the user's cooking
-capacity (`users.cook_days_count`), the engine **cooks a larger batch of one keeps-well recipe and serves it
-across multiple same-meal slots** instead of filling every slot with a fresh cook. Concretely:
+**Choice:** The engine **cooks a larger batch of one keeps-well recipe and serves it across multiple
+same-meal slots** instead of filling every slot with a fresh cook, whenever **either** trigger fires:
 
-- **Trigger:** `eats_leftovers` AND `Σ planned cook-slots > cook_days_count` (the founder's "more meals than
-  their average time to cook"). If the user *does* mind leftovers, batching is off and every slot is a
-  distinct cook (a thinner pool may then raise `unfilled_slots` — reported, not faked).
+- **Trigger (a) — capacity-driven:** `eats_leftovers = true` AND `Σ planned cook-slots > cook_days_count`
+  (the founder's "more meals than their average time to cook"). Leftovers close the capacity gap. If the
+  user *does* mind leftovers, this trigger is off and every slot is a distinct cook (a thinner pool may then
+  raise `unfilled_slots` — reported, not faked).
+- **Trigger (b) — intent-driven:** the user *wants* to meal-prep — `users.when_cook ∈ {meal_prep,
+  weekly_schedule}` OR `goals` includes `meal_prepping` (equivalently a high `weight_meal_prep`). Here
+  batching is desired **even with ample cooking time**; the plan leans into `designed`-for-meal-prep recipes
+  and larger batches because the user asked for it, not because time forced it. (This is *not* gated on
+  `eats_leftovers` — choosing to meal-prep already implies accepting planned repeats.)
 - **Eligibility:** only `meal_prep_fit ∈ {suitable, designed}` recipes batch (the existing keeps-well
-  signal + `MEAL_PREP_KEEPS_WELL_DISH_TYPES` / `MEAL_PREP_BATCH_SERVINGS`). An `unsuitable` recipe is never
-  stretched into leftovers.
+  signal + `MEAL_PREP_KEEPS_WELL_DISH_TYPES` / `MEAL_PREP_BATCH_SERVINGS`), **preferring `designed`** for the
+  intent-driven case. An `unsuitable` recipe is never stretched into leftovers.
 - **Sizing:** `servingsMultiplier` = slots covered × household headcount servings; the grocery list scales
   that recipe's ingredients once per batch (via `batch_id`), not once per slot.
 - **Repetition:** a batched repeat is a *chosen convenience*, so it is **exempt from the P2 repeat
@@ -886,7 +894,10 @@ compound. In the recommended engine (B) it is one additional local-search pass (
 - **Always one-recipe-per-slot (defer leftovers):** rejected — it ignores `eats_leftovers`/`cook_days_count`
   and forces users past their real cooking capacity, the exact friction the founder flagged.
 - **Batch by default whenever a recipe keeps well:** rejected — batching is only wanted when capacity is the
-  constraint; gating on the capacity gap keeps variety high for users who cook often.
+  constraint **or** the user has signalled meal-prep intent; gating on those triggers keeps variety high for
+  users who cook often and don't meal-prep.
+- **Trigger on `eats_leftovers` alone (drop the intent path):** rejected — it misses the user who has time
+  to cook but deliberately meal-preps a big Sunday batch; `when_cook`/`meal_prepping` capture that intent.
 
 ---
 
@@ -903,6 +914,7 @@ compound. In the recommended engine (B) it is one additional local-search pass (
 | Q-07 | Capacity mapping for P7: `cook_days_count` is days/week overall, but slots are per meal-type. Is one "cook day" one cook event, or can it produce breakfast + dinner? How does overall capacity split across meal-types? | open | Propose treating `cook_days_count` as the weekly budget of **distinct cook events across all meal-types**, decremented per fresh cook. Refine the per-meal split from real onboarding data; if `cook_days_count` is NULL, disable batching (fill every slot fresh). |
 | Q-08 | Should leftover slots be visibly labeled ("leftovers from Monday") and should the grocery list de-duplicate a batch's ingredients? | open | Design adds `batch_id` (Tables) to support both. Confirm the UX copy and that Grocery's list generation scales-once-per-batch — a cross-task seam with the Grocery List feature. |
 | Q-09 | Max batch span for food safety: how many days may one cooked batch be served across (3–4 days is the common fridge guideline)? And what is the leftover budget (max fraction of slots that may be leftovers)? | open | Propose a max span of **3 days** and a leftover budget of **≤ 40% of a meal-type's slots**; both are tunable constants like `MEAL_COOLDOWN_DAYS`. Confirm against product/nutrition guidance. |
+| Q-10 | Intent-driven batching (P7 trigger b): which signal is authoritative — `users.when_cook` (`meal_prep`/`weekly_schedule`), `goals` includes `meal_prepping`, or `weight_meal_prep`? And how aggressive should intent-driven batching be (a couple of designed batches vs prep-most-of-the-week)? | open | Propose `when_cook ∈ {meal_prep, weekly_schedule}` OR `meal_prepping` goal as the boolean trigger, with `weight_meal_prep` scaling **how many** batches (higher weight → a larger share of designed batches, up to the leftover budget). Confirm the desired intensity with product. |
 
 ---
 
@@ -912,6 +924,7 @@ compound. In the recommended engine (B) it is one additional local-search pass (
 |---|---|---|
 | 2026-08-20 | Feature Lead (meal-planning) | Initial draft — three engine options, recommendation of Option B (two-stage MMR + repair) |
 | 2026-08-22 | Feature Lead (meal-planning) | Added P7 leftover batching (cook-once-serve-twice): objective, CookEvent entity, `batch_id` table change, per-option handling, D-05, and Q-07/08/09 (founder clarification) |
+| 2026-08-22 | Feature Lead (meal-planning) | Broadened P7 to two triggers — capacity-driven AND intent-driven meal-prep (`when_cook`/`meal_prepping` goal/`weight_meal_prep`); updated D-05 + Q-10 (founder clarification) |
 
 ---
 
