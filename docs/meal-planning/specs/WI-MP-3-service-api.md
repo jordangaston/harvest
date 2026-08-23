@@ -16,7 +16,10 @@ Depends on WI-MP-1 and WI-MP-2. Reuses the existing Hono app + `guard` auth midd
 Implement `MealPlanGeneratorService` (hand-wired via `static create()`, no DI container) that orchestrates
 candidate-generation → fill → persist, plus `POST /v1/meal-plan/generate` and `POST /v1/meal-plan/regenerate`, plus the
 structured one-line-per-generation log and the metrics named in the design. Preview mode returns the plan without
-writing.
+writing. Regeneration is first-class and easy — the plan is best-effort, so the user's main tools for landing on a
+plan they like are the whole-week **shuffle** (re-run generate, excluding the current plan) and the one-tap
+single-slot **re-roll** (regenerate). *Future (design for it, out of scope):* instructed regeneration — the user
+tells us how to re-roll ("cheaper", "more chicken"), mapped to `FillConstraints` overrides.
 
 ## Acceptance Criteria
 
@@ -31,9 +34,16 @@ writing.
    fills 0 breakfast, 5 lunch, 7 dinner, 0 snack slots across the requested date range.
 4. **Empty plan rejected.** Given `weekly_meals` all zero, then the endpoint returns 422 (nothing to plan). Given a
    range > 31 days, then 422 (mirrors `GET /v1/meal-plan`).
-5. **Regenerate swaps one slot.** Given `POST /v1/meal-plan/regenerate {date, meal, exclude_recipe_id}`, when the
-   pool has an eligible alternative respecting the rest of the committed week, then it replaces that one entry and
-   returns 200 with the new entry; given no eligible candidate remains, then it returns 409 and leaves the slot as-is.
+5. **Regenerate swaps one slot (the easy re-roll).** Given `POST /v1/meal-plan/regenerate {date, meal, exclude_recipe_id}`,
+   when the pool has an eligible alternative respecting the rest of the committed week, then it replaces that one entry and
+   returns 200 with the new entry; given no eligible candidate remains, then it returns 409 and leaves the slot as-is. This
+   is the one-tap "don't like it, shuffle it" path — no choosing (the pick-from-N variant is WI-MP-4).
+9. **Shuffle varies (re-roll differs from the current plan).** Given a week that already has a `generated` plan, when
+   `POST /v1/meal-plan/generate` runs again with `shuffle:true` (or the equivalent re-roll flag), then the engine excludes
+   the current plan's recipes so the new plan surfaces fresh picks — a shuffle, not the same deterministic plan. The engine
+   stays deterministic *given* that exclusion set (WI-MP-2 AC11); reuses the CandidateProvider exclusion machinery. A repeat
+   shuffle keeps excluding what was just shown, cycling through the catalog rather than oscillating. Single-slot regenerate
+   (AC 5) already excludes the current recipe via `exclude_recipe_id`.
 6. **Auth + ownership.** Given no bearer, then 401. Given a regenerate targeting another user's entry, then it cannot
    affect it (owner-scoped).
 7. **Partial fill is reported, not failed.** Given a meal-type whose pool is exhausted (e.g. a strict diet), then the

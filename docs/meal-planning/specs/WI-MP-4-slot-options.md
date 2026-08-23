@@ -111,13 +111,33 @@ the cost is that these picks then look identical to hand-placed entries in any m
 excluded + current → MMR top-N (reusing `planning/similarity`). No new scoring path, so options and
 full-plan generation can never diverge in what "the user likes" means.
 
-## D-03 — Relationship to WI-MP-3's `/regenerate`
+## D-03 — Options and regenerate are complementary; both ship
 
-WI-MP-3 specced `POST /v1/meal-plan/regenerate` to auto-swap one slot to the next-best recipe. This feature
-is the **interactive** version: return N options, let the user choose. They overlap. **Recommendation:**
-`slot-options` + `slot` (this WI) is the better UX and likely **supersedes** the silent `/regenerate` — so
-drop `/regenerate` from WI-MP-3 unless a "surprise me, just swap it" one-tap is also wanted. Flag for your
-call so we don't build both.
+**Framework:** Direct criterion — the plan is best-effort, so make fixing it easy at every granularity.
+**Choice:** Keep **both** paths — they serve different moods, and easy regeneration is *the* way a user
+lands on a plan they like:
+- **Quick re-roll** (`POST /v1/meal-plan/regenerate {date, meal}`, WI-MP-3) — one tap, auto-swaps the slot
+  to the next-best fresh recipe. No choosing. "Don't like it, shuffle it."
+- **Pick from options** (this WI) — return N alternatives, the user chooses. A considered swap.
+- **Shuffle the week** (`POST /v1/meal-plan/generate`, WI-MP-3) — re-roll the whole plan.
+These are not redundant; a user reaches for the fast shuffle most of the time and the options list when they
+want to decide. Do **not** drop `/regenerate`.
+
+**Future (out of scope, design for it):** *instructed* regeneration — the user tells us how to re-roll
+("cheaper this week", "more chicken", "quicker"). The seam is the engine's `FillConstraints`: instructions
+map to constraint/weight overrides (later, a natural-language layer translates free text → overrides). No
+new engine, just parameterized inputs.
+
+## D-04 — Shuffle needs variation: exclude the current plan on re-roll
+
+**Framework:** Direct criterion — a deterministic engine re-run gives the same plan, which is not a shuffle.
+**Choice:** The engine is deterministic by design (WI-MP-2 AC11) — good for tests, but "shuffle" must
+differ from the current plan. Achieve variation **without** breaking determinism by passing the current
+plan's recipe ids as an **exclusion set** on re-roll: generate/regenerate then surface the next tier of
+candidates, and a repeat shuffle keeps excluding what's shown. Reuses the recency/exclusion machinery the
+`CandidateProvider` already has; still deterministic given the exclusion set (so it stays testable).
+Applies to both whole-week shuffle and single-slot re-roll (WI-MP-3), and to this WI's options (exclude the
+current pick). Belongs in WI-MP-3's generate/regenerate contract — noted here so the two specs stay coherent.
 
 # Open Questions
 
@@ -125,7 +145,7 @@ call so we don't build both.
 |---|---|---|---|
 | Q-01 | Mark a user-picked fill as `source='manual'` (reuse WI-MP-1) or add a distinct `pinned` flag? | open | Propose `source='manual'` — no new schema, same protection. Confirm the analytics tradeoff (D-01). |
 | Q-02 | Default option count — 4 as the founder suggested, and is it caller-tunable via `limit`? | open | Propose default 4, `limit` capped at ~8. |
-| Q-03 | Does `slot-options` supersede WI-MP-3 `/regenerate`, or do both ship? | open | Propose superseding it (D-03); keep a one-tap auto-swap only if product wants it. |
+| Q-03 | Does `slot-options` supersede WI-MP-3 `/regenerate`? | resolved | No — both ship. Quick re-roll, pick-from-options, and whole-week shuffle are complementary; easy regeneration is the core fix-it mechanism (D-03). |
 | Q-04 | Should options span meal-type flexibility (e.g. a brunch recipe offered for a breakfast slot)? | open | Propose the same meal-type mapping generation uses (brunch counts for breakfast); no extra scope. |
 
 # Appendix A — Changelog
