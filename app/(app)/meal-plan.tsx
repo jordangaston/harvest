@@ -45,6 +45,17 @@ export default function MealPlan() {
       <Backdrop />
       <HStack className="items-center justify-between px-5 pt-2">
         <Heading className="text-2xl">My Meal Plan</Heading>
+        {/* Week-level secondary actions. Kept low-emphasis (muted icons on a receding sand tile,
+            no border/elevation) so the brand FAB stays the one primary action — Refactoring UI
+            Ch2 "emphasise by de-emphasising", Ch8 "get rid of borders". */}
+        <HStack className="items-center" space={10}>
+          <SecondaryAction label="Add this week to groceries" onPress={() => showToast("Groceries coming soon")}>
+            <CartPlusIcon />
+          </SecondaryAction>
+          <SecondaryAction label="Regenerate this week" onPress={() => showToast("Regenerate coming soon")}>
+            <Icon name="refresh" size={20} color={SECONDARY_ICON} />
+          </SecondaryAction>
+        </HStack>
       </HStack>
 
       <HStack className="items-center justify-between px-5 py-4">
@@ -57,21 +68,7 @@ export default function MealPlan() {
         </Pressable>
       </HStack>
 
-      {/* Add-to-groceries: rendered here as a placement hook only. The Grocery task
-          wires the action — Meal Planning does not order or build the list.
-          ponytail: no-op handoff until Grocery ships; keep the button, not the logic. */}
-      <View className="px-5 pb-1">
-        <Pressable
-          onPress={() => showToast("Groceries coming soon")}
-          className="flex-row items-center justify-center rounded-2xl border border-hairline bg-card py-3"
-          style={ELEVATION.low}
-        >
-          <Icon name="cart-outline" size={18} color="#2E2419" />
-          <Text className="ml-2 font-semibold text-ink">Add to groceries</Text>
-        </Pressable>
-      </View>
-
-      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 32 }}>
         {days.map((d) => {
           const iso = toISO(d);
           const dayEntries = byDay.get(iso) ?? [];
@@ -82,8 +79,17 @@ export default function MealPlan() {
                 <Text className={`text-base font-bold ${isToday ? "text-brand" : "text-ink"}`}>
                   {isToday ? "Today • " : ""}{weekdayName(d)} {d.getDate()}
                 </Text>
-                <Pressable onPress={() => setMenuDate(iso)} className="h-8 w-8 items-center justify-center rounded-full bg-card">
-                  <Icon name="add" size={20} color="#2E2419" />
+                {/* The primary per-day action — solid brand so "add a meal" is the one thing that
+                    stands out on each row (Refactoring UI Ch2: style the primary action highest-emphasis;
+                    colour = the primary action, Ch5). Replaces the removed floating button. */}
+                <Pressable
+                  onPress={() => setMenuDate(iso)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add a meal to ${weekdayName(d)} ${d.getDate()}`}
+                  className="h-9 w-9 items-center justify-center rounded-full bg-brand"
+                  style={ELEVATION.low}
+                >
+                  <Icon name="add" size={20} color="#fff" />
                 </Pressable>
               </HStack>
               {dayEntries.length === 0 ? (
@@ -100,16 +106,6 @@ export default function MealPlan() {
           );
         })}
       </ScrollView>
-
-      <Pressable
-        onPress={() => {
-          setMonday(mondayOf(new Date()));
-          setMenuDate(today);
-        }}
-        className="absolute bottom-6 right-6 h-14 w-14 items-center justify-center rounded-full bg-brand shadow-lg"
-      >
-        <Icon name="add" size={30} color="#fff" />
-      </Pressable>
 
       <MealMenu
         visible={menuDate !== null}
@@ -157,6 +153,38 @@ function EntryRow({ entry, onOpen, onRemove }: { entry: ApiMealPlanEntry; onOpen
         <Icon name="close-circle" size={22} color="#6E5B48" />
       </Pressable>
     </HStack>
+  );
+}
+
+/** Muted ink for the secondary header actions — they recede so the brand FAB reads as primary. */
+const SECONDARY_ICON = "#6E5B48";
+
+/** A low-emphasis header action: a muted icon on a receding sand tile, no border or shadow
+ * (Refactoring UI Ch2 de-emphasise, Ch8 fewer borders). Icon-only, so it carries its own label. */
+function SecondaryAction({ label, onPress, children }: { label: string; onPress: () => void; children: React.ReactNode }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={8}
+      className="h-10 w-10 items-center justify-center rounded-full bg-sand-200"
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+/** A shopping cart with a small brand "+" badge — "add this week to groceries". Ionicons has no
+ * cart-add glyph, so we compose one; the badge is the only spot of colour (add = brand, Ch5). */
+function CartPlusIcon() {
+  return (
+    <View className="relative">
+      <Icon name="cart-outline" size={20} color={SECONDARY_ICON} />
+      <Center className="absolute -right-2 -top-2 h-4 w-4 rounded-full bg-brand">
+        <Icon name="add" size={12} color="#fff" />
+      </Center>
+    </View>
   );
 }
 

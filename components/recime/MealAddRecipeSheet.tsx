@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, View, ScrollView } from "react-native";
+import { Modal, View, ScrollView, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, HStack, VStack, Text, Pressable, Icon, Input, Center, Spinner } from "../ui";
@@ -31,6 +31,7 @@ export function MealAddRecipeSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { data: cards, isLoading: cardsLoading } = useLibraryCards();
   const { data: cookbooks } = useCookbooks();
   const add = useAddMealPlanEntry();
@@ -80,7 +81,7 @@ export function MealAddRecipeSheet({
       <Pressable className="flex-1 bg-black/30" onPress={onClose}>
         <View className="mt-auto">
           <Pressable onPress={() => {}}>
-            <Box className="rounded-t-3xl bg-cream px-5 pt-4" style={{ paddingBottom: insets.bottom + 16, height: "88%" }}>
+            <Box className="rounded-t-3xl bg-cream px-5 pt-4" style={{ paddingBottom: insets.bottom + 16, height: windowHeight * 0.88 }}>
               <View className="mb-3 h-1.5 w-10 self-center rounded-full bg-hairline" />
               <HStack className="mb-3 items-center justify-between">
                 <HStack className="items-center" space={8}>
