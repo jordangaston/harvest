@@ -1,6 +1,5 @@
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, type MealSlot } from '../schema.js';
+import type { MealSlot } from '../schema.js';
 import { AppError, NotFoundError } from '../errors.js';
 import type { UserPreferences } from '../models/user-preferences.js';
 import type { User } from '../models/user.js';
@@ -9,6 +8,7 @@ import { CandidateProvider } from './candidate-provider.js';
 import { MmrFiller, mmrTopN } from './slot-filler.js';
 import { MealPlanRepository } from '../repositories/meal-plan-repository.js';
 import { PreferenceRepository } from '../repositories/preference-repository.js';
+import { RecipeRepository } from '../repositories/recipe-repository.js';
 import { UserRepository } from '../repositories/user-repository.js';
 import type { CandidateRecipe, FillConstraints, PlanAssignment, Slot } from './types.js';
 
@@ -44,22 +44,22 @@ export interface GeneratedPlan {
  */
 export class MealPlanGeneratorService {
   constructor(
-    private readonly db: Database,
     private readonly candidates: CandidateProvider,
     private readonly filler: MmrFiller,
     private readonly mealPlan: MealPlanRepository,
     private readonly prefsRepo: PreferenceRepository,
     private readonly users: UserRepository,
+    private readonly recipesRepo: RecipeRepository,
   ) {}
 
   static create(db: Database): MealPlanGeneratorService {
     return new MealPlanGeneratorService(
-      db,
       CandidateProvider.create(db),
       MmrFiller.create(),
       MealPlanRepository.create(db),
       PreferenceRepository.create(db),
       UserRepository.create(db),
+      RecipeRepository.create(db),
     );
   }
 
@@ -120,13 +120,8 @@ export class MealPlanGeneratorService {
    * @throws NotFoundError when the recipe isn't visible to the caller (not owned, not global).
    */
   async fillSlot(userId: string, date: string, meal: MealSlot, recipeId: string): Promise<Awaited<ReturnType<MealPlanRepository['replaceSlot']>>> {
-    if (!(await this.isVisible(userId, recipeId))) throw new NotFoundError();
+    if (!(await this.recipesRepo.isVisibleTo(userId, recipeId))) throw new NotFoundError();
     return this.mealPlan.replaceSlot(userId, date, meal, recipeId, 'manual');
-  }
-
-  private async isVisible(userId: string, recipeId: string): Promise<boolean> {
-    const [row] = await this.db.select({ id: recipes.id }).from(recipes).where(and(eq(recipes.id, recipeId), or(eq(recipes.userId, userId), isNull(recipes.userId))));
-    return !!row;
   }
 
   private async buildPools(userId: string, slots: Slot[], prefs: UserPreferences, exclude: Set<string>): Promise<Map<MealSlot, CandidateRecipe[]>> {
@@ -167,11 +162,7 @@ export class MealPlanGeneratorService {
   }
 
   private async cardsFor(ids: string[]): Promise<Map<string, RecipeCard>> {
-    if (ids.length === 0) return new Map();
-    const rows = await this.db
-      .select({ id: recipes.id, title: recipes.title, imageUrl: recipes.imageUrl, totalMinutes: recipes.totalMinutes, costPerServingCents: recipes.costPerServingCents })
-      .from(recipes)
-      .where(inArray(recipes.id, ids));
+    const rows = await this.recipesRepo.cardsByIds(ids);
     return new Map(
       rows.map((r) => [r.id, { id: r.id, title: r.title, ...(r.imageUrl ? { image_url: r.imageUrl } : {}), total_minutes: r.totalMinutes, cost_per_serving_cents: r.costPerServingCents }]),
     );

@@ -435,6 +435,24 @@ export class RecipeRepository {
     return new Set(rows.map((r) => r.id));
   }
 
+  /** Whether `recipeId` is visible to the caller — owned or global. Validates a chosen recipe. */
+  async isVisibleTo(userId: string, recipeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: recipes.id })
+      .from(recipes)
+      .where(and(eq(recipes.id, recipeId), or(eq(recipes.userId, userId), isNull(recipes.userId))));
+    return !!row;
+  }
+
+  /** Lean cards (id, title, image, time, cost) for a set of recipe ids — for building plan responses. */
+  async cardsByIds(ids: string[]): Promise<{ id: string; title: string; imageUrl: string | null; totalMinutes: number | null; costPerServingCents: number | null }[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .select({ id: recipes.id, title: recipes.title, imageUrl: recipes.imageUrl, totalMinutes: recipes.totalMinutes, costPerServingCents: recipes.costPerServingCents })
+      .from(recipes)
+      .where(inArray(recipes.id, ids));
+  }
+
   /**
    * The deck candidate set (WI-RANK-4): recipes the caller can see — owned ∪ global
    * (`user_id = caller OR user_id IS NULL`) — as `RankableRecipe` + card. Same batched
