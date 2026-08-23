@@ -9,6 +9,7 @@ import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
 import { CookbookService } from "./services/cookbook-service.js";
 import { MealPlanService } from "./services/meal-plan-service.js";
+import { MealPlanGeneratorService } from "./planning/generator-service.js";
 import { GroceryService } from "./services/grocery-service.js";
 import { toPublicGroceryItem } from "./models/grocery-item.js";
 import { PreferenceRepository } from "./repositories/preference-repository.js";
@@ -35,6 +36,10 @@ import {
   swipeBodySchema,
   createMealPlanEntrySchema,
   mealPlanRangeQuerySchema,
+  generatePlanSchema,
+  regenerateSlotSchema,
+  slotOptionsQuerySchema,
+  fillSlotSchema,
   addGroceryItemsSchema,
   patchGroceryItemSchema,
 } from "./schemas.js";
@@ -60,6 +65,7 @@ export function buildApp(db: Database) {
   const recipes = RecipeService.create(db);
   const cookbooks = CookbookService.create(db);
   const mealPlan = MealPlanService.create(db);
+  const planGenerator = MealPlanGeneratorService.create(db);
   const groceries = GroceryService.create(db);
   const preferences = PreferenceRepository.create(db);
   const tasteOptions = TasteOptionsService.create(db);
@@ -288,6 +294,38 @@ app.post("/v1/meal-plan", guard, async (c) => {
 app.delete("/v1/meal-plan/:id", guard, async (c) => {
   await mealPlan.remove(c.get("authUserId")!, c.req.param("id")!);
   return c.body(null, 204);
+});
+
+/** POST /v1/meal-plan/generate — fills the week's slots (or `shuffle`s off the current plan);
+ * persists unless `preview`. 200 with the plan; 400 bad range; 422 nothing to plan. */
+app.post("/v1/meal-plan/generate", guard, async (c) => {
+  const body = generatePlanSchema.parse(await c.req.json());
+  const days = (Date.parse(body.end) - Date.parse(body.start)) / 86_400_000;
+  if (!(days >= 0 && days <= 31)) throw new InvalidRangeError();
+  const plan = await planGenerator.generate(c.get("authUserId")!, body);
+  return c.json({ plan });
+});
+
+/** POST /v1/meal-plan/regenerate — one-tap re-roll of a single slot. 200 with the new entry;
+ * 409 if no fresh candidate remains. */
+app.post("/v1/meal-plan/regenerate", guard, async (c) => {
+  const { date, meal, exclude_recipe_id } = regenerateSlotSchema.parse(await c.req.json());
+  const { entry, tier } = await planGenerator.regenerateSlot(c.get("authUserId")!, date, meal, exclude_recipe_id);
+  return c.json({ entry: { ...entry, tier } });
+});
+
+/** GET /v1/meal-plan/slot-options — up to `limit` preference-ranked alternatives for a slot. */
+app.get("/v1/meal-plan/slot-options", guard, async (c) => {
+  const { date, meal, limit, exclude } = slotOptionsQuerySchema.parse(c.req.query());
+  return c.json(await planGenerator.slotOptions(c.get("authUserId")!, date, meal, limit, exclude));
+});
+
+/** POST /v1/meal-plan/slot — sets the slot to a chosen recipe (protected from regen). 200 with the
+ * entry; 404 if the recipe isn't visible to the caller. */
+app.post("/v1/meal-plan/slot", guard, async (c) => {
+  const { date, meal, recipe_id } = fillSlotSchema.parse(await c.req.json());
+  const entry = await planGenerator.fillSlot(c.get("authUserId")!, date, meal, recipe_id);
+  return c.json({ entry });
 });
 
 /** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */

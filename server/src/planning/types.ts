@@ -1,4 +1,5 @@
 import type { MealSlot, MealPrepFit } from '../schema.js';
+import type { TimeByMeal } from '../models/user-preferences.js';
 
 /** Preference tier, ordered imported ≻ liked ≻ saved ≻ global (WI-MP-2 P1). */
 export type Tier = 'imported' | 'liked' | 'saved' | 'global';
@@ -34,7 +35,7 @@ export interface SlotChoice {
 /** Everything the filler needs beyond the pools: the soft-constraint targets + trigger inputs. */
 export interface FillConstraints {
   weeklyBudgetCents: number | null;
-  timeByMeal: { breakfast: number; lunch: number; dinner: number; snack: number } | null;
+  timeByMeal: TimeByMeal | null; // per-meal minutes for breakfast/lunch/dinner; snack uses the scalar
   timeBudgetMinutes: number | null;
   householdServings: number; // adults + kids; scales per-serving cost and batch sizing
   cookDaysCount: number | null; // weekly cooking capacity; null disables the capacity trigger

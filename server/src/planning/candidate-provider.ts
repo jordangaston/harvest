@@ -46,22 +46,29 @@ export class CandidateProvider {
    * @param userId - The planner.
    * @param meal - The slot's meal type.
    * @param prefs - The user's resolved ranking preferences.
-   * @param cooldownDays - Days a recently-cooked recipe stays out of the pool (default MEAL_COOLDOWN_DAYS).
+   * @param opts.exclude - Recipe ids to drop (in-week uniqueness, the current pick, or a shuffle's
+   *   already-shown recipes) — on top of the automatic recency exclusion.
+   * @param opts.cooldownDays - Days a recently-cooked recipe stays out (default MEAL_COOLDOWN_DAYS).
    */
-  async candidates(userId: string, meal: MealSlot, prefs: UserPreferences, cooldownDays = MEAL_COOLDOWN_DAYS): Promise<CandidateRecipe[]> {
+  async candidates(
+    userId: string,
+    meal: MealSlot,
+    prefs: UserPreferences,
+    opts: { exclude?: ReadonlySet<string>; cooldownDays?: number } = {},
+  ): Promise<CandidateRecipe[]> {
     const [pool, owned, liked, saved, recent] = await Promise.all([
       this.recipes.listDeckCandidates(userId, MEAL_TYPE_VALUES[meal]),
       this.ownedIds(userId),
       this.cookbookIds(userId, 'liked', 'Liked'),
       this.cookbookIds(userId, 'saved', 'Saved'),
-      this.recentlyCooked(userId, cooldownDays),
+      this.recentlyCooked(userId, opts.cooldownDays ?? MEAL_COOLDOWN_DAYS),
     ]);
     const byId = new Map(pool.map((p) => [p.recipe.id, p.recipe]));
     const ranked = this.ranking.rank(pool.map((p) => p.recipe), prefs);
 
     const out: CandidateRecipe[] = [];
     for (const { recipeId, score } of ranked) {
-      if (recent.has(recipeId)) continue;
+      if (recent.has(recipeId) || opts.exclude?.has(recipeId)) continue;
       const r = byId.get(recipeId)!;
       const tier = tierFor(recipeId, owned, liked, saved);
       out.push({

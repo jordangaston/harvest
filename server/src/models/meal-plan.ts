@@ -24,6 +24,10 @@ export type MealSlot = MealPlanEntry['meal'];
 export type GeneratedMealPlanEntry = Pick<MealPlanEntry, 'date' | 'meal' | 'recipeId'> &
   Partial<Pick<MealPlanEntry, 'batchId'>>;
 
+/** A row inserted by `replaceGenerated` — id + slot + recipe — so the generator can build its
+ * response (entry ids, batch grouping) without re-reading. */
+export type InsertedEntry = Pick<MealPlanEntry, 'id' | 'date' | 'meal' | 'recipeId' | 'batchId'>;
+
 /** An entry joined with its recipe's card — what a plan read returns. */
 export interface MealPlanEntryView {
   id: string;

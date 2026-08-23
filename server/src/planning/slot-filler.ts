@@ -5,9 +5,6 @@ import { MMR_LAMBDA, NEW_RATIO, LEFTOVER_BUDGET_FRACTION, MAX_BATCH_SPAN_DAYS, K
 import { MEAL_PREP_SCORE } from '../ranking/constants.js';
 
 const MEAL_ORDER: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
-const TIME_SLOT_FOR_MEAL: Record<MealSlot, keyof NonNullable<FillConstraints['timeByMeal']>> = {
-  breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner', snack: 'snack',
-};
 
 /** Days between two YYYY-MM-DD dates (UTC midnight, so DST-safe). */
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
@@ -240,6 +237,24 @@ export class MmrFiller implements SlotFiller {
   }
 }
 
+/** Greedy MMR top-N from a ranked pool — diversified alternatives for one slot (WI-MP-4 options).
+ * No slot/budget constraints: just preference balanced against similarity to already-picked. */
+export function mmrTopN(pool: CandidateRecipe[], n: number): CandidateRecipe[] {
+  const chosen: CandidateRecipe[] = [];
+  const remaining = [...pool];
+  while (chosen.length < n && remaining.length > 0) {
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    remaining.forEach((c, i) => {
+      const maxSim = chosen.reduce((m, o) => Math.max(m, similarity(c, o)), 0);
+      const s = (1 - MMR_LAMBDA) * c.baseScore - MMR_LAMBDA * maxSim;
+      if (s > bestScore) { bestScore = s; bestIdx = i; }
+    });
+    chosen.push(remaining.splice(bestIdx, 1)[0]);
+  }
+  return chosen;
+}
+
 // ── pure helpers ────────────────────────────────────────────────────────────
 
 function groupByMeal(slots: Slot[]): Map<MealSlot, Slot[]> {
@@ -267,7 +282,9 @@ const mealPrepScoreOf = (pools: Map<MealSlot, CandidateRecipe[]>, meal: MealSlot
   return fit ? MEAL_PREP_SCORE[fit] : 0;
 };
 
+/** breakfast/lunch/dinner use their per-meal budget; snack (no slider) and un-migrated users fall
+ * back to the single scalar — mirrors the TimeScorer's SLOT_FOR_MEAL_TYPE. */
 function timeBudgetFor(meal: MealSlot, c: FillConstraints): number | null {
-  if (c.timeByMeal) return c.timeByMeal[TIME_SLOT_FOR_MEAL[meal]];
+  if (c.timeByMeal && meal !== 'snack') return c.timeByMeal[meal];
   return c.timeBudgetMinutes;
 }

@@ -127,6 +127,34 @@ export const createMealPlanEntrySchema = z.object({
 /** `GET /v1/meal-plan` query: an inclusive date range. */
 export const mealPlanRangeQuerySchema = z.object({ start: isoDate, end: isoDate });
 
+const mealSlot = z.enum(['breakfast', 'lunch', 'dinner', 'snack']);
+
+/** `POST /v1/meal-plan/generate` body: fill the week; `shuffle` re-rolls off the current plan. */
+export const generatePlanSchema = z.object({
+  start: isoDate,
+  end: isoDate,
+  preview: z.boolean().optional().default(false),
+  shuffle: z.boolean().optional().default(false),
+});
+
+/** `POST /v1/meal-plan/regenerate` body: re-roll one slot to the next-best fresh recipe. */
+export const regenerateSlotSchema = z.object({
+  date: isoDate,
+  meal: mealSlot,
+  exclude_recipe_id: z.string().uuid().optional(),
+});
+
+/** `GET /v1/meal-plan/slot-options` query: N preference-ranked alternatives for a slot (WI-MP-4). */
+export const slotOptionsQuerySchema = z.object({
+  date: isoDate,
+  meal: mealSlot,
+  limit: z.coerce.number().int().min(1).max(8).optional().default(4),
+  exclude: z.string().uuid().optional(),
+});
+
+/** `POST /v1/meal-plan/slot` body: set the slot to a chosen recipe (WI-MP-4 fill). */
+export const fillSlotSchema = z.object({ date: isoDate, meal: mealSlot, recipe_id: z.string().uuid() });
+
 export const signInSchema = z.object({
   auth: z
     .object({
