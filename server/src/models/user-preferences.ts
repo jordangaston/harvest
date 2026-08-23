@@ -25,6 +25,16 @@ export const WeeklyMealsSchema = z.object({
 export type WeeklyMeals = z.infer<typeof WeeklyMealsSchema>;
 export const ZERO_MEALS: WeeklyMeals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
 
+/** Per-meal time budget in minutes (WI-MP-1). No `kids` key, unlike WeeklyMeals; null on the
+ * user means the engine falls back to the single `timeBudgetMinutes` for every meal. */
+export const TimeByMealSchema = z.object({
+  breakfast: z.number().int().nonnegative(),
+  lunch: z.number().int().nonnegative(),
+  dinner: z.number().int().nonnegative(),
+  snack: z.number().int().nonnegative(),
+});
+export type TimeByMeal = z.infer<typeof TimeByMealSchema>;
+
 /** The fully-resolved per-user ranking preferences, with the child tables folded in. */
 export const UserPreferencesSchema = z.object({
   userId: z.string(),
@@ -33,6 +43,7 @@ export const UserPreferencesSchema = z.object({
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
   weeklyMeals: WeeklyMealsSchema,
+  timeByMeal: TimeByMealSchema.nullable(),
   weights: z.object({
     cost: weight(),
     difficulty: weight(),
@@ -71,6 +82,7 @@ export const PreferencesUpdateSchema = z.object({
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
   weeklyMeals: WeeklyMealsSchema,
+  timeByMeal: TimeByMealSchema.nullable(),
   likes: z.array(AffinitySelectionSchema),
   dislikes: z.array(AffinitySelectionSchema),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),

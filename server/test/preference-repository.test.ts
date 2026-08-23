@@ -126,6 +126,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     weeklyBudgetCents: 12000,
     timeBudgetMinutes: 45,
     weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
+    timeByMeal: null,
     likes: [],
     dislikes: [],
     allergens: [{ allergen: "peanut" as const, severity: "severe" as const }],
@@ -196,6 +197,21 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(prefs.groceryStores).toEqual([]);
     expect(prefs.household).toEqual({ adults: 2, kids: 0 });
     expect(prefs.eatsLeftovers).toBe(true);
+  });
+
+  it("round-trips time_by_meal, and defaults it to null (WI-MP-1 Test Case 3)", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+
+    // Cold-start and an omitting save both leave it null (engine falls back to timeBudgetMinutes).
+    expect((await repo.getPreferences(userId)).timeByMeal).toBeNull();
+    await repo.savePreferences(userId, { ...baseSave, timeByMeal: null });
+    expect((await repo.getPreferences(userId)).timeByMeal).toBeNull();
+
+    // A per-meal budget round-trips through write → read.
+    const budget = { breakfast: 15, lunch: 30, dinner: 45, snack: 10 };
+    await repo.savePreferences(userId, { ...baseSave, timeByMeal: budget });
+    expect((await repo.getPreferences(userId)).timeByMeal).toEqual(budget);
   });
 
   it("seeds mealPrep weight once on the eatsLeftovers false→true transition (Test Case 3)", async () => {

@@ -52,6 +52,7 @@ export class PreferenceRepository {
       weeklyBudgetCents: prefs.weeklyBudgetCents,
       timeBudgetMinutes: prefs.timeBudgetMinutes,
       weeklyMeals: prefs.weeklyMeals ?? ZERO_MEALS,
+      timeByMeal: prefs.timeByMeal ?? null,
       weights: {
         cost: prefs.weightCost,
         difficulty: prefs.weightDifficulty,
@@ -79,6 +80,7 @@ export class PreferenceRepository {
       ...row,
       weeklyBudgetCents: null,
       weeklyMeals: ZERO_MEALS,
+      timeByMeal: null,
       weights: {
         cost: row.weightCost,
         difficulty: row.weightDifficulty,
@@ -181,6 +183,7 @@ export class PreferenceRepository {
           weeklyBudgetCents: input.weeklyBudgetCents,
           timeBudgetMinutes: input.timeBudgetMinutes,
           weeklyMeals: input.weeklyMeals,
+          timeByMeal: input.timeByMeal,
           equipmentReviewed: true,
           // Domain model keeps stores as string[]; the wire DTO already validated them against
           // the GROCERY_STORES enum the column types, so this widening cast is safe.

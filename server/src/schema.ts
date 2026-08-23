@@ -87,6 +87,9 @@ const HOW_HEARD = [
 const AGE_BANDS = ['under_24', 'from_25_to_34', 'from_35_to_44', 'from_45_to_54', 'over_55'] as const;
 // W2 meal-plan slot + grocery aisle (pgEnum → text{enum}).
 const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+// Who placed a meal-plan entry: the user by hand, or the generator (WI-MP-1). The
+// generator replaces only its own `generated` rows and never touches `manual` ones.
+const MEAL_SOURCES = ['manual', 'generated'] as const;
 const GROCERY_AISLES = [
   'produce',
   'meat_seafood',
@@ -367,6 +370,10 @@ export const mealPlanEntries = sqliteTable(
       .notNull()
       .references(() => recipes.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
+    // WI-MP-1: `manual` = user-placed, `generated` = engine-placed. `batch_id` groups a
+    // leftover batch (one cook across several slots); null = a normal single-serve entry.
+    source: text('source', { enum: MEAL_SOURCES }).notNull().default('manual'),
+    batchId: text('batch_id'),
     createdAt: createdAt(),
   },
   (t) => [index('meal_plan_entries_user_date_idx').on(t.userId, t.date)],
@@ -472,6 +479,9 @@ export const userPreferences = sqliteTable('user_preferences', {
   timeBudgetMinutes: integer('time_budget_minutes'),
   // How many of each meal type to plan per week (meal-count intake). JSON; null → all-zero.
   weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
+  // Per-meal time budget in minutes (WI-MP-1). No `kids` key, unlike weeklyMeals. Null →
+  // the engine falls back to the single `time_budget_minutes` for every meal.
+  timeByMeal: text('time_by_meal', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number }>(),
   weightCost: integer('weight_cost').notNull().default(1),
   weightDifficulty: integer('weight_difficulty').notNull().default(1),
   weightNutrition: integer('weight_nutrition').notNull().default(1),
@@ -626,6 +636,8 @@ export type SourceType = (typeof SOURCE_TYPES)[number];
 export type Facet = (typeof FACETS)[number];
 /** Meal-plan slot + grocery aisle unions, shared with the domain models. */
 export type MealSlot = (typeof MEAL_SLOTS)[number];
+/** Meal-plan entry source union (WI-MP-1): manual vs generated. */
+export type MealSource = (typeof MEAL_SOURCES)[number];
 export type GroceryAisle = (typeof GROCERY_AISLES)[number];
 /** Difficulty band union (WI-DIFF-1), shared with the domain models. */
 export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];

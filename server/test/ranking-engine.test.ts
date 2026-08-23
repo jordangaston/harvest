@@ -36,6 +36,7 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
     weeklyBudgetCents: null,
     timeBudgetMinutes: 30,
     weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
+    timeByMeal: null,
     weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 0 },
     allergens: [],
     diets: [],

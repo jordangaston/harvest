@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES } from './schema.js';
-import { WeeklyMealsSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
+import { WeeklyMealsSchema, TimeByMealSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
 
 // The wire facet vocab (`ingredient` reads cleaner than the domain's `primary_ingredient`).
 const WIRE_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
@@ -17,6 +17,9 @@ export const preferencesBodySchema = z.object({
   weekly_budget_cents: z.number().int().nonnegative().nullable(),
   time_budget_minutes: z.number().int().positive().nullable(),
   weekly_meals: WeeklyMealsSchema,
+  // Per-meal time budget (WI-MP-1). Optional so pre-existing clients that don't send it
+  // still validate; absent → null (engine falls back to time_budget_minutes).
+  time_by_meal: TimeByMealSchema.nullable().optional(),
   likes: z.array(affinitySelection),
   dislikes: z.array(affinitySelection),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
@@ -38,6 +41,7 @@ export function toPreferencesDTO(p: UserPreferences) {
     weekly_budget_cents: p.weeklyBudgetCents,
     time_budget_minutes: p.timeBudgetMinutes,
     weekly_meals: p.weeklyMeals,
+    time_by_meal: p.timeByMeal,
     likes: selections('like'),
     dislikes: selections('dislike'),
     allergens: p.allergens,
@@ -58,6 +62,7 @@ export function fromPreferencesDTO(b: PreferencesBody): PreferencesUpdate {
     weeklyBudgetCents: b.weekly_budget_cents,
     timeBudgetMinutes: b.time_budget_minutes,
     weeklyMeals: b.weekly_meals,
+    timeByMeal: b.time_by_meal ?? null,
     likes: b.likes.map(toDomain),
     dislikes: b.dislikes.map(toDomain),
     allergens: b.allergens,
