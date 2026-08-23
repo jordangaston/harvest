@@ -7,7 +7,7 @@ const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient'] as const;
 const SENTIMENTS = ['like', 'dislike'] as const;
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
@@ -25,13 +25,11 @@ export const WeeklyMealsSchema = z.object({
 export type WeeklyMeals = z.infer<typeof WeeklyMealsSchema>;
 export const ZERO_MEALS: WeeklyMeals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
 
-/** Per-meal time budget in minutes (WI-MP-1). No `kids` key, unlike WeeklyMeals; null on the
- * user means the engine falls back to the single `timeBudgetMinutes` for every meal. */
+/** Per-meal cook-time budget in minutes. Mirrors WeeklyMeals; only the three onboarding sliders. */
 export const TimeByMealSchema = z.object({
-  breakfast: z.number().int().nonnegative(),
-  lunch: z.number().int().nonnegative(),
-  dinner: z.number().int().nonnegative(),
-  snack: z.number().int().nonnegative(),
+  breakfast: z.number().int().positive(),
+  lunch: z.number().int().positive(),
+  dinner: z.number().int().positive(),
 });
 export type TimeByMeal = z.infer<typeof TimeByMealSchema>;
 
@@ -42,8 +40,8 @@ export const UserPreferencesSchema = z.object({
   budgetCentsPerServing: z.number().int().positive().nullable(),
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
-  weeklyMeals: WeeklyMealsSchema,
   timeByMeal: TimeByMealSchema.nullable(),
+  weeklyMeals: WeeklyMealsSchema,
   weights: z.object({
     cost: weight(),
     difficulty: weight(),
@@ -81,8 +79,8 @@ export const PreferencesUpdateSchema = z.object({
   skillLevel: z.enum(SKILL_LEVELS),
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
-  weeklyMeals: WeeklyMealsSchema,
   timeByMeal: TimeByMealSchema.nullable(),
+  weeklyMeals: WeeklyMealsSchema,
   likes: z.array(AffinitySelectionSchema),
   dislikes: z.array(AffinitySelectionSchema),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),

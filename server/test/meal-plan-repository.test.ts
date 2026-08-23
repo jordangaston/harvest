@@ -54,11 +54,13 @@ describe("meal_plan_entries source + batch_id", () => {
     expect(() => MealPlanEntrySchema.parse({ ...base, source: "other" })).toThrow();
   });
 
-  it("0019 migration is adds-only: source + batch_id in one file, no DROP (TC2)", () => {
+  it("source + batch_id ship in one adds-only migration, no DROP (TC2)", () => {
     const dir = fileURLToPath(new URL("../drizzle/", import.meta.url));
-    const file = readdirSync(dir).find((f) => f.startsWith("0019_"));
+    const file = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .find((f) => readFileSync(dir + f, "utf8").includes("ADD `source`"));
     expect(file).toBeDefined();
-    const sql = readFileSync(dir + file, "utf8");
+    const sql = readFileSync(dir + file!, "utf8");
     expect(sql).toContain("ADD `source`");
     expect(sql).toContain("ADD `batch_id`");
     expect(sql).not.toMatch(/DROP/i);

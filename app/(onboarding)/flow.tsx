@@ -11,8 +11,9 @@ import { OptionRow } from "../../components/recime/OptionRow";
 import { VStack, HStack, Text } from "../../components/ui";
 import {
   ALLERGENS, DIETS, EQUIPMENT, ALL_EQUIPMENT, EQUIP_TYPE_TO_LABEL,
-  TASTE_PRESETS, TASTE_CORPUS, tasteFacet, Slider, Card,
+  Slider, Card,
 } from "../../components/onboarding/primitives";
+import { useTasteOptions } from "../../lib/api/hooks";
 import { setGoals, setCookDaysCount, setPreferences, getPreferencesDraft } from "../../lib/onboarding";
 import { money, formatTime } from "../../components/swipe/mock";
 import type { WeeklyMeals, MealType, AllergenPref, DietPref, TastePref } from "../../components/swipe/mock";
@@ -92,7 +93,7 @@ export default function OnboardingFlow() {
   const [household, setHousehold] = React.useState<Household>(draft.household);
   const [meals, setMeals] = React.useState<WeeklyMeals>(draft.weeklyMeals);
   const [cookDays, setCookDays] = React.useState<string | null>(null);
-  const [mealTimes, setMealTimes] = React.useState({ breakfast: draft.timeBudgetMin, lunch: draft.timeBudgetMin, dinner: draft.timeBudgetMin });
+  const [mealTimes, setMealTimes] = React.useState(draft.timeByMeal);
   const [leftovers, setLeftovers] = React.useState<boolean | null>(draft.eatsLeftovers);
   const [allergens, setAllergens] = React.useState<AllergenPref[]>(draft.allergens);
   const [diets, setDiets] = React.useState<DietPref[]>(draft.diets);
@@ -108,8 +109,28 @@ export default function OnboardingFlow() {
   const allergenLeveled = allergens.map((a) => ({ name: a.allergen, level: a.severity }));
   const dietLeveled = diets.map((d) => ({ name: d.diet, level: d.strictness }));
 
-  // Taste menus speak string[] of labels; adapt to {facet,value}[].
-  const toTaste = (labels: string[]): TastePref[] => labels.map((value) => ({ facet: tasteFacet(value), value }));
+  // The taste catalog (cuisines / dish types / ingredients) from the server — no hardcoded corpus.
+  const { data: tasteOptions } = useTasteOptions();
+  const { corpus: tasteCorpus, presets: tastePresets, labelFor: tasteLabelFor, facetOf } = React.useMemo(() => {
+    const cuisines = tasteOptions?.cuisines ?? [];
+    const dishes = tasteOptions?.dish_types ?? [];
+    const ingredients = tasteOptions?.ingredients ?? [];
+    const facet: Record<string, TastePref["facet"]> = {};
+    const label: Record<string, string> = {};
+    for (const o of cuisines) { facet[o.value] = "cuisine"; label[o.value] = o.label; }
+    for (const o of dishes) { facet[o.value] = "dish_type"; label[o.value] = o.label; }
+    for (const o of ingredients) { facet[o.value] = "ingredient"; label[o.value] = o.label; }
+    return {
+      corpus: [...cuisines, ...dishes, ...ingredients].map((o) => o.value),
+      // A spread across facets shown before "More…": a few cuisines + dishes (stable slugs).
+      presets: [...cuisines.slice(0, 6), ...dishes.slice(0, 6)].map((o) => o.value),
+      labelFor: (v: string) => label[v] ?? v,
+      facetOf: (v: string): TastePref["facet"] => facet[v] ?? "ingredient",
+    };
+  }, [tasteOptions]);
+
+  // Taste menus speak string[] of values (slugs/uuids); adapt to {facet,value}[].
+  const toTaste = (values: string[]): TastePref[] => values.map((value) => ({ facet: facetOf(value), value }));
 
   // The ordered steps. `commit` folds the step's answer into the draft; `advance` fires on Continue.
   const steps: { body: React.ReactNode; ctaLabel?: string; ctaDisabled?: boolean; commit?: () => void }[] = [
@@ -172,8 +193,7 @@ export default function OnboardingFlow() {
     },
     {
       ctaLabel: "Continue",
-      // placeholder: collapses to max until per-meal-time ranking ships (see design doc)
-      commit: () => setPreferences({ timeBudgetMin: Math.max(mealTimes.breakfast, mealTimes.lunch, mealTimes.dinner) }),
+      commit: () => setPreferences({ timeByMeal: mealTimes }),
       body: (
         <VStack style={{ paddingTop: 8 }} space={16}>
           <StepHeader title="How much time do you spend?" subtitle="on a typical day" />
@@ -204,13 +224,13 @@ export default function OnboardingFlow() {
     {
       ctaLabel: "Continue",
       commit: () => setPreferences({ likes }),
-      body: <OnboardingTasteMenu title="What do you like to eat?" subtitle="Cuisines, dishes, ingredients — anything." presets={TASTE_PRESETS} corpus={TASTE_CORPUS} searchTitle="Add a taste"
+      body: <OnboardingTasteMenu title="What do you like to eat?" subtitle="Cuisines, dishes, ingredients — anything." presets={tastePresets} corpus={tasteCorpus} labelFor={tasteLabelFor} searchTitle="Add a taste"
         value={likes.map((t) => t.value)} onChange={(v) => setLikes(toTaste(v))} />,
     },
     {
       ctaLabel: "Continue",
       commit: () => setPreferences({ dislikes }),
-      body: <OnboardingTasteMenu title="Anything to avoid?" subtitle="We’ll steer the deck away from these." presets={TASTE_PRESETS} corpus={TASTE_CORPUS} searchTitle="Add something to avoid"
+      body: <OnboardingTasteMenu title="Anything to avoid?" subtitle="We’ll steer the deck away from these." presets={tastePresets} corpus={tasteCorpus} labelFor={tasteLabelFor} searchTitle="Add something to avoid"
         value={dislikes.map((t) => t.value)} onChange={(v) => setDislikes(toTaste(v))} />,
     },
     {

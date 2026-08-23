@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f59ccb35-5b5a-4e18-9347-90490b29e51c",
-  "prevId": "43131169-4963-4727-85a3-12ce6a5b6857",
+  "id": "ed2a5ffc-102f-4fed-bb9a-a5618f118a5f",
+  "prevId": "f2775c3e-7641-444e-9ea3-939906a4d0bb",
   "tables": {
     "cookbook_recipes": {
       "name": "cookbook_recipes",
@@ -163,6 +163,51 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "cuisines": {
+      "name": "cuisines",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_slug": {
+          "name": "parent_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "cuisines_parent_slug_cuisines_slug_fk": {
+          "name": "cuisines_parent_slug_cuisines_slug_fk",
+          "tableFrom": "cuisines",
+          "tableTo": "cuisines",
+          "columnsFrom": [
+            "parent_slug"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -387,6 +432,27 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "food_code": {
+          "name": "food_code",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "wweia_category_code": {
+          "name": "wweia_category_code",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "base_ingredient_id": {
+          "name": "base_ingredient_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -398,7 +464,21 @@
           "isUnique": false
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "fdc_foods_base_ingredient_id_taste_ingredients_id_fk": {
+          "name": "fdc_foods_base_ingredient_id_taste_ingredients_id_fk",
+          "tableFrom": "fdc_foods",
+          "tableTo": "taste_ingredients",
+          "columnsFrom": [
+            "base_ingredient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -776,9 +856,31 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "fdc_id": {
+          "name": "fdc_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "match_quality": {
+          "name": "match_quality",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "ingredients_fdc_idx": {
+          "name": "ingredients_fdc_idx",
+          "columns": [
+            "fdc_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "ingredients_recipe_id_recipes_id_fk": {
           "name": "ingredients_recipe_id_recipes_id_fk",
@@ -791,6 +893,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ingredients_fdc_id_fdc_foods_fdc_id_fk": {
+          "name": "ingredients_fdc_id_fdc_foods_fdc_id_fk",
+          "tableFrom": "ingredients",
+          "tableTo": "fdc_foods",
+          "columnsFrom": [
+            "fdc_id"
+          ],
+          "columnsTo": [
+            "fdc_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -841,6 +956,21 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -1518,6 +1648,44 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "taste_ingredients": {
+      "name": "taste_ingredients",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "section": {
+          "name": "section",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "food_group": {
+          "name": "food_group",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

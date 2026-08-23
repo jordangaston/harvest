@@ -1,6 +1,6 @@
-import { eq, and, desc, or, exists, inArray, isNull, sql } from 'drizzle-orm';
+import { eq, and, desc, or, exists, inArray, isNull, isNotNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, recipeEquipment, cookbooks, cookbookRecipes, type SourceType, type Equipment } from '../schema.js';
+import { recipes, ingredients, recipeSteps, recipeCategories, recipeDiets, recipeEquipment, cookbooks, cookbookRecipes, fdcFoods, type SourceType, type Equipment } from '../schema.js';
 import {
   RecipeSchema,
   emptyCategories,
@@ -17,6 +17,7 @@ import {
 } from '../models/recipe.js';
 import type { RankableRecipe } from '../ranking/types.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
+import type { IngredientMatch } from '../nutrition/nutrition-estimator.js';
 import type { Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import type { DietCompat } from '../diet/diet.js';
@@ -61,6 +62,9 @@ export interface RecipeInput {
   /** Equipment signal (WI-EQ-2). Null/omit when the step was withheld — persists
    * equipment_complete=false and zero `recipe_equipment` rows. `stepEquipment` aligns to `steps`. */
   equipment?: DetectedEquipment | null;
+  /** Ingredient→FDC food matches (taste overhaul), from the nutrition step. Stamped onto
+   * the matching ingredient rows (`fdc_id`/`match_quality`) by name; omit for no matches. */
+  ingredientMatches?: IngredientMatch[];
 }
 
 /** A drizzle transaction client — the type passed to each write in `persist`. */
@@ -185,7 +189,7 @@ export class RecipeRepository {
   /** Writes the recipe aggregate on an active transaction client. */
   private async persistWith(tx: Tx, recipe: RecipeInput, userId: string | null): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
-    await this.insertIngredients(tx, recipeId, recipe.ingredients);
+    await this.insertIngredients(tx, recipeId, recipe.ingredients, recipe.ingredientMatches);
     await this.insertSteps(tx, recipeId, recipe.steps, recipe.difficulty?.stepDifficulties, recipe.difficulty?.stepTechniques, recipe.equipment?.stepEquipment);
     await this.insertCategories(tx, recipeId, recipe.categories);
     await this.insertDiets(tx, recipeId, recipe.diets);
@@ -287,10 +291,13 @@ export class RecipeRepository {
    * @param tx - Active transaction client.
    * @param recipeId - Parent recipe.
    * @param items - Structured ingredients; array order becomes `position`.
+   * @param matches - Ingredient→food matches (taste overhaul), keyed by name; stamps
+   *   `fdc_id`/`match_quality` on the matching rows for ingredient-level affinity.
    */
-  private async insertIngredients(tx: Tx, recipeId: string, items: StructuredIngredient[]): Promise<void> {
+  private async insertIngredients(tx: Tx, recipeId: string, items: StructuredIngredient[], matches?: IngredientMatch[]): Promise<void> {
     if (items.length === 0) return;
-    await tx.insert(ingredients).values(items.map((item, i) => toIngredientRow(recipeId, item, i)));
+    const matchByName = new Map((matches ?? []).map((m) => [m.name, m]));
+    await tx.insert(ingredients).values(items.map((item, i) => toIngredientRow(recipeId, item, i, matchByName.get(item.name))));
   }
 
   /**
@@ -458,10 +465,12 @@ export class RecipeRepository {
     rows: (typeof recipes.$inferSelect)[],
   ): Promise<{ recipe: RankableRecipe; card: PublicRecipeCard }[]> {
     const ids = rows.map((r) => r.id);
-    const [categories, diets, equipment] = await Promise.all([
+    const [categories, mealTypes, diets, equipment, baseIngredients] = await Promise.all([
       this.affinityCategoriesByRecipe(ids),
+      this.mealTypesByRecipe(ids),
       this.dietFitByRecipe(ids),
       this.equipmentByRecipe(ids),
+      this.baseIngredientIdsByRecipe(ids),
     ]);
     return rows.map((row) => {
       const recipe = RecipeSchema.parse(row);
@@ -479,7 +488,9 @@ export class RecipeRepository {
           mealPrepFit: recipe.mealPrepFit,
           nrfScore: nrf,
           totalMinutes: recipe.totalMinutes,
+          mealTypes: mealTypes.get(recipe.id) ?? [],
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
+          baseIngredientIds: baseIngredients.get(recipe.id) ?? [],
           allergens: {
             contains: allergensContains,
             mayContain: recipe.allergens?.mayContain ?? [],
@@ -532,6 +543,22 @@ export class RecipeRepository {
     return map;
   }
 
+  /** Batches each recipe id → its meal_type facet values (its own concern, distinct from affinity). */
+  private async mealTypesByRecipe(recipeIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .select({ recipeId: recipeCategories.recipeId, value: recipeCategories.value })
+      .from(recipeCategories)
+      .where(and(inArray(recipeCategories.recipeId, recipeIds), eq(recipeCategories.facet, 'meal_type')));
+    for (const { recipeId, value } of rows) {
+      const values = map.get(recipeId) ?? [];
+      values.push(value);
+      map.set(recipeId, values);
+    }
+    return map;
+  }
+
   /** Batches each recipe id → its `dietId → verdict` map. */
   private async dietFitByRecipe(recipeIds: string[]): Promise<Map<string, RankableRecipe['dietFit']>> {
     const map = new Map<string, RankableRecipe['dietFit']>();
@@ -544,6 +571,29 @@ export class RecipeRepository {
       const fit = map.get(recipeId) ?? {};
       fit[dietId] = verdict;
       map.set(recipeId, fit);
+    }
+    return map;
+  }
+
+  /**
+   * Batches each recipe id → its distinct base-ingredient ids (taste overhaul), rolling up
+   * `ingredients.fdc_id` to `fdc_foods.base_ingredient_id` in ONE join (no N+1). Only matched
+   * ingredients whose food maps to a curated base ingredient contribute; a recipe with none
+   * gets no entry (the affinity ingredient facet then contributes nothing).
+   */
+  private async baseIngredientIdsByRecipe(recipeIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (recipeIds.length === 0) return map;
+    const rows = await this.db
+      .selectDistinct({ recipeId: ingredients.recipeId, baseIngredientId: fdcFoods.baseIngredientId })
+      .from(ingredients)
+      .innerJoin(fdcFoods, eq(ingredients.fdcId, fdcFoods.fdcId))
+      .where(and(inArray(ingredients.recipeId, recipeIds), isNotNull(fdcFoods.baseIngredientId)));
+    for (const { recipeId, baseIngredientId } of rows) {
+      if (!baseIngredientId) continue;
+      const list = map.get(recipeId) ?? [];
+      list.push(baseIngredientId);
+      map.set(recipeId, list);
     }
     return map;
   }
@@ -673,8 +723,9 @@ function toDifficulty(
   };
 }
 
-/** One structured ingredient → its insert row (position + O-09 icon on the name). */
-function toIngredientRow(recipeId: string, item: StructuredIngredient, position: number) {
+/** One structured ingredient → its insert row (position + O-09 icon on the name), with the
+ * persisted FDC match (taste overhaul) when one was found for this ingredient. */
+function toIngredientRow(recipeId: string, item: StructuredIngredient, position: number, match?: IngredientMatch) {
   return {
     recipeId,
     position,
@@ -683,6 +734,8 @@ function toIngredientRow(recipeId: string, item: StructuredIngredient, position:
     unit: item.unit,
     quantityText: item.quantityText,
     icon: mapIngredientIcon(item.name),
+    fdcId: match?.fdcId ?? null,
+    matchQuality: match?.quality ?? null,
   };
 }
 

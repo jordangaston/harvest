@@ -125,8 +125,8 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     skillLevel: "advanced" as const,
     weeklyBudgetCents: 12000,
     timeBudgetMinutes: 45,
-    weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
     timeByMeal: null,
+    weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
     likes: [],
     dislikes: [],
     allergens: [{ allergen: "peanut" as const, severity: "severe" as const }],
@@ -171,6 +171,23 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
   });
 
+  it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+
+    const saved = await repo.savePreferences(userId, {
+      ...baseSave,
+      timeBudgetMinutes: 999, // ignored: the derived max wins when time_by_meal is present
+      timeByMeal: { breakfast: 15, lunch: 30, dinner: 60 },
+    });
+    expect(saved.timeByMeal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(saved.timeBudgetMinutes).toBe(60);
+
+    const reread = await repo.getPreferences(userId);
+    expect(reread.timeByMeal).toEqual({ breakfast: 15, lunch: 30, dinner: 60 });
+    expect(reread.timeBudgetMinutes).toBe(60);
+  });
+
   it("persists and round-trips grocery stores, household, and eats-leftovers (Test Case 1)", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
@@ -197,21 +214,6 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(prefs.groceryStores).toEqual([]);
     expect(prefs.household).toEqual({ adults: 2, kids: 0 });
     expect(prefs.eatsLeftovers).toBe(true);
-  });
-
-  it("round-trips time_by_meal, and defaults it to null (WI-MP-1 Test Case 3)", async () => {
-    const userId = await makeUser();
-    const repo = PreferenceRepository.create(db);
-
-    // Cold-start and an omitting save both leave it null (engine falls back to timeBudgetMinutes).
-    expect((await repo.getPreferences(userId)).timeByMeal).toBeNull();
-    await repo.savePreferences(userId, { ...baseSave, timeByMeal: null });
-    expect((await repo.getPreferences(userId)).timeByMeal).toBeNull();
-
-    // A per-meal budget round-trips through write → read.
-    const budget = { breakfast: 15, lunch: 30, dinner: 45, snack: 10 };
-    await repo.savePreferences(userId, { ...baseSave, timeByMeal: budget });
-    expect((await repo.getPreferences(userId)).timeByMeal).toEqual(budget);
   });
 
   it("seeds mealPrep weight once on the eatsLeftovers false→true transition (Test Case 3)", async () => {

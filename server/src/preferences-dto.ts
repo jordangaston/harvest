@@ -2,12 +2,13 @@ import { z } from 'zod';
 import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES } from './schema.js';
 import { WeeklyMealsSchema, TimeByMealSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
 
-// The wire facet vocab (`ingredient` reads cleaner than the domain's `primary_ingredient`).
+// The picker's facets. `ingredient` is now its own affinity facet (value = a base_ingredient_id
+// uuid), so wire and domain names match 1:1 — no more `ingredient`↔`primary_ingredient` remap.
+// A legacy `primary_ingredient` food-pref (from the swipe dislike-loop) simply isn't a picker
+// facet: it's dropped from the DTO but survives a Save (dislikes replace only re-supplied values).
 const WIRE_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
 type WireFacet = (typeof WIRE_FACETS)[number];
-type DomainFacet = 'cuisine' | 'dish_type' | 'primary_ingredient';
-const toDomainFacet = (f: WireFacet): DomainFacet => (f === 'ingredient' ? 'primary_ingredient' : f);
-const toWireFacet = (f: DomainFacet): WireFacet => (f === 'primary_ingredient' ? 'ingredient' : f);
+const isWireFacet = (f: string): f is WireFacet => (WIRE_FACETS as readonly string[]).includes(f);
 
 const affinitySelection = z.object({ facet: z.enum(WIRE_FACETS), value: z.string() });
 
@@ -16,10 +17,9 @@ export const preferencesBodySchema = z.object({
   skill_level: z.enum(DIFFICULTY_BANDS),
   weekly_budget_cents: z.number().int().nonnegative().nullable(),
   time_budget_minutes: z.number().int().positive().nullable(),
+  // Optional so a not-yet-shipped client that only sends the scalar still validates.
+  time_by_meal: TimeByMealSchema.nullish(),
   weekly_meals: WeeklyMealsSchema,
-  // Per-meal time budget (WI-MP-1). Optional so pre-existing clients that don't send it
-  // still validate; absent → null (engine falls back to time_budget_minutes).
-  time_by_meal: TimeByMealSchema.nullable().optional(),
   likes: z.array(affinitySelection),
   dislikes: z.array(affinitySelection),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
@@ -32,16 +32,19 @@ export const preferencesBodySchema = z.object({
 });
 export type PreferencesBody = z.infer<typeof preferencesBodySchema>;
 
-/** Domain model → wire DTO. Folds the food-pref facets into like/dislike lists over all facets. */
+/** Domain model → wire DTO. Surfaces only the picker's facets (cuisine/dish_type/ingredient);
+ * a legacy `primary_ingredient` pref isn't editable in the picker, so it's omitted here. */
 export function toPreferencesDTO(p: UserPreferences) {
   const selections = (sentiment: 'like' | 'dislike') =>
-    p.foodPrefs.filter((f) => f.sentiment === sentiment).map((f) => ({ facet: toWireFacet(f.facet as DomainFacet), value: f.value }));
+    p.foodPrefs
+      .filter((f) => f.sentiment === sentiment && isWireFacet(f.facet))
+      .map((f) => ({ facet: f.facet as WireFacet, value: f.value }));
   return {
     skill_level: p.skillLevel,
     weekly_budget_cents: p.weeklyBudgetCents,
     time_budget_minutes: p.timeBudgetMinutes,
-    weekly_meals: p.weeklyMeals,
     time_by_meal: p.timeByMeal,
+    weekly_meals: p.weeklyMeals,
     likes: selections('like'),
     dislikes: selections('dislike'),
     allergens: p.allergens,
@@ -54,17 +57,16 @@ export function toPreferencesDTO(p: UserPreferences) {
   };
 }
 
-/** Wire DTO → the repository's editable-subset input. */
+/** Wire DTO → the repository's editable-subset input. Facet names pass through 1:1 now. */
 export function fromPreferencesDTO(b: PreferencesBody): PreferencesUpdate {
-  const toDomain = (s: { facet: WireFacet; value: string }) => ({ facet: toDomainFacet(s.facet), value: s.value });
   return {
     skillLevel: b.skill_level,
     weeklyBudgetCents: b.weekly_budget_cents,
     timeBudgetMinutes: b.time_budget_minutes,
-    weeklyMeals: b.weekly_meals,
     timeByMeal: b.time_by_meal ?? null,
-    likes: b.likes.map(toDomain),
-    dislikes: b.dislikes.map(toDomain),
+    weeklyMeals: b.weekly_meals,
+    likes: b.likes,
+    dislikes: b.dislikes,
     allergens: b.allergens,
     diets: b.diets.map((d) => ({ dietId: d.diet, strictness: d.strictness })),
     ownedEquipment: b.owned_equipment,

@@ -13,6 +13,7 @@ import {
 } from "./groceries";
 import { getDeck, recordSwipe, unswipe, type SwipeBody } from "./swipe";
 import { getPreferences, updatePreferences, type ApiPreferences } from "./preferences";
+import { getTasteOptions } from "./tasteOptions";
 import type { ApiMealPlanEntry, MealSlot, NewGroceryItem } from "./types";
 
 /**
@@ -105,6 +106,12 @@ export function useUnswipe() {
 /** The caller's full preference model (cold-start defaults if never saved). */
 export function usePreferences() {
   return useQuery({ queryKey: queryKeys.preferences, queryFn: getPreferences });
+}
+
+/** The taste-picker catalog (cuisines / dish types / base ingredients). Served once and
+ * essentially static, so it never goes stale in-session (persisted to AsyncStorage). */
+export function useTasteOptions() {
+  return useQuery({ queryKey: queryKeys.tasteOptions, queryFn: getTasteOptions, staleTime: Infinity });
 }
 
 /** Persists preferences; invalidates `preferences` (reseed) and `deck` (next fetch re-ranks). */

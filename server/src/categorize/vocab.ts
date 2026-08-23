@@ -1,15 +1,13 @@
+import { CUISINE_SLUGS } from './cuisines.js';
+
 /**
  * VOCAB — the controlled vocabulary for the taste signal (WI-TS-2). Three allow-
- * lists, one per facet; every categorizer output must be a member. A code constant,
- * not a table, so revising it is a code change (design decision). Seed values are
- * the design's proposed lists (Q-01), pending founder sign-off — revise here.
+ * lists, one per facet; every categorizer output must be a member. `cuisine` is derived
+ * from the authored hierarchy in `seed/cuisines.json` (the single source of truth, also
+ * seeded into the `cuisines` table) — meal/dish/primary stay code constants here.
  */
 export const VOCAB = {
-  cuisine: [
-    'american', 'british', 'caribbean', 'chinese', 'eastern_european', 'french', 'greek', 'indian',
-    'italian', 'japanese', 'korean', 'mediterranean', 'mexican', 'middle_eastern', 'nordic',
-    'southeast_asian', 'south_american', 'spanish', 'thai',
-  ],
+  cuisine: CUISINE_SLUGS,
   // WHEN it's eaten (Edamam mealType). Orthogonal to dishType — french toast is a
   // `breakfast` (meal) that in form is a `pancake`/`bread` (dish).
   mealType: ['breakfast', 'brunch', 'lunch', 'dinner', 'snack'],

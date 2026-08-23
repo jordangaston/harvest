@@ -42,6 +42,9 @@ export function toRecipeInput(data: ExtractedRecipeData, input: ImportInput): Re
     // Re-align the per-step equipment to the FINAL (stripped) steps; the recipe-level set +
     // completeness are order-independent (WI-EQ-2).
     equipment: data.equipment ? { ...data.equipment, stepEquipment: stepEquipment ?? [] } : null,
+    // Ingredient→food matches from the nutrition step (taste overhaul); stamped by name onto
+    // the ingredient rows for ingredient-level affinity. Section-header names simply won't match.
+    ingredientMatches: data.estimate?.matches,
   };
 }
 
