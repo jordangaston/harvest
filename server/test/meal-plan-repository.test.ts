@@ -109,6 +109,22 @@ describe("MealPlanRepository.replaceGenerated", () => {
     expect(theirs.map((r) => r.recipeId)).toEqual([vRecipe]); // untouched by U's regenerate
   });
 
+  it("replaceSlot sets the slot to exactly one recipe, clearing any prior occupant (no duplicates)", async () => {
+    const me = await h.mintBearer();
+    const repo = MealPlanRepository.create(h.db);
+    const rr = RecipeRepository.create(h.db);
+    const a = await rr.persist(RECIPE, me.userId);
+    const b = await rr.persist(RECIPE, me.userId);
+    // A manual entry occupies the slot; a re-roll into the same slot must replace it, not append.
+    await repo.replaceSlot(me.userId, "2026-08-06", "dinner", a, "manual");
+    const entry = await repo.replaceSlot(me.userId, "2026-08-06", "dinner", b, "generated");
+
+    expect(entry.recipe.id).toBe(b);
+    const rows = await rawEntries(me.userId);
+    expect(rows).toHaveLength(1);
+    expect([rows[0].recipeId, rows[0].source]).toEqual([b, "generated"]);
+  });
+
   it("rolls back atomically on a bad insert, leaving prior state intact (TC4)", async () => {
     const me = await h.mintBearer();
     const repo = MealPlanRepository.create(h.db);

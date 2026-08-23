@@ -3,6 +3,7 @@ import type { MealSlot } from '../src/schema.js';
 import { MmrFiller } from '../src/planning/slot-filler.js';
 import { SingleUserAggregator } from '../src/planning/score-aggregator.js';
 import { similarity } from '../src/planning/similarity.js';
+import { MAX_BATCH_SPAN_DAYS } from '../src/planning/constants.js';
 import type { CandidateRecipe, FillConstraints, Slot } from '../src/planning/types.js';
 
 /** WI-MP-2 — pure MmrFiller: MMR selection, novelty portfolio, budget/time repair, P7 batching. */
@@ -162,6 +163,20 @@ describe('MmrFiller — leftover/meal-prep batching (P7)', () => {
     const batched = res.choices.filter((c) => c.batchId);
     expect(batched.length).toBeGreaterThan(0);
     expect(batched.every((c) => c.recipeId === 'design')).toBe(true); // designed anchors, not the higher-base suitable
+  });
+
+  it('never lets a batch span more than the max window end-to-end', () => {
+    // 7 keeps-well dinners across 7 days with a tight capacity → the engine wants many leftovers,
+    // but no single batch may be eaten across more than MAX_BATCH_SPAN_DAYS (earliest↔latest).
+    const p = Array.from({ length: 7 }, (_, i) => cand({ recipeId: `k${i}`, baseScore: 20 - i * 0.01, mealPrepFit: 'designed', categories: varied(i) }));
+    const res = MmrFiller.create().fill(slots('dinner', week(7)), pools([['dinner', p]]), constraints({ cookDaysCount: 1, eatsLeftovers: true }));
+    const datesByBatch = new Map<string, number[]>();
+    for (const ch of res.choices) if (ch.batchId) (datesByBatch.get(ch.batchId) ?? datesByBatch.set(ch.batchId, []).get(ch.batchId)!).push(Date.parse(ch.slot.date));
+    expect(datesByBatch.size).toBeGreaterThan(0);
+    for (const times of datesByBatch.values()) {
+      const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000;
+      expect(spanDays).toBeLessThanOrEqual(MAX_BATCH_SPAN_DAYS);
+    }
   });
 
   it('batches on meal-prep intent even with ample capacity (AC8)', () => {

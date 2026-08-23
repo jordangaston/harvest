@@ -58,9 +58,9 @@ export class CandidateProvider {
   ): Promise<CandidateRecipe[]> {
     const [pool, owned, liked, saved, recent] = await Promise.all([
       this.recipes.listDeckCandidates(userId, MEAL_TYPE_VALUES[meal]),
-      this.ownedIds(userId),
-      this.cookbookIds(userId, 'liked', 'Liked'),
-      this.cookbookIds(userId, 'saved', 'Saved'),
+      this.recipes.ownedRecipeIds(userId),
+      this.cookbooks.systemCookbookRecipeIds(userId, 'liked'),
+      this.cookbooks.systemCookbookRecipeIds(userId, 'saved'),
       this.recentlyCooked(userId, opts.cooldownDays ?? MEAL_COOLDOWN_DAYS),
     ]);
     const byId = new Map(pool.map((p) => [p.recipe.id, p.recipe]));
@@ -83,17 +83,6 @@ export class CandidateProvider {
       });
     }
     return out.sort((a, b) => b.baseScore - a.baseScore);
-  }
-
-  private async ownedIds(userId: string): Promise<Set<string>> {
-    const owned = await this.recipes.listRankable(userId);
-    return new Set(owned.map((o) => o.recipe.id));
-  }
-
-  private async cookbookIds(userId: string, slug: string, name: string): Promise<Set<string>> {
-    const cookbookId = await this.cookbooks.ensureSystemCookbook(userId, slug, name);
-    const cb = await this.cookbooks.getForUser(userId, cookbookId);
-    return new Set((cb?.recipes ?? []).map((r) => r.id));
   }
 
   /** Recipe ids cooked in the last `cooldownDays` (up to today) — the cross-week recency exclusion. */

@@ -14,8 +14,9 @@ import type { CandidateRecipe, FillConstraints, PlanAssignment, Slot } from './t
 
 const MEALS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const MEAL_PREP_WHEN_COOK = ['meal_prep', 'weekly_schedule'];
-/** How many days on each side of a re-rolled slot count as "the current week" for uniqueness. */
-const REGEN_WINDOW_DAYS = 6;
+/** Days on each side of a re-rolled slot treated as "the current week" for uniqueness — 7 covers the
+ * whole containing week wherever `date` falls. A repeat 8+ days out is a different week (recency's job). */
+const REGEN_WINDOW_DAYS = 7;
 
 interface RecipeCard {
   id: string;
@@ -110,7 +111,7 @@ export class MealPlanGeneratorService {
     const pool = await this.candidates.candidates(userId, meal, prefs, { exclude });
     const top = mmrTopN(pool, limit);
     const cards = await this.cardsFor(top.map((c) => c.recipeId));
-    return { options: top.map((c) => ({ tier: c.tier, recipe: cards.get(c.recipeId)! })) };
+    return { options: top.flatMap((c) => { const recipe = cards.get(c.recipeId); return recipe ? [{ tier: c.tier, recipe }] : []; }) };
   }
 
   /**
@@ -142,13 +143,15 @@ export class MealPlanGeneratorService {
 
   private async toResponse(assignment: PlanAssignment, inserted: InsertedEntry[], prefs: UserPreferences): Promise<GeneratedPlan> {
     const cards = await this.cardsFor([...new Set(assignment.choices.map((c) => c.recipeId))]);
-    const entries = assignment.choices.map((ch, i) => ({
-      id: inserted[i]?.id ?? null, // inserted is in choices order (replaceGenerated preserves it)
-      date: ch.slot.date,
-      meal: ch.slot.meal,
-      tier: ch.tier,
-      recipe: cards.get(ch.recipeId)!,
-    }));
+    // Match persisted ids to choices by identity, not array index — SQLite RETURNING order is undefined.
+    const idByKey = new Map(inserted.map((e) => [slotKey(e.date, e.meal, e.recipeId), e.id]));
+    const entries = assignment.choices
+      .map((ch) => {
+        const recipe = cards.get(ch.recipeId);
+        if (!recipe) return null; // recipe vanished between build and card-fetch — drop it, don't crash
+        return { id: idByKey.get(slotKey(ch.slot.date, ch.slot.meal, ch.recipeId)) ?? null, date: ch.slot.date, meal: ch.slot.meal, tier: ch.tier, recipe };
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
     const s = assignment.summary;
     return {
       entries,
@@ -185,6 +188,9 @@ function dateRange(start: string, end: string): string[] {
 }
 
 const shiftDate = (date: string, days: number) => new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
+
+/** Identity of a filled slot — unique across a plan's choices (a batch repeats a recipe on other dates). */
+const slotKey = (date: string, meal: MealSlot, recipeId: string) => `${date}|${meal}|${recipeId}`;
 
 /** One slot per planned meal, round-robin across the range's dates (kids meals aren't slots yet — Q). */
 function buildSlots(prefs: UserPreferences, dates: string[]): Slot[] {

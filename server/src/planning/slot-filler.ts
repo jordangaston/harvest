@@ -184,10 +184,17 @@ export class MmrFiller implements SlotFiller {
         if (out[anchorIdx].batchId) continue; // already part of a batch
         const batchId = `b${batchSeq}`;
         let anchored = false;
+        // Track the batch's date span end-to-end (min↔max), not just anchor↔leftover, so a batch
+        // eaten across earliest→latest never exceeds the fridge-safety window (Q-09).
+        let lo = out[anchorIdx].slot.date;
+        let hi = out[anchorIdx].slot.date;
         for (const j of idxs) {
           if (budget <= 0 || madeThisMeal >= perMealCap) break;
           if (j === anchorIdx || out[j].batchId) continue;
-          if (Math.abs(daysBetween(out[anchorIdx].slot.date, out[j].slot.date)) > MAX_BATCH_SPAN_DAYS) continue;
+          const d = out[j].slot.date;
+          if (daysBetween(d < lo ? d : lo, d > hi ? d : hi) > MAX_BATCH_SPAN_DAYS) continue;
+          if (d < lo) lo = d;
+          if (d > hi) hi = d;
           out[anchorIdx] = { ...out[anchorIdx], batchId };
           out[j] = { ...out[j], recipeId: out[anchorIdx].recipeId, tier: out[anchorIdx].tier, batchId };
           anchored = true;

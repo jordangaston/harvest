@@ -126,6 +126,21 @@ export class CookbookRepository {
     return row!.id;
   }
 
+  /**
+   * The recipe ids in the caller's `system_slug=slug` cookbook, read-only — returns an empty set if
+   * the cookbook doesn't exist yet (unlike {@link ensureSystemCookbook}, this never creates it, so it's
+   * safe on a read path like candidate-building).
+   */
+  async systemCookbookRecipeIds(userId: string, slug: string): Promise<Set<string>> {
+    const [cb] = await this.db
+      .select({ id: cookbooks.id })
+      .from(cookbooks)
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, slug)));
+    if (!cb) return new Set();
+    const rows = await this.db.select({ recipeId: cookbookRecipes.recipeId }).from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, cb.id));
+    return new Set(rows.map((r) => r.recipeId));
+  }
+
   /** Idempotently files a recipe into a cookbook (no-op if already a member). */
   async addRecipe(userId: string, cookbookId: string, recipeId: string): Promise<void> {
     await this.db.insert(cookbookRecipes).values({ cookbookId, recipeId }).onConflictDoNothing();

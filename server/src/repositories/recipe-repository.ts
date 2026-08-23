@@ -429,6 +429,12 @@ export class RecipeRepository {
     return this.assembleRankable(rows);
   }
 
+  /** Just the ids of the caller's owned recipes — for tiering candidates without a full assemble. */
+  async ownedRecipeIds(userId: string): Promise<Set<string>> {
+    const rows = await this.db.select({ id: recipes.id }).from(recipes).where(eq(recipes.userId, userId));
+    return new Set(rows.map((r) => r.id));
+  }
+
   /**
    * The deck candidate set (WI-RANK-4): recipes the caller can see — owned ∪ global
    * (`user_id = caller OR user_id IS NULL`) — as `RankableRecipe` + card. Same batched
