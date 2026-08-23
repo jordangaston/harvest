@@ -18,14 +18,11 @@ export const MealPlanEntrySchema = z.object({
 export type MealPlanEntry = z.infer<typeof MealPlanEntrySchema>;
 export type MealSlot = MealPlanEntry['meal'];
 
-/** A generated entry to persist (WI-MP-1): a recipe assigned to a slot, with an optional
- * leftover-batch grouping. `position` is assigned by the repository, not the caller. */
-export interface GeneratedEntry {
-  date: string;
-  meal: MealSlot;
-  recipeId: string;
-  batchId?: string | null;
-}
+/** The subset of a MealPlanEntry the generator supplies to persist (WI-MP-1): which recipe fills
+ * which slot, plus an optional leftover-batch grouping. Derived from MealPlanEntry so it stays in
+ * lockstep with the model — the repository owns the rest (`id`, `position`, `source`, `createdAt`). */
+export type GeneratedMealPlanEntry = Pick<MealPlanEntry, 'date' | 'meal' | 'recipeId'> &
+  Partial<Pick<MealPlanEntry, 'batchId'>>;
 
 /** An entry joined with its recipe's card — what a plan read returns. */
 export interface MealPlanEntryView {
