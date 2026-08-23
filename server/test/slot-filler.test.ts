@@ -146,6 +146,24 @@ describe('MmrFiller — leftover/meal-prep batching (P7)', () => {
     expect(leftovers).toBeLessThanOrEqual(2);
   });
 
+  it('anchors the batch on the highest meal-prep score, not the highest base', () => {
+    // A `suitable` recipe outranks a `designed` one on base — but the designed one is more batchable,
+    // so it must be the anchor the leftovers serve.
+    const p = [
+      cand({ recipeId: 'suit', baseScore: 20.5, mealPrepFit: 'suitable', categories: varied(1) }),
+      cand({ recipeId: 'design', baseScore: 20.0, mealPrepFit: 'designed', categories: varied(2) }),
+      cand({ recipeId: 'suit2', baseScore: 19.0, mealPrepFit: 'suitable', categories: varied(3) }),
+    ];
+    const res = MmrFiller.create().fill(
+      slots('dinner', week(3)),
+      pools([['dinner', p]]),
+      constraints({ cookDaysCount: 1, eatsLeftovers: true }),
+    );
+    const batched = res.choices.filter((c) => c.batchId);
+    expect(batched.length).toBeGreaterThan(0);
+    expect(batched.every((c) => c.recipeId === 'design')).toBe(true); // designed anchors, not the higher-base suitable
+  });
+
   it('batches on meal-prep intent even with ample capacity (AC8)', () => {
     const p = [keepsWell('k0', 20.5, 0), keepsWell('k1', 20.4, 1), keepsWell('k2', 20.3, 2), keepsWell('k3', 20.2, 3)];
     const res = MmrFiller.create().fill(

@@ -2,6 +2,7 @@ import type { MealSlot } from '../schema.js';
 import type { CandidateRecipe, FillConstraints, PlanAssignment, Slot, SlotChoice, SlotFiller } from './types.js';
 import { similarity } from './similarity.js';
 import { MMR_LAMBDA, NEW_RATIO, LEFTOVER_BUDGET_FRACTION, MAX_BATCH_SPAN_DAYS, KEEPS_WELL_FITS } from './constants.js';
+import { MEAL_PREP_SCORE } from '../ranking/constants.js';
 
 const MEAL_ORDER: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const TIME_SLOT_FOR_MEAL: Record<MealSlot, keyof NonNullable<FillConstraints['timeByMeal']>> = {
@@ -173,10 +174,14 @@ export class MmrFiller implements SlotFiller {
       const idxs = out.map((ch, i) => (ch.slot.meal === meal ? i : -1)).filter((i) => i >= 0);
       const perMealCap = Math.floor(LEFTOVER_BUDGET_FRACTION * idxs.length);
       let madeThisMeal = 0;
-      // Anchors: keeps-well recipes, best base first.
+      // Anchors: keeps-well recipes, MOST batchable first (designed ≻ suitable), then best base.
+      // Anchoring on the meal-prep score — not overall base — means the recipe we stretch across
+      // days is the one most likely to actually keep, not merely the highest-ranked keeps-well one.
       const anchors = idxs
         .filter((i) => isKeepsWell(candidateIn(pools, meal, out[i].recipeId)))
-        .sort((a, b) => baseOf(pools, meal, out[b].recipeId) - baseOf(pools, meal, out[a].recipeId));
+        .sort((a, b) =>
+          mealPrepScoreOf(pools, meal, out[b].recipeId) - mealPrepScoreOf(pools, meal, out[a].recipeId) ||
+          baseOf(pools, meal, out[b].recipeId) - baseOf(pools, meal, out[a].recipeId));
       for (const anchorIdx of anchors) {
         if (budget <= 0 || madeThisMeal >= perMealCap) break;
         if (out[anchorIdx].batchId) continue; // already part of a batch
@@ -255,6 +260,12 @@ const costOf = (c: CandidateRecipe | null, k: FillConstraints) =>
   c && c.costPerServingCents !== null ? c.costPerServingCents * k.householdServings : 0;
 
 const isKeepsWell = (c: CandidateRecipe | null) => !!c && c.mealPrepFit !== null && KEEPS_WELL_FITS.has(c.mealPrepFit);
+
+/** The recipe's meal-prep score (designed 1.0 ≻ suitable 0.6); 0 when unscored — picks the batch anchor. */
+const mealPrepScoreOf = (pools: Map<MealSlot, CandidateRecipe[]>, meal: MealSlot, recipeId: string) => {
+  const fit = candidateIn(pools, meal, recipeId)?.mealPrepFit;
+  return fit ? MEAL_PREP_SCORE[fit] : 0;
+};
 
 function timeBudgetFor(meal: MealSlot, c: FillConstraints): number | null {
   if (c.timeByMeal) return c.timeByMeal[TIME_SLOT_FOR_MEAL[meal]];
