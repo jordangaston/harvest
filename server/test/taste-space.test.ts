@@ -47,6 +47,7 @@ function stubRepo(over: Partial<TasteRepository>): TasteRepository {
   return {
     allProfiles: async () => new Map(),
     recipeIdsByFacet: async () => [],
+    recipeIdsByFacets: async () => new Map(),
     userSwipes: async () => [],
     userFoodPrefs: async () => [],
     ...over,
@@ -55,7 +56,7 @@ function stubRepo(over: Partial<TasteRepository>): TasteRepository {
 
 describe('FacetTasteProfileService', () => {
   it('a cuisine profile is the centroid of its tagged recipes', async () => {
-    const repo = stubRepo({ recipeIdsByFacet: async () => ['it1', 'it2'] });
+    const repo = stubRepo({ recipeIdsByFacets: async () => new Map([['cuisine:italian', ['it1', 'it2']]]) });
     const svc = FacetTasteProfileService.create(space, repo);
     expect(await svc.tasteProfile('cuisine', 'italian')).toEqual(centroid([IT1, IT2]));
   });
@@ -63,13 +64,18 @@ describe('FacetTasteProfileService', () => {
     const svc = FacetTasteProfileService.create(space, stubRepo({}));
     expect(await svc.tasteProfile('ingredient', 'tomato')).toEqual(normalize({ tomato: 1 }));
   });
-  it('memoizes per (facet,value)', async () => {
-    let calls = 0;
-    const repo = stubRepo({ recipeIdsByFacet: async () => (calls++, ['it1']) });
+  it('resolves many facet-likes in one query and memoizes', async () => {
+    let queries = 0;
+    const repo = stubRepo({
+      recipeIdsByFacets: async () => (queries++, new Map([['cuisine:italian', ['it1']]])),
+    });
     const svc = FacetTasteProfileService.create(space, repo);
-    await svc.tasteProfile('cuisine', 'italian');
-    await svc.tasteProfile('cuisine', 'italian');
-    expect(calls).toBe(1);
+    await svc.tasteProfiles([
+      { facet: 'cuisine', value: 'italian' },
+      { facet: 'cuisine', value: 'italian' },
+    ]);
+    await svc.tasteProfile('cuisine', 'italian'); // cache hit
+    expect(queries).toBe(1);
   });
 });
 

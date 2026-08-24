@@ -7,6 +7,12 @@ export interface Distinctiveness {
   idf: number;
 }
 
+/** The built taste space: per-ingredient distinctiveness and per-recipe profiles. */
+export interface TasteSpaceBuild {
+  distinctiveness: Distinctiveness[];
+  profiles: Map<string, TasteProfile>;
+}
+
 /**
  * Turns the corpus into taste profiles: from each recipe's base-ingredient set it computes
  * `idf = max(0, ln(N / (1 + df)))` (ubiquitous staples → 0, dropped) and each recipe's L2-normalized
@@ -14,13 +20,12 @@ export interface Distinctiveness {
  */
 export class RecipeTasteProfiler {
   /** @param byRecipe recipeId → its base-ingredient ids (duplicates tolerated). */
-  build(byRecipe: Map<string, string[]>): {
-    distinctiveness: Distinctiveness[];
-    profiles: Map<string, TasteProfile>;
-  } {
+  build(byRecipe: Map<string, string[]>): TasteSpaceBuild {
     const n = byRecipe.size;
     const df = new Map<string, number>();
-    for (const bids of byRecipe.values()) for (const b of new Set(bids)) df.set(b, (df.get(b) ?? 0) + 1);
+    for (const bids of byRecipe.values()) {
+      for (const b of new Set(bids)) df.set(b, (df.get(b) ?? 0) + 1);
+    }
 
     const idf = new Map<string, number>();
     for (const [b, d] of df) idf.set(b, Math.max(0, Math.log(n / (1 + d))));

@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { type Database } from '../../db.js';
 import { recipeTasteProfiles, recipeCategories, recipeSwipes, userFoodPrefs, AFFINITY_FACETS } from '../../schema.js';
@@ -35,6 +35,25 @@ export class TasteRepository {
       .from(recipeCategories)
       .where(and(eq(recipeCategories.facet, facet), eq(recipeCategories.value, value)));
     return rows.map((r) => r.recipeId);
+  }
+
+  /** Recipe ids for many facet values in ONE query, keyed `facet:value` (avoids per-pref N+1). */
+  async recipeIdsByFacets(
+    pairs: readonly { facet: CategoryFacet; value: string }[],
+  ): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (pairs.length === 0) return out;
+    const rows = await this.db
+      .select({ facet: recipeCategories.facet, value: recipeCategories.value, recipeId: recipeCategories.recipeId })
+      .from(recipeCategories)
+      .where(or(...pairs.map((p) => and(eq(recipeCategories.facet, p.facet), eq(recipeCategories.value, p.value)))));
+    for (const r of rows) {
+      const key = `${r.facet}:${r.value}`;
+      const list = out.get(key);
+      if (list) list.push(r.recipeId);
+      else out.set(key, [r.recipeId]);
+    }
+    return out;
   }
 
   /** A user's swipes; `direction` is the swipe enum (like/dislike/save). */

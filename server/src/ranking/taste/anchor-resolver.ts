@@ -38,8 +38,10 @@ export class AnchorResolver {
   }
 
   private async addFoodPrefs(userId: string, set: AnchorSet): Promise<void> {
-    for (const p of await this.repo.userFoodPrefs(userId)) {
-      const profile = await this.facets.tasteProfile(p.facet, p.value);
+    const prefs = await this.repo.userFoodPrefs(userId);
+    const profiles = await this.facets.tasteProfiles(prefs); // one query, not one per pref
+    for (const p of prefs) {
+      const profile = profiles.get(`${p.facet}:${p.value}`)!;
       if (Object.keys(profile).length === 0) continue;
       if (p.sentiment === 'dislike') set.dislikes.push(profile);
       else set.anchors.push({ profile, weight: WEIGHT.facet });

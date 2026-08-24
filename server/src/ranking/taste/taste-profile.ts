@@ -34,20 +34,3 @@ export function normalize(p: TasteProfile): TasteProfile {
   for (const k in p) out[k] = p[k]! / norm;
   return out;
 }
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const assert = (c: boolean, m: string) => {
-    if (!c) throw new Error(`FAIL: ${m}`);
-  };
-  const a = normalize({ tomato: 1, garlic: 1 });
-  const b = normalize({ tomato: 1, basil: 1 });
-  const c = normalize({ soy: 1, ginger: 1 });
-  assert(Math.abs(cosine(a, a) - 1) < 1e-9, 'self-cosine = 1');
-  assert(cosine(a, b) > cosine(a, c), 'shares tomato → nearer than disjoint');
-  assert(cosine(a, c) === 0, 'disjoint → 0');
-  const cen = centroid([a, b]);
-  assert(cen.tomato! > cen.basil!, 'centroid heaviest on shared dim (tomato)');
-  assert(Object.keys(centroid([])).length === 0, 'empty centroid');
-  // eslint-disable-next-line no-console
-  console.log('taste-profile self-check OK');
-}

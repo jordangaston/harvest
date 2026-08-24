@@ -14,8 +14,6 @@ export interface AnchorSet {
 
 /** How hard a disliked neighbourhood pushes a candidate down (subtracted from activation). */
 const DISLIKE_WEIGHT = 1.0;
-/** Fraction of the deck reserved for out-of-neighbourhood exploration. */
-const EXPLORE_FRACTION = 0.15;
 
 /**
  * Recipes as points in taste space (D-06: the whole set held in memory, brute-forced). The walk
@@ -44,25 +42,23 @@ export class TasteSpace {
   }
 
   /**
-   * Source (order) `candidateIds` by affinity to the anchor set, reserving an exploration slice.
+   * Source `candidateIds` as the top-k by affinity to the anchor set.
    * activation(c) = Σ anchor.weight·cosine(anchor, c) − DISLIKE_WEIGHT·max cosine(dislike, c).
    * Returns `null` when there are no anchors (caller falls back to the non-affinity path).
+   * ponytail: pure top-k; real diversity/novelty exploration is an eval-gated follow-up (design Q-03).
    */
   source(anchors: AnchorSet, candidateIds: string[], k: number): string[] | null {
     if (anchors.anchors.length === 0) return null;
+    const ranked = candidateIds
+      .filter((id) => this.profiles.has(id))
+      .map((id) => ({ id, s: this.activation(anchors, id) }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, k)
+      .map((x) => x.id);
     // Candidates with no profile (e.g. a freshly seeded recipe) can't be scored — keep them at the
     // tail rather than dropping them, so affinity reorders the deck without shrinking it.
     const unscorable = candidateIds.filter((id) => !this.profiles.has(id));
-    const scored = candidateIds
-      .filter((id) => this.profiles.has(id))
-      .map((id) => ({ id, s: this.activation(anchors, id) }))
-      .sort((a, b) => b.s - a.s);
-
-    const exploreN = Math.min(Math.round(EXPLORE_FRACTION * k), Math.max(0, scored.length - k));
-    const neighbourhoodN = Math.max(0, k - exploreN);
-    const top = scored.slice(0, neighbourhoodN);
-    const explore = evenSample(scored.slice(neighbourhoodN), exploreN);
-    return [...top.map((x) => x.id), ...explore.map((x) => x.id), ...unscorable];
+    return [...ranked, ...unscorable];
   }
 
   private activation(anchors: AnchorSet, recipeId: string): number {
@@ -73,12 +69,4 @@ export class TasteSpace {
     for (const d of anchors.dislikes) pen = Math.max(pen, cosine(d, p));
     return s - DISLIKE_WEIGHT * pen;
   }
-}
-
-/** Deterministically pick `n` items evenly spread across `arr` (exploration, no RNG). */
-function evenSample<T>(arr: T[], n: number): T[] {
-  if (n <= 0 || arr.length === 0) return [];
-  if (n >= arr.length) return arr;
-  const step = arr.length / n;
-  return Array.from({ length: n }, (_, i) => arr[Math.floor(i * step)]!);
 }
