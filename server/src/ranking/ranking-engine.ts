@@ -23,9 +23,14 @@ export class RankingEngine {
     );
   }
 
+  /** Hard-filter only: the recipes a user can actually eat (allergen/diet/equipment), before scoring.
+   * Exposed so affinity sourcing can gate candidates on hard constraints *before* narrowing by taste. */
+  eligible(recipes: RankableRecipe[], prefs: UserPreferences): RankableRecipe[] {
+    return recipes.filter((r) => !this.filters.some((f) => f.excludes(r, prefs)));
+  }
+
   rank(recipes: RankableRecipe[], prefs: UserPreferences): RankedRecipe[] {
-    return recipes
-      .filter((r) => !this.filters.some((f) => f.excludes(r, prefs)))
+    return this.eligible(recipes, prefs)
       .map((r) => this.scoreRecipe(r, prefs))
       .sort((a, b) => this.compare(a, b, recipes));
   }

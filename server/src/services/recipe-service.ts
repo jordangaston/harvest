@@ -137,16 +137,19 @@ export class RecipeService {
     }
 
     const cardById = new Map(live.map((c) => [c.recipe.id, c.card]));
-    const byId = new Map(live.map((c) => [c.recipe.id, c.recipe]));
-    // Affinity drives sourcing (P2): walk the taste space from the user's anchors to pick the
-    // neighbourhood, then let the scorers rerank it. Null (no anchors) → the full visible deck.
+    const engine = RankingEngine.create();
+    // Hard constraints (allergen/diet/equipment) gate the candidate set FIRST — you never want an
+    // incompatible recipe regardless of taste — then affinity sources the neighbourhood from what's
+    // eligible, and the scorers rerank it. Null (no anchors) → the full eligible deck.
+    const eligible = engine.eligible(live.map((c) => c.recipe), prefs);
+    const byId = new Map(eligible.map((r) => [r.id, r]));
     const sourced = await (await tasteDeckSourcer(this.taste)).source(
       userId,
       [...byId.keys()],
       Math.min(byId.size, Math.max(opts.limit * 2, 24)),
     );
-    const pool = sourced ? sourced.map((id) => byId.get(id)!) : live.map((c) => c.recipe);
-    const ranked = RankingEngine.create().rank(pool, prefs).slice(0, opts.limit);
+    const pool = sourced ? sourced.map((id) => byId.get(id)!) : eligible;
+    const ranked = engine.rank(pool, prefs).slice(0, opts.limit);
     return {
       recipes: ranked.map((r) => ({ recipe: cardById.get(r.recipeId)!, score: round1(r.score * 100), breakdown: r.breakdown })),
     };
