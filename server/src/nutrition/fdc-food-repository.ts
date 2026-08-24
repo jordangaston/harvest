@@ -27,6 +27,18 @@ const NutrientRowSchema = z.object({
   amountPer100g: z.string(),
 });
 
+/** Parse one FTS5 result row into a candidate at the DB→domain boundary. */
+function toCandidate(row: unknown): FdcFoodCandidate {
+  const p = CandidateRowSchema.parse(row);
+  return {
+    fdcId: p.fdc_id,
+    description: p.description,
+    descriptionNormalized: p.description_normalized,
+    category: p.category,
+    bm25: p.bm25,
+  };
+}
+
 /** Overlapping 3-grams of a word (the tokenizer FTS5 uses). Empty for words < 3 chars. */
 function trigrams(word: string): string[] {
   const grams: string[] = [];
@@ -54,7 +66,7 @@ export class FdcFoodRepository {
    * @param tokens - normalized tokens (from `normalize()`), so they tokenize like the catalog.
    * @returns candidates ordered by bm25 ascending (best first); empty for no tokens/no hits.
    */
-  async search(tokens: string[]): Promise<FdcFoodCandidate[]> {
+  async searchTrigrams(tokens: string[]): Promise<FdcFoodCandidate[]> {
     const grams = tokens.flatMap(trigrams);
     if (grams.length === 0) return [];
     const matchExpr = grams.map((g) => `"${g}"`).join(' OR ');
@@ -66,16 +78,28 @@ export class FdcFoodRepository {
       JOIN fdc_foods f ON f.fdc_id = fdc_foods_fts.rowid
       WHERE fdc_foods_fts MATCH ${matchExpr}
       ORDER BY bm25`);
-    return rows.map((r) => {
-      const p = CandidateRowSchema.parse(r);
-      return {
-        fdcId: p.fdc_id,
-        description: p.description,
-        descriptionNormalized: p.description_normalized,
-        category: p.category,
-        bm25: p.bm25,
-      };
-    });
+    return rows.map(toCandidate);
+  }
+
+  /**
+   * Word-level FTS5 search (unicode61): tokens are OR-ed as whole words, so a query for `cumin`
+   * matches the *word* cumin and never `cucumber` — the precision-leaning complement to the
+   * recall-leaning `searchTrigrams`. The FoodMatcher fuses the two by RRF. A misspelled token
+   * matches no word, so this returns `[]` for it (trigram carries the typo case).
+   * @returns candidates ordered by bm25 ascending (best first); empty for no tokens/no hits.
+   */
+  async searchWords(tokens: string[]): Promise<FdcFoodCandidate[]> {
+    if (tokens.length === 0) return [];
+    const matchExpr = tokens.map((t) => `"${t}"`).join(' OR ');
+    const rows = await this.db.all(sql`
+      SELECT f.fdc_id AS fdc_id, f.description AS description,
+             f.description_normalized AS description_normalized, f.category AS category,
+             bm25(fdc_foods_word_fts) AS bm25
+      FROM fdc_foods_word_fts
+      JOIN fdc_foods f ON f.fdc_id = fdc_foods_word_fts.rowid
+      WHERE fdc_foods_word_fts MATCH ${matchExpr}
+      ORDER BY bm25`);
+    return rows.map(toCandidate);
   }
 
   /** The food's nutrient panel as `nutrientNumber → amountPer100g` (numbers parsed from text). */
