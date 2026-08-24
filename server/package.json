@@ -20,7 +20,8 @@
     "backfill:fdc": "tsx scripts/backfill-fdc-matches.ts",
     "build:taste": "tsx scripts/build-taste-space.ts",
     "eval:affinity": "tsx scripts/eval-affinity.ts",
-    "demo:affinity": "tsx scripts/demo-affinity.ts"
+    "demo:affinity": "tsx scripts/demo-affinity.ts",
+    "reclassify:diets": "tsx scripts/reclassify-diets.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
