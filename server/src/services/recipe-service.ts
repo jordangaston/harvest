@@ -4,6 +4,7 @@ import { PreferenceRepository } from "../repositories/preference-repository.js";
 import { SwipeRepository } from "../repositories/swipe-repository.js";
 import { CookbookRepository } from "../repositories/cookbook-repository.js";
 import { RankingEngine } from "../ranking/ranking-engine.js";
+import { tasteDeckSourcer, TasteRepository } from "../ranking/taste/index.js";
 import { tuneActionFor } from "../ranking/tune-mapping.js";
 import { SWIPE_COOLDOWN_DAYS } from "../ranking/constants.js";
 import { parseIngredientLine } from "../parse/ingredient.js";
@@ -60,6 +61,7 @@ export class RecipeService {
     private readonly preferences: PreferenceRepository,
     private readonly swipes: SwipeRepository,
     private readonly cookbooks: CookbookRepository,
+    private readonly taste: TasteRepository,
   ) {}
 
   /** Wire from a caller-supplied db (tests pass a local `file:` db). */
@@ -69,6 +71,7 @@ export class RecipeService {
       PreferenceRepository.create(db),
       SwipeRepository.create(db),
       CookbookRepository.create(db),
+      TasteRepository.create(db),
     );
   }
 
@@ -134,7 +137,16 @@ export class RecipeService {
     }
 
     const cardById = new Map(live.map((c) => [c.recipe.id, c.card]));
-    const ranked = RankingEngine.create().rank(live.map((c) => c.recipe), prefs).slice(0, opts.limit);
+    const byId = new Map(live.map((c) => [c.recipe.id, c.recipe]));
+    // Affinity drives sourcing (P2): walk the taste space from the user's anchors to pick the
+    // neighbourhood, then let the scorers rerank it. Null (no anchors) → the full visible deck.
+    const sourced = await (await tasteDeckSourcer(this.taste)).source(
+      userId,
+      [...byId.keys()],
+      Math.min(byId.size, Math.max(opts.limit * 2, 24)),
+    );
+    const pool = sourced ? sourced.map((id) => byId.get(id)!) : live.map((c) => c.recipe);
+    const ranked = RankingEngine.create().rank(pool, prefs).slice(0, opts.limit);
     return {
       recipes: ranked.map((r) => ({ recipe: cardById.get(r.recipeId)!, score: round1(r.score * 100), breakdown: r.breakdown })),
     };

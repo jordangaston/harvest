@@ -444,6 +444,27 @@ export const tasteIngredients = sqliteTable('taste_ingredients', {
   foodGroup: integer('food_group').notNull(),
 });
 
+// Affinity v2: how much each base ingredient distinguishes a dish — inverse document
+// frequency over the recipe corpus. Ubiquitous staples (salt, oil) → ~0; miso/saffron → high.
+// Built offline by scripts/build-taste-space.ts (RecipeTasteProfiler).
+export const ingredientDistinctiveness = sqliteTable('ingredient_distinctiveness', {
+  baseIngredientId: text('base_ingredient_id')
+    .primaryKey()
+    .references(() => tasteIngredients.id),
+  documentFrequency: integer('document_frequency').notNull(),
+  idf: real('idf').notNull(),
+});
+
+// Affinity v2: a recipe's position in taste space — a sparse IDF-weighted, L2-normalized
+// map of base_ingredient_id → weight. Consumed in memory by TasteSpace (brute-force cosine).
+export const recipeTasteProfiles = sqliteTable('recipe_taste_profiles', {
+  recipeId: text('recipe_id')
+    .primaryKey()
+    .references(() => recipes.id),
+  weights: text('weights', { mode: 'json' }).$type<Record<string, number>>().notNull(),
+  builtAt: integer('built_at').notNull(),
+});
+
 // Taste overhaul: the authored cuisine hierarchy (seed/cuisines.json → seed:cuisines).
 // `slug` is a natural key (stored directly on recipe_categories.value); `parent_slug`
 // self-references for parent-fallback ranking of sparse leaves.
