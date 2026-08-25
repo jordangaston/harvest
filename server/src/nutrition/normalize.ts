@@ -11,6 +11,8 @@
 export function normalize(name: string): string[] {
   const cleaned = name
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // fold diacritics: jalapeño→jalapeno, Kahlúa→kahlua
     .replace(/\([^)]*\)/g, ' ') // drop parentheticals
     .replace(/[^a-z0-9\s]/g, ' '); // punctuation → space (commas, hyphens, …)
 
