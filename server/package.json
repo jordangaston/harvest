@@ -21,7 +21,8 @@
     "build:taste": "tsx scripts/build-taste-space.ts",
     "eval:affinity": "tsx scripts/eval-affinity.ts",
     "demo:affinity": "tsx scripts/demo-affinity.ts",
-    "reclassify:diets": "tsx scripts/reclassify-diets.ts"
+    "reclassify:diets": "tsx scripts/reclassify-diets.ts",
+    "eval:matcher": "tsx scripts/eval-matcher.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

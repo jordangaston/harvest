@@ -28,13 +28,12 @@ let matched = 0;
 for (let i = 0; i < names.rows.length; i++) {
   const name = String(names.rows[i]!.name);
   const m = await matcher.match(name);
-  if (m) {
-    await client.execute({
-      sql: 'update ingredients set fdc_id = ?, match_quality = ? where name = ?',
-      args: [m.fdcId, m.quality, name],
-    });
-    matched++;
-  }
+  // Set on a match; CLEAR on a non-match so a stricter matcher removes stale matches (not just adds).
+  await client.execute({
+    sql: 'update ingredients set fdc_id = ?, match_quality = ? where name = ?',
+    args: [m?.fdcId ?? null, m?.quality ?? null, name],
+  });
+  if (m) matched++;
   if ((i + 1) % 2000 === 0) console.log(`  ${i + 1}/${names.rows.length} names · ${matched} matched`);
 }
 

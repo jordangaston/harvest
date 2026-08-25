@@ -70,8 +70,8 @@ describe('Test Case 3: merge precedence across ingredients', () => {
 
 describe('Test Case 3b: medium-quality match softens contains to may_contain', () => {
   it('a lone medium match of a contains-annotated food yields may_contain, still recognized', async () => {
-    // "buttermik" (typo) matches buttermilk by trigram only → `medium`; its `contains milk` softens.
-    const r = (await detector.detect(ings('1 cup buttermik')))!;
+    // "butermilk" (typo) matches buttermilk by trigram only → `medium`; its `contains milk` softens.
+    const r = (await detector.detect(ings('1 cup butermilk')))!;
     expect(at(r, 'contains')).toEqual([]);
     expect(at(r, 'may_contain')).toEqual<Allergen[]>(['milk']);
     expect(r.complete).toBe(true);

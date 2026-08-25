@@ -287,10 +287,10 @@ retriever (semantic) lands; extracting it then is mechanical.
 
 | ID | Question | Status | Resolution |
 |---|---|---|---|
-| Q-01 | RRF `k` (rank constant) and per-retriever weights — tune on the gold set? Default `k=60`. | open | Tune via `eval:matcher`. |
-| Q-02 | Reject-floor threshold — head-noun overlap alone, or also a min fused score? What coverage cost? | open | Sweep on the gold set; watch base_ingredient_coverage. |
-| Q-03 | Gold-set size/labelling — 200 enough? LLM-draft acceptable for labels, or full human review? | open | |
-| Q-04 | Does the eval still show a tail after `{trigram, word}` that justifies the semantic tier? | open | Decided by increment-1 results. |
+| Q-01 | RRF `k` and per-retriever weights? | resolved | `k=60`, **unweighted** — plain RRF cleared the target; weights unneeded. |
+| Q-02 | Reject-floor threshold + coverage cost? | resolved | Swept `eval:matcher`: floor = **char-bigram Dice ≥ 0.85** (any ingredient token vs a food token) → **1.91% error** (from 7.8%), fdc coverage 91.3%, base rollup 76.5% (> 70% alert). A typo (`spinnach`~`spinach` = 0.92) clears; a fluke (`cumin`~`cucumber` = 0.4) doesn't. |
+| Q-03 | Gold-set size/labelling? | open | Deferred — the zero-overlap proxy hit target; a gold set would refine and catch the proxy's synonym false-positives. |
+| Q-04 | Does a tail justify the semantic tier? | resolved (no) | Built an OpenAI-embedding semantic retriever + ran the 3-way comparison. It reaches <2% at a *lower* floor, but **lowers base-ingredient rollup** (73.5% vs 76.5% — it pulls matches to base-less foods) and adds a hot-path embedding dependency. For this corpus, lexical floor-tuning wins on the metric that matters (base rollup) with no dependency. Semantic stays the lever if a gold set later shows real synonym value. |
 
 ## Appendix A — Changelog
 
@@ -298,3 +298,4 @@ retriever (semantic) lands; extracting it then is mechanical.
 |---|---|---|
 | 2026-08-24 | Jordan Gaston | Initial draft — hybrid retrieval (RRF) over guarded top-1. |
 | 2026-08-24 | Jordan Gaston | Dropped the alias table from the core; word-level retriever first, semantic if needed, aliases deferred as an optimization. |
+| 2026-08-24 | Jordan Gaston | Implemented increment 1 (trigram+word RRF + Dice reject floor). Swept the floor (Q-02) to 0.85 → **7.8%→1.91% error**, target met. Evaluated the semantic tier (Q-04) — not shipped (lowers base rollup, adds a dependency). |

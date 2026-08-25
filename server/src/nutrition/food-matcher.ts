@@ -19,8 +19,8 @@ export interface IngredientMatcher {
 const RRF_K = 60;
 /** Reject floor: the matched food must share a token this close (char-bigram Dice) to an ingredient
  * token, else it's a fluke (cumin→cucumber ≈ 0.4) not a real match — while a typo passes
- * (spinnach→spinach ≈ 0.92). Tunable (Q-02) — calibrated so the fixture typo survives. */
-const MIN_TOKEN_SIMILARITY = 0.5;
+ * (spinnach→spinach ≈ 0.92). Tuned on the corpus via `eval:matcher` (Q-02): 0.85 → 1.91% wrong. */
+const MIN_TOKEN_SIMILARITY = 0.85;
 
 /**
  * Matches a recipe ingredient name to an FDC food by hybrid retrieval: `normalize` → a trigram
