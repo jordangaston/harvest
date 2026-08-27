@@ -1,0 +1,7 @@
+[
+  { "label": "Salsa Verde", "adopt": ["Salsa verde or salsa, green"] },
+  { "label": "Tzatziki", "adopt": ["Tzatziki dip"] },
+  { "label": "Hummus", "adopt": ["Hummus, plain", "Hummus, flavored"] },
+  { "label": "Guacamole", "adopt": ["Guacamole, NFS"] },
+  { "label": "Chili Garlic Sauce", "adopt": ["Garlic sauce"] }
+]

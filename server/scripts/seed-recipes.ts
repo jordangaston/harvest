@@ -14,6 +14,7 @@ import { NutritionEstimator } from '../src/nutrition/nutrition-estimator.js';
 import { CostEstimator } from '../src/price/cost-estimator.js';
 import { AllergenDetector } from '../src/allergen/allergen-detector.js';
 import { RecipeCategorizer } from '../src/categorize/recipe-categorizer.js';
+import { isRecipeSource } from '../src/parse/recipe-source-filter.js';
 import { EquipmentDetector } from '../src/equipment/equipment-detector.js';
 import { DietClassifier } from '../src/diet/diet-classifier.js';
 
@@ -44,8 +45,10 @@ const SKIP = [
 const shouldSkip = (url: string) => SKIP.some((re) => re.test(url));
 
 function loadUrls(path: string): string[] {
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as (string | { url: string })[];
-  const urls = raw.map((r) => (typeof r === 'string' ? r : r.url)).filter(Boolean);
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as (string | { url: string; title?: string })[];
+  const items = raw.map((r) => (typeof r === 'string' ? { url: r } : r)).filter((r) => r.url);
+  // Drop obvious non-recipes (roundups/guides/about pages) before we spend a fetch on them.
+  const urls = items.filter(isRecipeSource).map((r) => r.url);
   return Array.from(new Set(urls)); // de-dupe (the list has a few repeats)
 }
 

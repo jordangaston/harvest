@@ -37,7 +37,7 @@ function matchFor(fdcId: number, category: string | null): FoodMatch {
 
 describe('Test Case 3: FdcFoodRepository search/nutrients/portions (AC-1, AC-6)', () => {
   it('ranks salmon first for its token', async () => {
-    const hits = await repo.search(['salmon']);
+    const hits = await repo.searchTrigrams(['salmon']);
     expect(hits[0].fdcId).toBe(SALMON_FDC_ID);
     expect(hits[0].bm25).toBeLessThan(0); // lower = better
   });
@@ -56,7 +56,7 @@ describe('Test Case 3: FdcFoodRepository search/nutrients/portions (AC-1, AC-6)'
   });
 
   it('returns [] for a token that tokenizes to nothing', async () => {
-    expect(await repo.search([])).toEqual([]);
+    expect(await repo.searchTrigrams([])).toEqual([]);
   });
 });
 

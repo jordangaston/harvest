@@ -4,6 +4,8 @@ import { PreferenceRepository } from "../repositories/preference-repository.js";
 import { SwipeRepository } from "../repositories/swipe-repository.js";
 import { CookbookRepository } from "../repositories/cookbook-repository.js";
 import { RankingEngine } from "../ranking/ranking-engine.js";
+import { tasteDeckSourcer, TasteRepository } from "../ranking/taste/index.js";
+import { isStandaloneMeal, wantsMainsOnly } from "../ranking/course.js";
 import { tuneActionFor } from "../ranking/tune-mapping.js";
 import { SWIPE_COOLDOWN_DAYS } from "../ranking/constants.js";
 import { parseIngredientLine } from "../parse/ingredient.js";
@@ -60,6 +62,7 @@ export class RecipeService {
     private readonly preferences: PreferenceRepository,
     private readonly swipes: SwipeRepository,
     private readonly cookbooks: CookbookRepository,
+    private readonly taste: TasteRepository,
   ) {}
 
   /** Wire from a caller-supplied db (tests pass a local `file:` db). */
@@ -69,6 +72,7 @@ export class RecipeService {
       PreferenceRepository.create(db),
       SwipeRepository.create(db),
       CookbookRepository.create(db),
+      TasteRepository.create(db),
     );
   }
 
@@ -134,7 +138,24 @@ export class RecipeService {
     }
 
     const cardById = new Map(live.map((c) => [c.recipe.id, c.card]));
-    const ranked = RankingEngine.create().rank(live.map((c) => c.recipe), prefs).slice(0, opts.limit);
+    const engine = RankingEngine.create();
+    // Hard constraints (allergen/diet/equipment) gate the candidate set FIRST — you never want an
+    // incompatible recipe regardless of taste — then affinity sources the neighbourhood from what's
+    // eligible, and the scorers rerank it. Null (no anchors) → the full eligible deck.
+    const eligible = engine.eligible(live.map((c) => c.recipe), prefs);
+    // "I need lunch & dinner" ⇒ show standalone meals, not the sides/breads/desserts that are also
+    // tagged for those slots (a dinner roll is `meal_type: dinner` but isn't a dinner). Snack context
+    // keeps everything. A preference, not a hard constraint — never let it empty the deck.
+    const mains = wantsMainsOnly(mealTypes) ? eligible.filter(isStandaloneMeal) : eligible;
+    const forMeals = mains.length > 0 ? mains : eligible;
+    const byId = new Map(forMeals.map((r) => [r.id, r]));
+    const sourced = await (await tasteDeckSourcer(this.taste)).source(
+      userId,
+      [...byId.keys()],
+      Math.min(byId.size, Math.max(opts.limit * 2, 24)),
+    );
+    const pool = sourced ? sourced.map((id) => byId.get(id)!) : forMeals;
+    const ranked = engine.rank(pool, prefs).slice(0, opts.limit);
     return {
       recipes: ranked.map((r) => ({ recipe: cardById.get(r.recipeId)!, score: round1(r.score * 100), breakdown: r.breakdown })),
     };

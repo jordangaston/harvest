@@ -20,9 +20,10 @@ export const FOOD_CLASSES = [
 
 export type FoodClass = (typeof FOOD_CLASSES)[number];
 
-/** Whole-word, case-insensitive test of `word` (may contain spaces) in `text`. */
+/** Whole-word, case-insensitive test of `word` (may contain spaces) in `text`, tolerating a
+ * regular plural (`clam` matches `clams`) — otherwise plural seafood/meat names slip the diet rules. */
 function has(text: string, word: string): boolean {
-  return new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
+  return new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(text);
 }
 
 function hasAny(text: string, words: string[]): boolean {

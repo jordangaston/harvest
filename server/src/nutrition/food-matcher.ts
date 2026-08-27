@@ -1,5 +1,7 @@
 import { normalize } from './normalize.js';
-import type { FdcFoodRepository } from './fdc-food-repository.js';
+import { rrfFuse } from './retrieval/rrf.js';
+import { diceSimilarity } from './retrieval/similarity.js';
+import type { FdcFoodRepository, FdcFoodCandidate } from './fdc-food-repository.js';
 
 /** A resolved ingredient→food match, with the confidence tier the estimator surfaces. */
 export interface FoodMatch {
@@ -13,17 +15,18 @@ export interface IngredientMatcher {
   match(name: string): Promise<FoodMatch | null>;
 }
 
-// bm25 thresholds for the trigram OR-search (lower bm25 = better overlap). Calibrated
-// against the WI-1 fixture: clean single-token hits land ≈ -7 to -12, typos ≈ -6 to -10,
-// stray-trigram noise ≈ -1 to -2. tunable (Q-01) — these are fixture-fit defaults, not
-// universal truths; re-tune with the e2e coverage report when the full seed is loaded.
-const ACCEPT_MAX_BM25 = -6.0; // ≤ this → high
-const FLAG_MAX_BM25 = -4.0; //   (ACCEPT, this] → medium
-const REJECT_MAX_BM25 = -2.0; // (FLAG, this] → low; above → unmatched (null)
+/** RRF rank constant — smooths the head of each list (standard default). */
+const RRF_K = 60;
+/** Reject floor: the matched food must share a token this close (char-bigram Dice) to an ingredient
+ * token, else it's a fluke (cumin→cucumber ≈ 0.4) not a real match — while a typo passes
+ * (spinnach→spinach ≈ 0.92). Tuned on the corpus via `eval:matcher` (Q-02): 0.85 → 1.91% wrong. */
+const MIN_TOKEN_SIMILARITY = 0.85;
 
 /**
- * Matches a recipe ingredient name to an FDC food: `normalize` → trigram FTS5 search →
- * tier the best hit's bm25. One collaborator per responsibility (the repo does I/O).
+ * Matches a recipe ingredient name to an FDC food by hybrid retrieval: `normalize` → a trigram
+ * search (recall, typo-tolerant) and a word search (precision) → fuse by Reciprocal Rank Fusion →
+ * keep the fused top only if it clears the reject floor. A food that merely shares character trigrams
+ * (cumin/cucumber) either loses the fusion to the real word match or fails the floor.
  */
 export class FoodMatcher implements IngredientMatcher {
   constructor(private readonly repo: FdcFoodRepository) {}
@@ -33,22 +36,30 @@ export class FoodMatcher implements IngredientMatcher {
   }
 
   /**
-   * @param name - a raw ingredient name (e.g. "1 lb salmon fillet, skin on" already parsed to "salmon fillet").
-   * @returns the best match tiered by bm25, or null when nothing clears the reject floor.
+   * @param name - a parsed ingredient name (e.g. "salmon fillet, skin on").
+   * @returns the fused best match, or null when nothing clears the reject floor.
    */
   async match(name: string): Promise<FoodMatch | null> {
-    const [best] = await this.repo.search(normalize(name));
-    if (!best) return null;
-    const quality = this.tier(best.bm25);
-    if (!quality) return null;
-    return { fdcId: best.fdcId, category: best.category, quality };
-  }
+    const tokens = normalize(name);
+    const [trigram, word] = await Promise.all([this.repo.searchTrigrams(tokens), this.repo.searchWords(tokens)]);
+    if (trigram.length === 0 && word.length === 0) return null;
 
-  /** bm25 → quality tier, or null (below the reject floor = not a real match). */
-  private tier(bm25: number): FoodMatch['quality'] | null {
-    if (bm25 <= ACCEPT_MAX_BM25) return 'high';
-    if (bm25 <= FLAG_MAX_BM25) return 'medium';
-    if (bm25 <= REJECT_MAX_BM25) return 'low';
-    return null;
+    const byId = new Map<number, FdcFoodCandidate>();
+    for (const c of trigram) byId.set(c.fdcId, c);
+    for (const c of word) byId.set(c.fdcId, c);
+
+    const topId = rrfFuse([trigram.map((c) => c.fdcId), word.map((c) => c.fdcId)], RRF_K)[0];
+    if (topId === undefined) return null;
+    const cand = byId.get(topId)!;
+    if (!plausible(tokens, cand.descriptionNormalized)) return null;
+
+    const wordAgrees = word.some((c) => c.fdcId === topId);
+    return { fdcId: topId, category: cand.category, quality: wordAgrees ? 'high' : 'medium' };
   }
+}
+
+/** The reject floor: at least one ingredient token is close (typo-tolerant) to a food token. */
+function plausible(tokens: string[], descriptionNormalized: string): boolean {
+  const foodTokens = descriptionNormalized.split(/\s+/).filter(Boolean);
+  return tokens.some((t) => foodTokens.some((f) => diceSimilarity(t, f) >= MIN_TOKEN_SIMILARITY));
 }
