@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { ToolSearchProcessor } from '@mastra/core/processors';
+import { RequestContext } from '@mastra/core/request-context';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { prepareBriefing, type Briefing, type BriefingInput } from './briefing.js';
 import { ReasoningOutputSchema, type ReasoningOutput } from './types.js';
@@ -91,18 +92,21 @@ export class MastraReasoner implements Reasoner {
     const res = await this.agent.generate(briefing.prompt, {
       requestContext: this.context(briefing),
       stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= 6,
-      structuredOutput: { schema: ReasoningOutputSchema },
+      // DeepSeek rejects the json_schema `response_format`; jsonPromptInjection injects the
+      // schema into the prompt and parses the result instead (works alongside tool-calling).
+      structuredOutput: { schema: ReasoningOutputSchema, jsonPromptInjection: true },
     });
     return ReasoningOutputSchema.parse((res as { object: unknown }).object);
   }
 
-  /** The request context the agent and the tool-search filter read (chef state + resident ids). */
-  private context(briefing: Briefing) {
-    return {
-      chefState: briefing.requestContext.chefState,
-      briefingPrompt: briefing.prompt,
-      residentToolIds: briefing.residentTools.map((e) => e.id),
-    } as never;
+  /** The request context the agent and the tool-search filter read (chef state + resident ids).
+   * Must be a `RequestContext` instance (Mastra calls `.get()` on it), not a plain object. */
+  private context(briefing: Briefing): RequestContext {
+    const rc = new RequestContext();
+    rc.set('chefState', briefing.requestContext.chefState);
+    rc.set('briefingPrompt', briefing.prompt);
+    rc.set('residentToolIds', briefing.residentTools.map((e) => e.id));
+    return rc;
   }
 }
 

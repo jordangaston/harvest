@@ -11,8 +11,8 @@ const DEEPSEEK_URL = 'https://api.deepseek.com';
 const CHEF_VOICE =
   'You are the Chef, a warm, brief home-cooking companion texting over iMessage. Say each thing the ' +
   'plan asks for in your own voice — rephrase and split freely into short bubbles (one thought per ' +
-  'bubble), but never add, drop, or soften a fact, and surface every must_say line in full. Use ' +
-  'react_with_tapback only to acknowledge a specific inbound message; otherwise respond_with_text.';
+  'bubble), but never add, drop, or soften a fact, and surface every must_say line in full. Return ' +
+  'your reply as a list of short text bubbles.';
 
 /**
  * The response half of the Chef. `render` turns a `ReplyPlan` into iMessage `ChatEvents`
@@ -102,13 +102,19 @@ export class MastraResponder implements Responder {
   }
 
   async render(plan: ReplyPlan, transcriptWindow: string[]): Promise<ChatEvents> {
-    const events: ChatEvents = [];
     const model: OpenAICompatibleConfig = { id: RESPONSE_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
-    const agent = new Agent({ id: 'chef-response', name: 'chef-response', instructions: CHEF_VOICE, model, tools: emitTools(events) });
-    await agent.generate(renderPrompt(plan, transcriptWindow), {
-      stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= 4,
+    const agent = new Agent({ id: 'chef-response', name: 'chef-response', instructions: CHEF_VOICE, model });
+    // DeepSeek won't reliably CALL emit-tools, so force the voiced bubbles as structured output
+    // (jsonPromptInjection — DeepSeek rejects the json_schema response_format). Text-only: the
+    // sender delivers only text this increment, so the consumer skips non-text events anyway.
+    const res = await agent.generate(renderPrompt(plan, transcriptWindow), {
+      structuredOutput: {
+        schema: z.object({ bubbles: z.array(z.string().min(1)).min(1) }),
+        jsonPromptInjection: true,
+      },
     });
-    return events;
+    const { bubbles } = (res as { object: { bubbles: string[] } }).object;
+    return bubbles.map((text): ChatEvent => ({ kind: 'text', text }));
   }
 }
 
