@@ -7,6 +7,8 @@ import { ImportService } from "./import-service.js";
 import { ThreadRepository } from "./repositories/thread-repository.js";
 import { verifyWebhook } from "./imessage/webhook-verify.js";
 import { parseInbound } from "./imessage/inbound.js";
+import { INBOUND_TOPIC } from "./imessage/doorbell.js";
+import { send } from "./queue.js";
 import { UserService, type Resolution } from "./services/user-service.js";
 import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
@@ -347,15 +349,17 @@ app.post("/spectrum/webhook", async (c) => {
   if (!(await verifyWebhook(headers, rawBody, secret))) return c.body(null, 401);
 
   const inbound = parseInbound(rawBody);
-  await db.transaction(async (tx) => {
+  const threadId = await db.transaction(async (tx) => {
     const userId = await threads.upsertUserByHandle(inbound.handle, tx);
     const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
     await threads.insertInboundMessage(
       { threadId: thread.id, senderUserId: userId, type: inboundType(inbound.type), body: inbound.body, messageGuid: inbound.messageGuid },
       tx,
     );
-    // TODO(task-10): enqueue doorbell after commit
+    return thread.id;
   });
+  // After commit: ring one per-thread doorbell, coalesced by threadId.
+  await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: threadId });
   return c.body(null, 200);
 });
 
