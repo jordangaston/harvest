@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pendingPast, unsent } from "../src/imessage/consumer-logic.js";
+import { pendingPast } from "../src/imessage/consumer-logic.js";
 import type { ThreadMessage } from "../src/models/thread-message.js";
 
 // Test Case 2: consumer idempotency logic (pure) — the cursor cut and the sent gate.
@@ -32,15 +32,5 @@ describe("pendingPast", () => {
 
   it("cursor covers all rows → empty", () => {
     expect(pendingPast(rows, "c")).toEqual([]);
-  });
-});
-
-describe("unsent", () => {
-  it("selects only rows with a null sent_at", () => {
-    const rows = [
-      msg("x", { direction: "outbound", sentAt: new Date() }),
-      msg("y", { direction: "outbound", sentAt: null }),
-    ];
-    expect(unsent(rows).map((r) => r.id)).toEqual(["y"]);
   });
 });

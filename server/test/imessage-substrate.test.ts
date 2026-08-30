@@ -106,6 +106,27 @@ describe("iMessage substrate", () => {
     expect(sender.calls).toHaveLength(1);
   });
 
+  it("senderless delivery is acked and ignored (no user/thread/message, no doorbell)", async () => {
+    const body = JSON.stringify({
+      event: "message.new",
+      message: { id: "m-nosender", space: { id: "chat-ns" }, content: { type: "text", text: "hi" } },
+    });
+    const ts = Math.floor(Date.now() / 1000);
+    const hex = createHmac("sha256", SECRET).update(Buffer.from(`v0:${ts}:${body}`)).digest("hex");
+    const res = await post({
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-spectrum-signature": `v0=${hex}`,
+        "x-spectrum-timestamp": String(ts),
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await db.select().from(threads).where(eq(threads.chatGuid, "chat-ns"))).toHaveLength(0);
+    expect(await db.select().from(threadMessages)).toHaveLength(0);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("bad signature is rejected with no side effects (AC-2)", async () => {
     const delivery = signedDelivery("m4", "chat-4", "+15559998888", "hi");
     delivery.headers["x-spectrum-signature"] = "v0=deadbeef";

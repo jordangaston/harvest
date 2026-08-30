@@ -17,11 +17,6 @@ export function pendingPast(rows: ThreadMessage[], cursor: string | null): Threa
   return at === -1 ? rows : rows.slice(at + 1);
 }
 
-/** The outbound rows still to send: the `sent_at IS NULL` gate. */
-export function unsent(rows: ThreadMessage[]): ThreadMessage[] {
-  return rows.filter((row) => row.sentAt === null);
-}
-
 /** The id to advance the cursor to: the newest processed inbound row, or null if none. */
 export function newestProcessedId(pending: ThreadMessage[]): string | null {
   return pending.length === 0 ? null : pending[pending.length - 1]!.id;

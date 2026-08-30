@@ -349,6 +349,9 @@ app.post("/spectrum/webhook", async (c) => {
   if (!(await verifyWebhook(headers, rawBody, secret))) return c.body(null, 401);
 
   const inbound = parseInbound(rawBody);
+  // A senderless native delivery isn't a substantive user turn — ack and ignore, so an
+  // empty handle never collapses distinct senders onto one shared user row.
+  if (!inbound.handle) return c.body(null, 200);
   const threadId = await db.transaction(async (tx) => {
     const userId = await threads.upsertUserByHandle(inbound.handle, tx);
     const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
