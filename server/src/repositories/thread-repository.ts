@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
 import { ThreadMessageSchema, type ThreadMessage } from '../models/thread-message.js';
+import { pendingPast } from '../imessage/consumer-logic.js';
 
 /** A write/read executor: the db singleton or an interactive transaction client. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -72,13 +73,11 @@ export class ThreadRepository {
   }
 
   /**
-   * Loads the thread's inbound `text` messages in chronological order. The cursor cut
-   * (rows past `last_processed_id`) is applied by `pendingPast` — a pure fn, so the
-   * cursor logic is unit-tested without a DB.
-   * @param cursor - The current `last_processed_id`; retained in the signature for the
-   *   caller's clarity, but the cut happens in `pendingPast` over the returned rows.
+   * Loads the thread's inbound `text` messages newer than the cursor, in order. The
+   * cursor cut is the pure `pendingPast` (unit-tested without a DB).
+   * @param cursor - The current `last_processed_id`; null loads all inbound text.
    */
-  async loadPendingInbound(threadId: string, _cursor: string | null): Promise<ThreadMessage[]> {
+  async loadPendingInbound(threadId: string, cursor: string | null): Promise<ThreadMessage[]> {
     const rows = await this.db
       .select()
       .from(threadMessages)
@@ -90,7 +89,7 @@ export class ThreadRepository {
         ),
       )
       .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
-    return rows.map((row) => ThreadMessageSchema.parse(row));
+    return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
   }
 
   /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). */
