@@ -74,7 +74,7 @@ describe("iMessage substrate", () => {
     expect(send.mock.calls[0][1]).toEqual({ threadId: thread.id });
 
     const sender = new StubSpectrumSender();
-    const chef = new StubChef();
+    const chef = new StubChef(db);
     const lock = new StubThreadLock();
     await handleDoorbell({ threadId: thread.id }, { db, sender, chef, lock });
 
@@ -103,8 +103,8 @@ describe("iMessage substrate", () => {
   it("redelivered doorbell sends exactly once (AC-7)", async () => {
     const [thread] = await postAndGetThread("m3", "chat-3", "+15553334444", "yo");
     const sender = new StubSpectrumSender();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock() });
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock() });
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(db), lock: new StubThreadLock() });
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(db), lock: new StubThreadLock() });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(1);
@@ -115,7 +115,7 @@ describe("iMessage substrate", () => {
     const [thread] = await postAndGetThread("m-lock", "chat-lock", "+15557778888", "hey");
     const sender = new StubSpectrumSender();
     // Lock not acquired (another processor holds it): the turn must not run.
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock(false) });
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(db), lock: new StubThreadLock(false) });
 
     expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
     expect(sender.calls).toHaveLength(0);

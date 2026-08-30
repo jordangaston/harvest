@@ -92,6 +92,11 @@ export class ThreadRepository {
     return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
   }
 
+  /** True when an inbound text message exists past the cursor (the interruption-barrier check). */
+  async hasInboundPast(threadId: string, cursor: string): Promise<boolean> {
+    return (await this.loadPendingInbound(threadId, cursor)).length > 0;
+  }
+
   /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). */
   async insertOutbound(
     input: { threadId: string; body: string; messageGuid: string },
