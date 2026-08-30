@@ -232,7 +232,22 @@ an unknown diet with a `closest[]` of nearest `DIET_RULES` ids).
 
 ## Test Run
 
-[To be filled by the implementer: `pnpm vitest run tests/chef/tools/` output, per-case pass/fail.]
+`npx vitest run test/chef-tools.test.ts` — 9 passed (0 failed). Covers all seven cases:
+canRun pure fns (TC-1), store partial-accept (TC-2), allergen confirmed gate both directions
+(TC-3), the coercion table incl. instant pot / shrimp / $150ish / veggie (TC-4), absent-member
+defensive refusal (TC-5), idempotent set-union re-run (TC-6), and `search_catalog` grounding
+with no write (TC-7). Full suite: 463 passed / 1 skipped, no regressions.
+
+Notes / deviations from the sketch:
+- `@mastra/core@1.63.2`. Verified `createTool({ id, description, inputSchema, execute })` with the
+  v1 two-arg `execute(inputData, context)` signature (import from `@mastra/core/tools`).
+- Mastra has no `canRun` concept, so each tool exports `canRun` as a plain pure fn beside the
+  `createTool` object; the reasoning layer (WI-06) checks it before dispatching.
+- `save_member_profile` calls `PreferenceRepository.savePreferences`, but that method is a full
+  rebuild of the editable subset (delete-and-reinsert), not a partial patch. To honour the
+  set-union / read-merge-write invariant, the tool reads current prefs, unions the new
+  allergen/diet/equipment entries in, and writes the full merged object back — so the receiver's
+  rebuild is a no-op replay of the unchanged sets plus the additions.
 
 ## Deployment Strategy
 
