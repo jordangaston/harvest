@@ -59,7 +59,7 @@ export class SpectrumSender implements Sender {
     const space = await this.im.space.get(chatGuid);
     for (const guid of messageGuids) {
       const msg = await space.getMessage(guid);
-      await msg?.read(); // fire-and-forget; only inbound messages are readable
+      await msg?.read(); // fire-and-forget, best-effort (dedicated lines only); inbound only
     }
   }
 
