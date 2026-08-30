@@ -11,6 +11,10 @@ function buildProvider(app: SpectrumInstance) {
 /** Sends outbound iMessage text via Spectrum, resolved outside any request scope. */
 export interface Sender {
   send(chatGuid: string, body: string): Promise<void>;
+  /** Send read receipts for the given inbound message guids (fire-and-forget). */
+  markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
+  /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
+  responding<T>(chatGuid: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -48,14 +52,40 @@ export class SpectrumSender implements Sender {
     const space = await this.im.space.get(chatGuid);
     await space.send(text(body));
   }
+
+  // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
+  // does 2-3 resolves. Fine at turn frequency; fold into one resolve if it ever matters.
+  async markRead(chatGuid: string, messageGuids: string[]): Promise<void> {
+    const space = await this.im.space.get(chatGuid);
+    for (const guid of messageGuids) {
+      const msg = await space.getMessage(guid);
+      await msg?.read(); // fire-and-forget; only inbound messages are readable
+    }
+  }
+
+  async responding<T>(chatGuid: string, fn: () => Promise<T>): Promise<T> {
+    const space = await this.im.space.get(chatGuid);
+    return space.responding(fn); // typing on → run fn → typing off
+  }
 }
 
 /** Records sends without touching the network — the offline test double. */
 export class StubSpectrumSender implements Sender {
   readonly calls: { chatGuid: string; body: string }[] = [];
+  readonly reads: string[] = [];
+  respondingCount = 0;
 
   async send(chatGuid: string, body: string): Promise<void> {
     this.calls.push({ chatGuid, body });
+  }
+
+  async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {
+    this.reads.push(...messageGuids);
+  }
+
+  async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {
+    this.respondingCount += 1;
+    return fn();
   }
 }
 

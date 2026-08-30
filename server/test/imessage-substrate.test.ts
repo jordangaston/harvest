@@ -14,6 +14,7 @@ import { buildApp } from "../src/index.js";
 import { handleDoorbell } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubChef } from "../src/imessage/chef.js";
+import { StubThreadLock } from "../src/imessage/lock.js";
 
 const SECRET = "whsec_test";
 process.env.SPECTRUM_WEBHOOK_SECRET = SECRET;
@@ -74,12 +75,16 @@ describe("iMessage substrate", () => {
 
     const sender = new StubSpectrumSender();
     const chef = new StubChef();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef });
+    const lock = new StubThreadLock();
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef, lock });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(1);
     expect(outbound[0].sentAt).not.toBeNull();
     expect(sender.calls).toEqual([{ chatGuid: "chat-1", body: outbound[0].body }]);
+    expect(sender.reads).toContain(inbound[0].messageGuid); // marked the inbound read
+    expect(sender.respondingCount).toBe(1); // reply composed + sent under the typing indicator
+    expect(lock.calls).toBe(1); // the turn ran under the per-thread lock
     const [updated] = await db.select().from(threads).where(eq(threads.id, thread.id));
     expect(updated.lastProcessedId).toBe(inbound[0].id);
     expect(chef.reasoningReached).toBe(true);
@@ -98,12 +103,24 @@ describe("iMessage substrate", () => {
   it("redelivered doorbell sends exactly once (AC-7)", async () => {
     const [thread] = await postAndGetThread("m3", "chat-3", "+15553334444", "yo");
     const sender = new StubSpectrumSender();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef() });
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef() });
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock() });
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock() });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(1);
     expect(sender.calls).toHaveLength(1);
+  });
+
+  it("a lock loser does nothing — no reply, cursor untouched", async () => {
+    const [thread] = await postAndGetThread("m-lock", "chat-lock", "+15557778888", "hey");
+    const sender = new StubSpectrumSender();
+    // Lock not acquired (another processor holds it): the turn must not run.
+    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef(), lock: new StubThreadLock(false) });
+
+    expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
+    expect(sender.calls).toHaveLength(0);
+    const [after] = await db.select().from(threads).where(eq(threads.id, thread.id));
+    expect(after.lastProcessedId).toBeNull(); // cursor never advanced
   });
 
   it("senderless delivery is acked and ignored (no user/thread/message, no doorbell)", async () => {
