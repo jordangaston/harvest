@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
@@ -130,7 +130,9 @@ export class ThreadRepository {
           isNull(threadMessages.sentAt),
         ),
       )
-      .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
+      // rowid = true insertion order; created_at is second-granularity so a turn's bubbles tie
+      // there, and ordering by the uuid id would scramble them. Batch order must be send order.
+      .orderBy(sql`rowid`);
     return rows.map((row) => ThreadMessageSchema.parse(row));
   }
 

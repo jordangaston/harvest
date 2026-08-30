@@ -66,9 +66,12 @@ export async function handleDoorbell({ threadId }: Doorbell, deps: ConsumerDeps)
           await threads.advanceCursor(threadId, reply.cursorTo, tx);
         });
 
-        for (const row of await threads.loadUnsentOutbound(threadId)) {
-          await deps.sender.send(thread.chatGuid, row.body ?? '');
-          await threads.markSent(row.id, new Date());
+        const unsent = await threads.loadUnsentOutbound(threadId);
+        if (unsent.length > 0) {
+          // One ordered batch, not a rapid-fire loop — so the bubbles arrive in order.
+          await deps.sender.send(thread.chatGuid, unsent.map((r) => r.body ?? ''));
+          const now = new Date();
+          for (const row of unsent) await threads.markSent(row.id, now);
         }
         return reply.cursorTo;
       });
