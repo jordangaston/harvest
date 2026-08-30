@@ -27,6 +27,8 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
+    "@spectrum-ts/core": "^12.8.0",
+    "@spectrum-ts/imessage": "^12.8.0",
     "@types/pluralize": "^0.0.33",
     "@vercel/queue": "^0.3.1",
     "apify-client": "^2.25.0",
