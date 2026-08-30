@@ -128,4 +128,10 @@ export class ThreadRepository {
   async markSent(messageId: string, sentAt: Date): Promise<void> {
     await this.db.update(threadMessages).set({ sentAt }).where(eq(threadMessages.id, messageId));
   }
+
+  /** Loads a thread by id (the doorbell payload), parsed into the domain model, or null. */
+  async findById(threadId: string): Promise<Thread | null> {
+    const [row] = await this.db.select().from(threads).where(eq(threads.id, threadId));
+    return row ? ThreadSchema.parse(row) : null;
+  }
 }
