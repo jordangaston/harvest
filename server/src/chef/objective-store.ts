@@ -136,6 +136,27 @@ export class ObjectiveStore {
   }
 
   /**
+   * Instantiates member-scoped slot rows for one identified member, idempotent on the unique
+   * `(objective_id, key, member_user_id)` index — re-identifying a member is a no-op. Called by
+   * the identity flow as each membership is created (AC-6), never as an atomic batch.
+   */
+  async instantiateMemberSlots(objectiveId: string, specs: SlotSpec[], tx: Tx): Promise<void> {
+    if (!specs.length) return;
+    await tx
+      .insert(slots)
+      .values(specs.map((s) => ({ objectiveId, key: s.key, scope: s.scope, memberUserId: s.memberUserId ?? null, required: s.required, status: 'unasked' as const })))
+      .onConflictDoNothing({ target: [slots.objectiveId, slots.key, slots.memberUserId] });
+  }
+
+  /**
+   * Marks one household-scoped slot `filled` with a value, resolving it by key on the objective.
+   * Used by the identity flow to fill `household.same_household` once the household exists.
+   */
+  async markSlotFilled(objectiveId: string, key: string, value: unknown, tx: Tx): Promise<void> {
+    await tx.update(slots).set({ status: 'filled', value }).where(and(eq(slots.objectiveId, objectiveId), eq(slots.key, key)));
+  }
+
+  /**
    * Marks the objective `complete` (with `completed_at`), then activates the
    * highest-`stack_position` `suspended` sibling on the same thread. Because the completed
    * row is no longer active, activating the next never trips the one-active index.
@@ -161,8 +182,8 @@ export class ObjectiveStore {
    * True when the objective has zero required, non-terminal slots (`filled`/`defaulted` are
    * terminal). Optional slots never block completion. Read-only.
    */
-  async isComplete(objectiveId: string): Promise<boolean> {
-    const [row] = await this.db
+  async isComplete(objectiveId: string, tx?: Tx): Promise<boolean> {
+    const [row] = await (tx ?? this.db)
       .select({ open: sql<number>`count(*)` })
       .from(slots)
       .where(and(eq(slots.objectiveId, objectiveId), eq(slots.required, true), sql`${slots.status} not in ('filled','defaulted')`));

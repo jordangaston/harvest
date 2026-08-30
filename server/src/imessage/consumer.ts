@@ -59,6 +59,10 @@ export async function handleDoorbell({ threadId }: Doorbell, deps: ConsumerDeps)
             await threads.insertOutbound({ threadId, body: event.text, messageGuid: randomUUID() }, tx);
           }
           await objectives.applySlotUpdates(reply.slotUpdates, tx);
+          // Completion is a computable predicate — when every required slot is terminal the
+          // objective completes and pops (the next suspended one, if any, activates).
+          if (reply.objectiveId && (await objectives.isComplete(reply.objectiveId, tx)))
+            await objectives.completeAndPop(reply.objectiveId, tx);
           await threads.advanceCursor(threadId, reply.cursorTo, tx);
         });
 

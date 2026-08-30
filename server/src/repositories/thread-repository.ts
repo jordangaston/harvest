@@ -113,6 +113,11 @@ export class ThreadRepository {
       .where(eq(threads.id, threadId));
   }
 
+  /** Stamps the household onto the thread (`household_id` supersedes `owner_user_id` once set). */
+  async stampHousehold(threadId: string, householdId: string, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ householdId, updatedAt: new Date() }).where(eq(threads.id, threadId));
+  }
+
   /** Loads the thread's unsent outbound rows (the send gate: `sent_at IS NULL`). */
   async loadUnsentOutbound(threadId: string): Promise<ThreadMessage[]> {
     const rows = await this.db

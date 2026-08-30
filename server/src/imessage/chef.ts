@@ -10,6 +10,7 @@ import { selectResponseAgent, type Responder } from '../chef/response-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
 import type { ToolCtx } from '../chef/tools/types.js';
+import { onboardingObjective, householdSlotSpecs } from '../chef/objectives/onboarding.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
@@ -19,6 +20,8 @@ export interface ChefReply {
   chatEvents: ChatEvent[];
   slotUpdates: SlotUpdate[];
   cursorTo: string;
+  /** The active objective this turn ran against — the consumer pops it if it just completed. */
+  objectiveId: string;
 }
 
 /**
@@ -75,7 +78,7 @@ export class RealChef implements Chef {
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
       if (attempt < MAX_INTERRUPT_RESTARTS && (await this.isInterrupted(thread.id, turn.cursorTo))) continue;
 
-      return { chatEvents, slotUpdates: this.mapSlotUpdates(reasoning.slotUpdates, turn.slotIdByKey), cursorTo: turn.cursorTo };
+      return { chatEvents, slotUpdates: this.mapSlotUpdates(reasoning.slotUpdates, turn.slotIdByKey), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
     }
   }
 
@@ -83,7 +86,13 @@ export class RealChef implements Chef {
   private async loadTurn(threadId: string, householdId: string | null, cursor: string | null) {
     const pending = await this.threads.loadPendingInbound(threadId, cursor);
     if (pending.length === 0) return null;
-    const active = await this.objectives.loadActive(threadId);
+    // A fresh thread has no objective — seed onboarding (its household slots) on the first inbound
+    // so the conversation is resumable from the DB alone (F-01 step 2).
+    let active = await this.objectives.loadActive(threadId);
+    if (!active) {
+      await this.objectives.pushObjective({ threadId, definition: onboardingObjective.id, slots: householdSlotSpecs(), position: 'top' });
+      active = await this.objectives.loadActive(threadId);
+    }
     if (!active) return null;
 
     const members = householdId ? await this.households.loadMembers(householdId) : [];
@@ -107,7 +116,7 @@ export class RealChef implements Chef {
       taste: TasteOptionsService.create(this.db),
     };
     const slotIdByKey = new Map(active.slots.map((s) => [s.key, s.id]));
-    return { briefing, ctx, transcriptWindow, cursorTo: pending[pending.length - 1]!.id, slotIdByKey };
+    return { briefing, ctx, transcriptWindow, cursorTo: pending[pending.length - 1]!.id, slotIdByKey, objectiveId: active.objective.id };
   }
 
   /** Maps the reasoning component's key-scoped slot declarations to the store's slotId-scoped updates. */
@@ -142,6 +151,7 @@ export class StubChef implements Chef {
       chatEvents: [{ kind: 'text', text: "Hey! I'm your Harvest chef — what are you in the mood to cook?" }],
       slotUpdates: [],
       cursorTo: pending[pending.length - 1]!.id,
+      objectiveId: '', // the stub runs no objective — the consumer's pop is a no-op on a blank id
     };
   }
 }

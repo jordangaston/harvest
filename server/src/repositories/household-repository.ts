@@ -40,6 +40,15 @@ export class HouseholdRepository {
   }
 
   /**
+   * The household a user already belongs to (one per user in v1), or null. Lets the identity
+   * flow be idempotent — a re-run resolves the existing household instead of orphaning a new one.
+   */
+  async findHouseholdIdForUser(userId: string, tx: Executor = this.db): Promise<string | null> {
+    const [row] = await tx.select({ householdId: householdMembers.householdId }).from(householdMembers).where(eq(householdMembers.userId, userId));
+    return row?.householdId ?? null;
+  }
+
+  /**
    * Links a user to a household, idempotent on the unique `user_id` (one household per user
    * in v1). Re-adding the same user — or a user already in another household — is a no-op.
    */

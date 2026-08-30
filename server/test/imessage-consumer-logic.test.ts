@@ -142,6 +142,7 @@ describe("Test Case 3: a turn commits N rows + M slot updates + advances the cur
           { slotId: filledSlot.id, status: "filled", value: ["kroger"] },
         ],
         cursorTo: newestId,
+        objectiveId: active.objective.id,
       }),
     };
     const sender = new StubSpectrumSender();
@@ -175,6 +176,7 @@ describe("Test Case 4: commit is atomic — a failing slot update rolls back the
         chatEvents: [{ kind: "text", text: "should roll back" }],
         slotUpdates: [{ slotId: slot.id, status: "filled" }],
         cursorTo: newestId,
+        objectiveId: active.objective.id,
       }),
     };
     const sender = new StubSpectrumSender();
