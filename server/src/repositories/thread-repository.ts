@@ -1,7 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
+import { ThreadMessageSchema, type ThreadMessage } from '../models/thread-message.js';
 
 /** A write/read executor: the db singleton or an interactive transaction client. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -68,5 +69,64 @@ export class ThreadRepository {
       .insert(threadMessages)
       .values({ ...input, direction: 'inbound' })
       .onConflictDoNothing({ target: threadMessages.messageGuid });
+  }
+
+  /**
+   * Loads the thread's inbound `text` messages in chronological order. The cursor cut
+   * (rows past `last_processed_id`) is applied by `pendingPast` — a pure fn, so the
+   * cursor logic is unit-tested without a DB.
+   * @param cursor - The current `last_processed_id`; retained in the signature for the
+   *   caller's clarity, but the cut happens in `pendingPast` over the returned rows.
+   */
+  async loadPendingInbound(threadId: string, _cursor: string | null): Promise<ThreadMessage[]> {
+    const rows = await this.db
+      .select()
+      .from(threadMessages)
+      .where(
+        and(
+          eq(threadMessages.threadId, threadId),
+          eq(threadMessages.direction, 'inbound'),
+          eq(threadMessages.type, 'text'),
+        ),
+      )
+      .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
+    return rows.map((row) => ThreadMessageSchema.parse(row));
+  }
+
+  /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). */
+  async insertOutbound(
+    input: { threadId: string; body: string; messageGuid: string },
+    tx: Executor = this.db,
+  ): Promise<void> {
+    await tx.insert(threadMessages).values({ ...input, direction: 'outbound', type: 'text' });
+  }
+
+  /** Advances the cursor to the newest processed inbound id and bumps updated_at. */
+  async advanceCursor(threadId: string, lastProcessedId: string, tx: Executor = this.db): Promise<void> {
+    await tx
+      .update(threads)
+      .set({ lastProcessedId, updatedAt: new Date() })
+      .where(eq(threads.id, threadId));
+  }
+
+  /** Loads the thread's unsent outbound rows (the send gate: `sent_at IS NULL`). */
+  async loadUnsentOutbound(threadId: string): Promise<ThreadMessage[]> {
+    const rows = await this.db
+      .select()
+      .from(threadMessages)
+      .where(
+        and(
+          eq(threadMessages.threadId, threadId),
+          eq(threadMessages.direction, 'outbound'),
+          isNull(threadMessages.sentAt),
+        ),
+      )
+      .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
+    return rows.map((row) => ThreadMessageSchema.parse(row));
+  }
+
+  /** Marks an outbound row sent — the idempotency gate, written after the send resolves. */
+  async markSent(messageId: string, sentAt: Date): Promise<void> {
+    await this.db.update(threadMessages).set({ sentAt }).where(eq(threadMessages.id, messageId));
   }
 }
