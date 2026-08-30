@@ -131,6 +131,10 @@ export const users = sqliteTable(
     phone: text('phone'),
     deviceKey: text('device_key'),
     name: text('name'),
+    // iMessage substrate (increment 1): the sender's Apple handle. Nullable — a
+    // phone/anon user has none until they text in; unique so a webhook upsert-by-handle
+    // resolves one user.
+    imessageHandle: text('imessage_handle'),
     jwtPrivateKey: text('jwt_private_key').notNull(),
     jwtPublicKey: text('jwt_public_key').notNull(),
     accessTokenNonce: integer('access_token_nonce').notNull().default(0),
@@ -150,6 +154,49 @@ export const users = sqliteTable(
   (t) => [
     uniqueIndex('users_phone_uidx').on(t.phone),
     uniqueIndex('users_device_key_uidx').on(t.deviceKey),
+    uniqueIndex('users_imessage_handle_uidx').on(t.imessageHandle),
+  ],
+);
+
+// iMessage substrate (increment 1): one thread per Spectrum iMessage space
+// (`chat_guid`). `last_processed_id` is the cursor — the newest inbound message
+// already handled; "pending" = inbound rows newer than it.
+export const threads = sqliteTable('threads', {
+  id: uuidPk(),
+  chatGuid: text('chat_guid').notNull().unique(),
+  ownerUserId: text('owner_user_id')
+    .notNull()
+    .references(() => users.id),
+  householdId: text('household_id'),
+  lastProcessedId: text('last_processed_id'),
+  createdAt: createdAt(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// iMessage substrate (increment 1): one row per message in a thread. `message_guid`
+// is Apple's guid for inbound (dedup index) and a self-minted UUID for outbound (row
+// identity). `sent_at` is the outbound send-idempotency gate: NULL until the send
+// resolves. `type`/`direction` are enum-text columns.
+export const threadMessages = sqliteTable(
+  'thread_messages',
+  {
+    id: uuidPk(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id),
+    direction: text('direction', { enum: ['inbound', 'outbound'] as const }).notNull(),
+    type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment'] as const }).notNull(),
+    senderUserId: text('sender_user_id').references(() => users.id),
+    body: text('body'),
+    messageGuid: text('message_guid').notNull(),
+    sentAt: integer('sent_at', { mode: 'timestamp' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('thread_messages_thread_id_idx').on(t.threadId),
+    uniqueIndex('thread_messages_message_guid_uidx').on(t.messageGuid),
   ],
 );
 
@@ -677,12 +724,16 @@ export const schema = {
   recipeEquipment,
   userEquipment,
   recipeSwipes,
+  threads,
+  threadMessages,
 };
 export type Schema = typeof schema;
 
 export type NewUser = typeof users.$inferInsert;
 export type NewRecipe = typeof recipes.$inferInsert;
 export type NewImportJob = typeof importJobs.$inferInsert;
+export type NewThread = typeof threads.$inferInsert;
+export type NewThreadMessage = typeof threadMessages.$inferInsert;
 
 /** Source-type union, shared with the domain models. */
 export type SourceType = (typeof SOURCE_TYPES)[number];
