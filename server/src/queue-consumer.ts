@@ -1,6 +1,7 @@
 import { startImport } from "./start-import.js";
 import { IMPORT_TOPIC } from "./import-service.js";
 import type { ImportInput } from "./import-domain.js";
+import { INBOUND_TOPIC, type Doorbell } from "./imessage/doorbell.js";
 
 /**
  * Nitro plugin: the Vercel Queues consumer. Nitro delivers every message on the
@@ -18,6 +19,12 @@ type NitroApp = { hooks: { hook: (name: string, fn: (arg: QueueHook) => unknown)
 
 export default (nitro: NitroApp) => {
   nitro.hooks.hook("vercel:queue", async ({ message, metadata }) => {
+    if (metadata.topicName === INBOUND_TOPIC) {
+      const { threadId } = message as Doorbell;
+      console.log(`[queue] doorbell thread=${threadId} delivery=${metadata.deliveryCount}`);
+      // TODO(task-13): handleDoorbell({ threadId }) once the consumer is wired.
+      return;
+    }
     if (metadata.topicName !== IMPORT_TOPIC) return;
     const msg = message as ImportInput;
     console.log(`[queue] start job=${msg.jobId} delivery=${metadata.deliveryCount}`);

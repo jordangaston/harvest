@@ -24,7 +24,7 @@ export default defineConfig({
   // web-accessible catch-all, which Nitro warns against.
   vercel: {
     queues: {
-      triggers: [{ topic: "import-intake" }],
+      triggers: [{ topic: "import-intake" }, { topic: "inbound-messages" }],
     },
   },
 });
