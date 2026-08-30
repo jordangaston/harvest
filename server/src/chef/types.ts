@@ -42,3 +42,16 @@ export const ReasoningOutputSchema = z.object({
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
+
+export const TAPBACK_EMOJIS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
+
+/**
+ * One outbound iMessage effect the response component (WI-05) emits and WI-06's outbox sends:
+ * a `text` bubble or a `tapback` reaction on a specific inbound message. (A `reply` variant may
+ * exist for threaded replies but is not emitted this increment — onboarding is iMessage-only.)
+ */
+export type ChatEvent =
+  | { kind: 'text'; text: string }
+  | { kind: 'tapback'; target: string; emoji: (typeof TAPBACK_EMOJIS)[number] };
+
+export type ChatEvents = ChatEvent[];
