@@ -4,6 +4,9 @@ import { dbFromEnv } from "./edge-db.js";
 import type { Database } from "./db.js";
 import { toPublicUser } from "./models/user.js";
 import { ImportService } from "./import-service.js";
+import { ThreadRepository } from "./repositories/thread-repository.js";
+import { verifyWebhook } from "./imessage/webhook-verify.js";
+import { parseInbound } from "./imessage/inbound.js";
 import { UserService, type Resolution } from "./services/user-service.js";
 import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
@@ -64,6 +67,7 @@ export function buildApp(db: Database) {
   const preferences = PreferenceRepository.create(db);
   const tasteOptions = TasteOptionsService.create(db);
   const tasteIngredients = TasteIngredientRepository.create(db);
+  const threads = ThreadRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -332,6 +336,29 @@ app.get("/v1/ingredients/common", guard, async (c) => {
   return c.json({ ingredients: groceries.common(c.req.query("q")) });
 });
 
+/** POST /spectrum/webhook — the native Spectrum inbound webhook. Public and OUTSIDE
+ * the auth guard: it reads the RAW body bytes (no JSON middleware) to verify the HMAC.
+ * Verifies → persists user+thread+inbound in ONE transaction → rings a per-thread
+ * doorbell after commit. 401 on a bad signature (no side effects). */
+app.post("/spectrum/webhook", async (c) => {
+  const rawBody = new Uint8Array(await c.req.arrayBuffer());
+  const secret = process.env.SPECTRUM_WEBHOOK_SECRET ?? "";
+  const headers = Object.fromEntries(c.req.raw.headers);
+  if (!(await verifyWebhook(headers, rawBody, secret))) return c.body(null, 401);
+
+  const inbound = parseInbound(rawBody);
+  await db.transaction(async (tx) => {
+    const userId = await threads.upsertUserByHandle(inbound.handle, tx);
+    const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
+    await threads.insertInboundMessage(
+      { threadId: thread.id, senderUserId: userId, type: inboundType(inbound.type), body: inbound.body, messageGuid: inbound.messageGuid },
+      tx,
+    );
+    // TODO(task-10): enqueue doorbell after commit
+  });
+  return c.body(null, 200);
+});
+
   app.onError((error, c) => {
     const appError = toAppError(error);
     return c.json({ error: { code: appError.code, message: appError.message } }, appError.status as never);
@@ -387,6 +414,12 @@ async function assertKnownIngredients(
   const known = new Set((await repo.ingredients()).map((i) => i.value));
   if (picked.some((v) => !known.has(v)))
     throw new AppError("UNKNOWN_INGREDIENT", 422, "food value must be a known base_ingredient_id");
+}
+
+/** Maps a Spectrum content `type` to the thread_messages enum; an unrecognized arm
+ * records as `attachment` (non-text → the consumer skips it, no pending text). */
+function inboundType(type: string): "text" | "reaction" | "reply" | "attachment" {
+  return type === "text" || type === "reaction" || type === "reply" || type === "attachment" ? type : "attachment";
 }
 
 /** A cheap, stable FNV-1a hash (hex) of a string — the ETag basis for the served-once catalog. */
