@@ -389,6 +389,22 @@ export const importJobRecipes = sqliteTable(
   (t) => [primaryKey({ columns: [t.importJobId, t.recipeId] })],
 );
 
+// iMessage increment-2 (WI-2A): links an import started from a Chef thread back to that
+// thread, so WI-2B can reply on completion. `target_external_id` is the triggering link
+// message's Spectrum id (for a threaded reply); `notified_at` is stamped once WI-2B replies.
+export const imessageImport = sqliteTable('imessage_import', {
+  jobId: text('job_id')
+    .notNull()
+    .unique()
+    .references(() => importJobs.id),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => threads.id),
+  targetExternalId: text('target_external_id'),
+  notifiedAt: integer('notified_at', { mode: 'timestamp' }),
+  createdAt: createdAt(),
+});
+
 export const cookbooks = sqliteTable(
   'cookbooks',
   {

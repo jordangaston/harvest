@@ -204,6 +204,13 @@
       "when": 1788211033987,
       "tag": "0028_unknown_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1788214411648,
+      "tag": "0029_dashing_george_stacy",
+      "breakpoints": true
     }
   ]
 }
