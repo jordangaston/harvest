@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { codeCandidates, coerce, parseBudgetCents } from './catalog.js';
+import { resolveEquipment } from './equipment-grounding.js';
 import { HouseholdPreferenceRepository, type HouseholdPreferencesPatch } from '../../repositories/household-preference-repository.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
@@ -46,9 +47,9 @@ const inputSchema = z.object({
 
 type Patch = z.infer<typeof inputSchema>['patch'];
 
-/** Coerces each raw value in a string[] against a code catalog, splitting saved vs rejected. */
-function coerceSet(raw: string[], kind: 'store' | 'equipment') {
-  const cands = codeCandidates(kind);
+/** Coerces each raw store name against the store catalog, splitting saved vs rejected. */
+function coerceStores(raw: string[]) {
+  const cands = codeCandidates('store');
   const saved: string[] = [];
   const rejected: SaveResult['rejected'] = [];
   for (const r of raw) {
@@ -58,6 +59,19 @@ function coerceSet(raw: string[], kind: 'store' | 'equipment') {
     else rejected.push({ input: r, reason: 'no catalog match', closest });
   }
   return { saved, rejected };
+}
+
+/** Grounds each equipment phrase through the app's equipment gazetteer (reuse, not a chef alias map). */
+function groundEquipment(raw: string[]) {
+  const saved: string[] = [];
+  const rejected: SaveResult['rejected'] = [];
+  for (const r of raw) {
+    if (r == null) continue;
+    const matched = resolveEquipment(r);
+    if (matched.length) saved.push(...matched);
+    else rejected.push({ input: r, reason: 'no catalog match' });
+  }
+  return { saved: [...new Set(saved)], rejected };
 }
 
 /**
@@ -118,12 +132,12 @@ export class SaveHouseholdProfileTool implements ChefTool {
     if (cook_days_count != null) { write.cookDaysCount = cook_days_count; saved.cook_days_count = cook_days_count; }
 
     if (grocery_stores) {
-      const r = coerceSet(grocery_stores, 'store');
+      const r = coerceStores(grocery_stores);
       if (r.saved.length) { write.groceryStores = r.saved; saved.grocery_stores = r.saved; }
       rejected.push(...r.rejected);
     }
     if (owned_equipment) {
-      const r = coerceSet(owned_equipment, 'equipment');
+      const r = groundEquipment(owned_equipment);
       if (r.saved.length) { write.ownedEquipment = r.saved as HouseholdPreferencesPatch['ownedEquipment']; saved.owned_equipment = r.saved; }
       rejected.push(...r.rejected);
     }

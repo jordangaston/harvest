@@ -18,9 +18,6 @@ export function labelFor(slug: string): string {
  * generically. Keys are the raw-input slug (lowercased, non-alphanumerics → `_`).
  */
 const ALIASES: Record<string, string> = {
-  instant_pot: 'pressure_cooker',
-  crockpot: 'slow_cooker',
-  crock_pot: 'slow_cooker',
   shrimp: 'crustacean_shellfish',
   prawn: 'crustacean_shellfish',
   prawns: 'crustacean_shellfish',
@@ -106,7 +103,7 @@ export function coerce(raw: string, candidates: Candidate[]): { value?: string; 
   return { closest: scored.slice(0, 3).map((x) => x.value) };
 }
 
-// ponytail: prefix-overlap floor tuned so `kroger`/`instant pot` accept and
+// ponytail: prefix-overlap floor tuned so `kroger`/`veggie` accept and
 // `piggly wiggly's little cousin` (prefix-matches `piggly_wiggly`) rejects with it as closest.
 const MATCH_FLOOR = 0.6;
 

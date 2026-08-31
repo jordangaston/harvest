@@ -1,8 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { codeCandidates, rank, type CatalogKind, type Candidate } from './catalog.js';
+import { codeCandidates, rank, labelFor, type CatalogKind, type Candidate } from './catalog.js';
 import { TasteOptionsService } from '../../services/taste-options-service.js';
 import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
+import { resolveEquipment } from './equipment-grounding.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 const inputSchema = z.object({
@@ -51,6 +52,11 @@ export class SearchCatalogTool implements ChefTool {
   }
 
   private async candidates(kind: CatalogKind, query: string): Promise<Candidate[]> {
+    // Equipment grounds through the app's gazetteer ("instant pot"→pressure_cooker), not a prefix rank.
+    if (kind === 'equipment') {
+      if (!query.trim()) return codeCandidates('equipment');
+      return resolveEquipment(query).map((value) => ({ value, label: labelFor(value) }));
+    }
     if (kind !== 'taste') return rank(query, codeCandidates(kind));
     const opts = await this.taste.options();
     const ranked = rank(query, [...opts.cuisines, ...opts.dish_types, ...opts.ingredients]);

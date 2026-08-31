@@ -88,6 +88,16 @@ describe('save_household_profile.run', () => {
     const [row] = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
     expect(row.eatsLeftovers).toBe(true); // column default preserved, not nulled
   });
+
+  it('grounds equipment through the app gazetteer — reaches gear no chef alias map had', async () => {
+    const { householdId, ctx } = await seedHousehold();
+    // "dutch oven"/"sous vide" were never in the old hand-rolled alias map; the shared gazetteer has them.
+    const res = await SaveHouseholdProfileTool.create(ctx).run({ owned_equipment: ['dutch oven', 'sous vide', 'a george foreman thing'] });
+    expect(res.saved.owned_equipment).toEqual(['dutch_oven', 'sous_vide']);
+    expect(res.rejected).toContainEqual({ input: 'a george foreman thing', reason: 'no catalog match' });
+    const [row] = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
+    expect(row.ownedEquipment).toEqual(['dutch_oven', 'sous_vide']);
+  });
 });
 
 describe('save_member_profile.run', () => {
@@ -165,6 +175,12 @@ describe('search_catalog.run (grounds, writes nothing)', () => {
     // "salmon" is no taste-catalog label, but the matcher rolls it up — grounding must surface it.
     const taste = await SearchCatalogTool.create(ctx).run({ kind: 'taste', query: 'salmon' });
     expect(taste.candidates[0]).toEqual({ value: 'ti-fish', label: 'Fish' });
+  });
+
+  it('grounds an equipment query through the gazetteer, not a prefix rank', async () => {
+    const { ctx } = await seedHousehold();
+    const res = await SearchCatalogTool.create(ctx).run({ kind: 'equipment', query: 'crockpot' });
+    expect(res.candidates).toEqual([{ value: 'slow_cooker', label: 'Slow Cooker' }]);
   });
 });
 
