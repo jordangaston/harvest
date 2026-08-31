@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { householdPreferences } from '../schema.js';
 import { HouseholdPreferencesSchema, type HouseholdPreferences } from '../models/household-preferences.js';
+import { timeByMealFromColumns } from '../models/user-preferences.js';
 
 /** A partial patch of the household-scoped preferences (the tool sends a subset). */
 export type HouseholdPreferencesPatch = Partial<Omit<HouseholdPreferences, 'householdId' | 'updatedAt'>>;
@@ -25,7 +26,9 @@ export class HouseholdPreferenceRepository {
    */
   async getPreferences(householdId: string): Promise<HouseholdPreferences> {
     const [row] = await this.db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
-    return HouseholdPreferencesSchema.parse(row ?? DEFAULTS(householdId));
+    if (!row) return HouseholdPreferencesSchema.parse(DEFAULTS(householdId));
+    const { timeBreakfastMinutes, timeLunchMinutes, timeDinnerMinutes, ...rest } = row;
+    return HouseholdPreferencesSchema.parse({ ...rest, timeByMeal: timeByMealFromColumns(timeBreakfastMinutes, timeLunchMinutes, timeDinnerMinutes) });
   }
 
   /**
@@ -37,10 +40,18 @@ export class HouseholdPreferenceRepository {
     await this.db.transaction(async (tx) => {
       await tx.insert(householdPreferences).values({ householdId }).onConflictDoNothing();
       // ponytail: partial-patch UPDATE (only patch keys), last-writer-wins per scalar — the design's
-      // idempotent-read-merge-write invariant. Set-union semantics (e.g. allergens) live elsewhere.
-      // The tool validated grocery-store / equipment values against their enums upstream;
-      // the model keeps them as string[], so this widening to the column types is safe.
-      const set = { ...patch, updatedAt: new Date() } as typeof householdPreferences.$inferInsert;
+      // idempotent-read-merge-write invariant. The domain `timeByMeal` object maps onto its three
+      // columns; everything else is a 1:1 column (widening string[]/enum casts validated upstream).
+      const { timeByMeal, ...rest } = patch;
+      const set = {
+        ...rest,
+        ...(timeByMeal !== undefined && {
+          timeBreakfastMinutes: timeByMeal?.breakfast ?? null,
+          timeLunchMinutes: timeByMeal?.lunch ?? null,
+          timeDinnerMinutes: timeByMeal?.dinner ?? null,
+        }),
+        updatedAt: new Date(),
+      } as typeof householdPreferences.$inferInsert;
       await tx.update(householdPreferences).set(set).where(eq(householdPreferences.householdId, householdId));
     });
     return this.getPreferences(householdId);

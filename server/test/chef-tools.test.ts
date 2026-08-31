@@ -180,10 +180,13 @@ describe('save_member_profile.run — food prefs + skill', () => {
 describe('save_household_profile.run — planning fields', () => {
   it('writes weekly meal counts, cook-days, and per-meal time budget', async () => {
     const { householdId, ctx } = await seedHousehold();
-    await SaveHouseholdProfileTool.create(ctx).run({ weekly_meals: { dinner: 5 }, cook_days_count: 4, time_by_meal: { breakfast: 10, lunch: 20, dinner: 30 } });
+    await SaveHouseholdProfileTool.create(ctx).run({ weekly_meals: { dinner: 5 }, cook_days_count: 4, time_by_meal: { dinner: 30 } });
     const [row] = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
     expect(row.weeklyMeals).toEqual({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
-    expect(row.timeByMeal).toEqual({ breakfast: 10, lunch: 20, dinner: 30 });
+    // A partial time budget lands now (independent columns) — dinner only.
+    expect(row.timeDinnerMinutes).toBe(30);
+    expect(row.timeBreakfastMinutes).toBeNull();
+    expect(row.timeLunchMinutes).toBeNull();
     expect(row.cookDaysCount).toBe(4);
   });
 });

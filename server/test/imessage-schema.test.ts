@@ -111,11 +111,15 @@ describe("increment-2 schema", () => {
         groceryShoppingDay: "sunday",
         weeklyBudgetCents: 12000,
         weeklyMeals: { breakfast: 7, lunch: 5, dinner: 7, snack: 0, kids: 0 },
-        timeByMeal: { breakfast: 15, lunch: 20, dinner: 45 },
+        timeBreakfastMinutes: 15,
+        timeLunchMinutes: 20,
+        timeDinnerMinutes: 45,
         ownedEquipment: ["oven", "air_fryer"],
       })
       .returning();
-    expect(HouseholdPreferencesSchema.parse(p)).toEqual(p);
+    const { timeBreakfastMinutes, timeLunchMinutes, timeDinnerMinutes, ...rest } = p;
+    const model = { ...rest, timeByMeal: { breakfast: 15, lunch: 20, dinner: 45 } };
+    expect(HouseholdPreferencesSchema.parse(model)).toEqual(model);
 
     const threadId = await seedThread(ownerId);
     const [o] = await db

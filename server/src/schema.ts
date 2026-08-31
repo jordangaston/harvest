@@ -586,7 +586,11 @@ export const userPreferences = sqliteTable('user_preferences', {
   weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
   // Per-meal cook-time budget in minutes (three onboarding sliders). JSON; null → fall back to
   // `timeBudgetMinutes`. `timeBudgetMinutes` is retained as the derived max(...) scalar.
-  timeByMeal: text('time_by_meal', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number }>(),
+  // Per-meal cook-time budget in minutes, each independently set (an iMessage user may give just
+  // "30-min dinners"). Null → fall back to `timeBudgetMinutes`.
+  timeBreakfastMinutes: integer('time_breakfast_minutes'),
+  timeLunchMinutes: integer('time_lunch_minutes'),
+  timeDinnerMinutes: integer('time_dinner_minutes'),
   weightCost: integer('weight_cost').notNull().default(1),
   weightDifficulty: integer('weight_difficulty').notNull().default(1),
   weightNutrition: integer('weight_nutrition').notNull().default(1),
@@ -736,7 +740,11 @@ export const householdPreferences = sqliteTable('household_preferences', {
   groceryShoppingDay: text('grocery_shopping_day', { enum: GROCERY_SHOPPING_DAYS }),
   weeklyBudgetCents: integer('weekly_budget_cents'),
   weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
-  timeByMeal: text('time_by_meal', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number }>(),
+  // Per-meal cook-time budget in minutes, each independently set (an iMessage user may give just
+  // "30-min dinners"). Null → fall back to `timeBudgetMinutes`.
+  timeBreakfastMinutes: integer('time_breakfast_minutes'),
+  timeLunchMinutes: integer('time_lunch_minutes'),
+  timeDinnerMinutes: integer('time_dinner_minutes'),
   timeBudgetMinutes: integer('time_budget_minutes'),
   cookDaysCount: integer('cook_days_count'),
   eatsLeftovers: integer('eats_leftovers', { mode: 'boolean' }).notNull().default(true),

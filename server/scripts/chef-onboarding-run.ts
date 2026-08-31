@@ -27,7 +27,7 @@ const SCRIPT = [
   'hey',
   "It's me Jordan and my wife Sam, we cook together",
   'We want quick healthy weeknight dinners. We shop at Whole Foods, budget about $150 a week',
-  'We shop on Sundays, cook about 4 nights a week, plan for 5 dinners',
+  'We shop on Sundays, cook about 4 nights a week, plan for 5 dinners, and we like to keep dinners under 30 minutes',
   'We have an instant pot and an air fryer, and we eat leftovers',
   "For me, Jordan — peanut allergy, severe. No special diet. I love Thai food and grilled chicken, hate cilantro. Intermediate cook.",
   'Sam has no allergies. She is a flexible pescatarian — fish always, meat once in a while. Loves salmon and pasta, dislikes mushrooms. Beginner cook.',

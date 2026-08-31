@@ -328,7 +328,9 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
       .values({
         userId,
         weeklyMeals: { breakfast: 3, lunch: 0, dinner: 3, snack: 0, kids: 0 },
-        timeByMeal: { breakfast: 90, lunch: 90, dinner: 30 },
+        timeBreakfastMinutes: 90,
+        timeLunchMinutes: 90,
+        timeDinnerMinutes: 30,
         timeBudgetMinutes: 90,
       });
 

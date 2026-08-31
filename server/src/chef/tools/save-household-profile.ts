@@ -107,12 +107,11 @@ export class SaveHouseholdProfileTool implements ChefTool {
       const meals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0, ...dropNulls(weekly_meals) };
       write.weeklyMeals = meals; saved.weekly_meals = meals;
     }
-    // time_by_meal is the three cook-time sliders — the model requires all three positive, so only
-    // write it when every meal is given; a partial ("30-min dinners") is left for the settings screen.
+    // Per-meal cook-time budgets are independent columns now, so a partial ("30-min dinners") lands.
     if (time_by_meal != null) {
       const t = dropNulls(time_by_meal);
-      if (t.breakfast && t.lunch && t.dinner) {
-        const mins = { breakfast: t.breakfast, lunch: t.lunch, dinner: t.dinner };
+      if (Object.keys(t).length) {
+        const mins = { breakfast: t.breakfast ?? null, lunch: t.lunch ?? null, dinner: t.dinner ?? null };
         write.timeByMeal = mins; saved.time_by_meal = mins;
       }
     }
