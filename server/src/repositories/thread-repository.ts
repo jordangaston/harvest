@@ -9,12 +9,15 @@ import { pendingPast } from '../imessage/consumer-logic.js';
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Executor = Database | Tx;
 
-/** The inbound message fields the webhook records (increment 1: text only). */
+/** The inbound message fields the webhook records. A tapback carries `reactionEmoji`
+ *  + `targetGuid` (the message reacted to); every other arm omits them. */
 export interface InboundMessageInput {
   threadId: string;
   senderUserId: string;
   type: 'text' | 'reaction' | 'reply' | 'attachment';
   body: string | null;
+  targetGuid?: string | null;
+  reactionEmoji?: string | null;
   messageGuid: string;
 }
 
@@ -72,9 +75,10 @@ export class ThreadRepository {
    * (the unique index makes inbound dedup a DB constraint).
    */
   async insertInboundMessage(input: InboundMessageInput, tx: Executor = this.db): Promise<void> {
+    const { targetGuid, reactionEmoji, ...rest } = input;
     await tx
       .insert(threadMessages)
-      .values({ ...input, direction: 'inbound' })
+      .values({ ...rest, direction: 'inbound', targetMessageGuid: targetGuid, reactionEmoji })
       .onConflictDoNothing({ target: threadMessages.messageGuid });
   }
 

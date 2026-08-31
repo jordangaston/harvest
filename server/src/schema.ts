@@ -196,6 +196,10 @@ export const threadMessages = sqliteTable(
     type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment'] as const }).notNull(),
     senderUserId: text('sender_user_id').references(() => users.id),
     body: text('body'),
+    // Reaction (tapback) substrate (WI-A): the emoji and the guid of the prior message
+    // this one reacts to. Both null for a text/reply/attachment; WI-B reuses target_message_guid.
+    targetMessageGuid: text('target_message_guid'),
+    reactionEmoji: text('reaction_emoji'),
     messageGuid: text('message_guid').notNull(),
     sentAt: integer('sent_at', { mode: 'timestamp' }),
     createdAt: createdAt(),

@@ -356,7 +356,15 @@ app.post("/spectrum/webhook", async (c) => {
     const userId = await threads.upsertUserByHandle(inbound.handle, tx);
     const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
     await threads.insertInboundMessage(
-      { threadId: thread.id, senderUserId: userId, type: inboundType(inbound.type), body: inbound.body, messageGuid: inbound.messageGuid },
+      {
+        threadId: thread.id,
+        senderUserId: userId,
+        type: inboundType(inbound.type),
+        body: inbound.body,
+        targetGuid: inbound.targetGuid ?? null,
+        reactionEmoji: inbound.reactionEmoji ?? null,
+        messageGuid: inbound.messageGuid,
+      },
       tx,
     );
     return thread.id;
@@ -366,7 +374,12 @@ app.post("/spectrum/webhook", async (c) => {
   // Q-3 guess), so keying on threadId swallows every later message on an existing thread.
   // message_guid dedups only a redelivered *same* webhook; distinct messages each wake the
   // consumer, which still drains all pending past the cursor.
-  await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: inbound.messageGuid });
+  //
+  // A bare reaction (tapback) carries no request — persist it but don't wake the consumer,
+  // so Chef never runs a reasoning turn on a thumbs-up. The row stays on file as context (the
+  // drain only pulls text, so a reaction is neither answered nor cursor-advanced). This is the
+  // one place that decides answerability.
+  if (inbound.type !== 'reaction') await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: inbound.messageGuid });
   return c.body(null, 200);
 });
 

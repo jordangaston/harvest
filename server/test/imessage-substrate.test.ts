@@ -11,6 +11,7 @@ const { send } = vi.hoisted(() => ({ send: vi.fn(async (..._args: unknown[]) => 
 vi.mock("../src/queue.js", () => ({ send, handleCallback: vi.fn() }));
 
 import { buildApp } from "../src/index.js";
+import { parseInbound } from "../src/imessage/inbound.js";
 import { Consumer } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubChef } from "../src/imessage/chef.js";
@@ -40,6 +41,30 @@ function signedDelivery(messageGuid: string, chatGuid: string, handle: string, t
       space: { id: chatGuid },
       sender: { id: handle },
       content: { type: "text", text },
+    },
+  });
+  const ts = Math.floor(Date.now() / 1000);
+  const base = Buffer.from(`v0:${ts}:${body}`);
+  const hex = createHmac("sha256", SECRET).update(base).digest("hex");
+  return {
+    body,
+    headers: {
+      "content-type": "application/json",
+      "x-spectrum-signature": `v0=${hex}`,
+      "x-spectrum-timestamp": String(ts),
+    },
+  };
+}
+
+/** Builds a native Spectrum *reaction* (tapback) webhook body + its valid signature headers. */
+function signedReactionDelivery(messageGuid: string, chatGuid: string, handle: string, emoji: string, targetGuid: string) {
+  const body = JSON.stringify({
+    event: "message.new",
+    message: {
+      id: messageGuid,
+      space: { id: chatGuid },
+      sender: { id: handle },
+      content: { type: "reaction", emoji, target: { id: targetGuid } },
     },
   });
   const ts = Math.floor(Date.now() / 1000);
@@ -152,6 +177,58 @@ describe("iMessage substrate", () => {
     expect(await db.select().from(users).where(eq(users.imessageHandle, "+15559998888"))).toHaveLength(0);
     expect(await db.select().from(threads).where(eq(threads.chatGuid, "chat-4"))).toHaveLength(0);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("parseInbound represents a reaction: emoji + target guid, body null (WI-A TC1)", () => {
+    const { body } = signedReactionDelivery("r1", "chat-r1", "+15551112222", "❤️", "m-target");
+    const parsed = parseInbound(new TextEncoder().encode(body));
+    expect(parsed).toEqual({
+      messageGuid: "r1",
+      chatGuid: "chat-r1",
+      handle: "+15551112222",
+      type: "reaction",
+      body: null,
+      reactionEmoji: "❤️",
+      targetGuid: "m-target",
+    });
+  });
+
+  it("a reaction persists but draws no reply (WI-A TC2)", async () => {
+    const res = await post(signedReactionDelivery("r2", "chat-r2", "+15552223333", "❤️", "m-prior"));
+    expect(res.status).toBe(200);
+    expect(send).not.toHaveBeenCalled(); // the chokepoint skips the doorbell for a reaction
+
+    const [thread] = await db.select().from(threads).where(eq(threads.chatGuid, "chat-r2"));
+    const [row] = await db.select().from(threadMessages).where(eq(threadMessages.threadId, thread.id));
+    expect(row.type).toBe("reaction");
+    expect(row.reactionEmoji).toBe("❤️");
+    expect(row.targetMessageGuid).toBe("m-prior");
+    expect(row.body).toBeNull();
+
+    // Even if a stale doorbell fired, the consumer must produce no send (reaction isn't pending text).
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, new StubChef(db), new StubThreadLock()).handle({ threadId: thread.id });
+    expect(sender.calls).toHaveLength(0);
+    expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
+    const [after] = await db.select().from(threads).where(eq(threads.id, thread.id));
+    expect(after.lastProcessedId).toBeNull(); // cursor never advanced for a bare reaction
+  });
+
+  it("a text turn after a reaction still answers, advancing past both (WI-A TC3)", async () => {
+    expect((await post(signedReactionDelivery("r3", "chat-r3", "+15554445555", "👍", "m-prior"))).status).toBe(200);
+    expect((await post(signedDelivery("t3", "chat-r3", "+15554445555", "what's for dinner?"))).status).toBe(200);
+    expect(send).toHaveBeenCalledOnce(); // only the text rang the doorbell
+
+    const [thread] = await db.select().from(threads).where(eq(threads.chatGuid, "chat-r3"));
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, new StubChef(db), new StubThreadLock()).handle({ threadId: thread.id });
+
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound).toHaveLength(1);
+    expect(sender.calls).toEqual([{ chatGuid: "chat-r3", body: outbound[0].body }]);
+    const [text] = await db.select().from(threadMessages).where(eq(threadMessages.messageGuid, "t3"));
+    const [after] = await db.select().from(threads).where(eq(threads.id, thread.id));
+    expect(after.lastProcessedId).toBe(text.id); // cursor advanced to the text turn
   });
 
   async function postAndGetThread(mGuid: string, chatGuid: string, handle: string, text: string) {

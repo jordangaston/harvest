@@ -190,6 +190,13 @@
       "when": 1788181720346,
       "tag": "0026_drop_time_by_meal_json",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1788207829528,
+      "tag": "0027_wandering_shadow_king",
+      "breakpoints": true
     }
   ]
 }
