@@ -78,10 +78,16 @@ export class Consumer {
 
           const unsent = await this.threads.loadUnsentOutbound(threadId);
           if (unsent.length > 0) {
-            // One ordered batch, not a rapid-fire loop — so the bubbles arrive in order.
-            await this.sender.send(thread.chatGuid, unsent.map((r) => r.body ?? ''));
+            // One ordered batch, not a rapid-fire loop — so the bubbles arrive in order. The send
+            // returns the platform ids in that same order; map each back to its row by index.
+            const ids = await this.sender.send(thread.chatGuid, unsent.map((r) => r.body ?? ''));
             const now = new Date();
-            for (const row of unsent) await this.threads.markSent(row.id, now);
+            for (const [i, row] of unsent.entries()) {
+              await this.threads.markSent(row.id, now);
+              // Defensive: a degraded return (fewer ids than bubbles, or none) leaves the
+              // unmatched rows' external_id null rather than mis-assigning another bubble's id.
+              if (ids[i]) await this.threads.setExternalId(row.id, ids[i]!);
+            }
           }
           return reply.cursorTo;
         });

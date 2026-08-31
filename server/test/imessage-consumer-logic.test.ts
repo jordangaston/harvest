@@ -33,6 +33,7 @@ function msg(id: string, overrides: Partial<ThreadMessage> = {}): ThreadMessage 
     targetMessageGuid: null,
     reactionEmoji: null,
     messageGuid: `g-${id}`,
+    externalId: null,
     sentAt: null,
     createdAt: new Date(),
     ...overrides,

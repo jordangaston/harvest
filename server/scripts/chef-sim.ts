@@ -24,8 +24,9 @@ const HANDLE = 'dev:+15550000000';
 /** Captures what would be sent instead of hitting Spectrum. */
 class CaptureSender implements Sender {
   bubbles: string[] = [];
-  async send(_chatGuid: string, bodies: string[]): Promise<void> {
+  async send(_chatGuid: string, bodies: string[]): Promise<string[]> {
     this.bubbles.push(...bodies);
+    return bodies.map((_, i) => `ext-${i}`);
   }
   async markRead(): Promise<void> {}
   async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {

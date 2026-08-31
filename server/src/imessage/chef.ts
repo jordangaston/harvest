@@ -102,7 +102,7 @@ export class RealChef implements Chef {
     // A threaded reply (the trigger carries a parent guid) shows the model the message it answers.
     const trigger = pending[pending.length - 1]!;
     const parent = trigger.targetMessageGuid
-      ? await this.threads.findByMessageGuid(threadId, trigger.targetMessageGuid)
+      ? await this.threads.findByPlatformId(threadId, trigger.targetMessageGuid)
       : null;
 
     const briefing: BriefingInput = {

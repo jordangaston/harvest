@@ -76,9 +76,11 @@ export class ThreadRepository {
    */
   async insertInboundMessage(input: InboundMessageInput, tx: Executor = this.db): Promise<void> {
     const { targetGuid, reactionEmoji, ...rest } = input;
+    // Inbound's message_guid IS its Spectrum platform id, so external_id mirrors it —
+    // giving every row the uniform platform id that reply/reaction targets resolve against.
     await tx
       .insert(threadMessages)
-      .values({ ...rest, direction: 'inbound', targetMessageGuid: targetGuid, reactionEmoji })
+      .values({ ...rest, direction: 'inbound', targetMessageGuid: targetGuid, reactionEmoji, externalId: input.messageGuid })
       .onConflictDoNothing({ target: threadMessages.messageGuid });
   }
 
@@ -104,12 +106,13 @@ export class ThreadRepository {
     return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
   }
 
-  /** Finds a message in a thread by its `message_guid` (the parent a reply points at), or null. */
-  async findByMessageGuid(threadId: string, messageGuid: string): Promise<ThreadMessage | null> {
+  /** Finds a message in a thread by its Spectrum platform id — the `external_id` a reply/reaction
+   *  target points at (uniform across inbound and sent-outbound rows), or null. */
+  async findByPlatformId(threadId: string, platformId: string): Promise<ThreadMessage | null> {
     const [row] = await this.db
       .select()
       .from(threadMessages)
-      .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.messageGuid, messageGuid)));
+      .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.externalId, platformId)));
     return row ? ThreadMessageSchema.parse(row) : null;
   }
 
@@ -161,6 +164,11 @@ export class ThreadRepository {
   /** Marks an outbound row sent — the idempotency gate, written after the send resolves. */
   async markSent(messageId: string, sentAt: Date): Promise<void> {
     await this.db.update(threadMessages).set({ sentAt }).where(eq(threadMessages.id, messageId));
+  }
+
+  /** Records an outbound row's Spectrum platform id, returned by the send (WI-C). */
+  async setExternalId(messageId: string, externalId: string): Promise<void> {
+    await this.db.update(threadMessages).set({ externalId }).where(eq(threadMessages.id, messageId));
   }
 
   /** Loads a thread by id (the doorbell payload), parsed into the domain model, or null. */
