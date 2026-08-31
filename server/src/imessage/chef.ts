@@ -97,12 +97,19 @@ export class RealChef implements Chef {
     const transcriptWindow = pending.map((m) => m.body ?? '');
     const transcript: TranscriptLine[] = transcriptWindow.map((text) => ({ role: 'household', text }));
 
+    // A threaded reply (the trigger carries a parent guid) shows the model the message it answers.
+    const trigger = pending[pending.length - 1]!;
+    const parent = trigger.targetMessageGuid
+      ? await this.threads.findByMessageGuid(threadId, trigger.targetMessageGuid)
+      : null;
+
     const briefing: BriefingInput = {
       objective: active.objective,
       slots: active.slots,
       members: briefingMembers,
       transcript: transcript.slice(-MAX_TURN_TRANSCRIPT),
       trigger: transcriptWindow.join('\n'),
+      replyingTo: parent?.body ?? undefined,
     };
     const turnCtx: TurnContext = {
       db: this.db,

@@ -28,6 +28,8 @@ export interface BriefingInput {
   trigger: string;
   /** Objectives sitting suspended under the active one — a one-line inventory in L1. */
   suspended?: string[];
+  /** When the trigger is a threaded reply, a snippet of the parent message it answers. */
+  replyingTo?: string;
 }
 
 const HARD_RULE =
@@ -85,7 +87,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `# Slots still needed (each with how to fill it)\n${unfilled || '(none)'}`,
     `# Household\n${members}`,
     `# Recent transcript\n${transcript}`,
-    `# What just arrived\n${input.trigger}`,
+    `# What just arrived\n${input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : ''}${input.trigger}`,
   ]
     .filter(Boolean)
     .join('\n\n');
