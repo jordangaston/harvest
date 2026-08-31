@@ -56,12 +56,27 @@ production replies to Chef don't match. This is rooted in an **increment-1** des
 parent-context line is missing, and only for replies to Chef messages (replies to user messages,
 which store the real guid, would resolve). The parent snippet is a Phase-4 personality nicety.
 
-**Recommended follow-up (not done — founder's call):** a small substrate work item to store the
-real Spectrum message id from `space.send()`'s returned `Message` on the outbound row (or a new
-`spectrum_guid` column), so `target_message_guid` resolves for the common case. Fits naturally as a
-Phase-2 prerequisite or a Phase-4 polish item.
+### ✅ Resolved by WI-C — persist the outbound Spectrum id as `external_id`
+
+The founder called for the fix directly. **WI-C** (PR #57, merged) adds a nullable
+`thread_messages.external_id` holding the platform (Spectrum) message id on **every** row —
+inbound set at insert (= `message.id`), outbound captured from `space.send()`'s returned
+`Message`(s) — and resolves reply/reaction targets **solely** off `external_id`.
+
+**Verified on the live line (real gestures + real sends):**
+- **Outbound id capture:** a fresh Chef turn's bubbles persisted real ids, e.g.
+  *"Quick dinner idea: garlic butter shrimp…"* → `external_id = spc-msg-4acaeaed-…` (the stub
+  couldn't prove `space.send()` returns real ids; the live line did). Pre-WI-C rows stay `null`
+  (forward-only, no backfill).
+- **Inbound id capture:** a fresh inbound text → `external_id = spc-msg-57788f9f-…` (= its platform id).
+- **Reply-to-Chef resolves (the crux):** founder swipe-replied *"Can you make it dairy free"* to the
+  shrimp bubble. The reply's `target = spc-msg-4acaeaed-…` **matched that Chef row's `external_id`**
+  and resolved to *"Quick dinner idea: garlic butter shrimp…"*; Chef answered *"Happy to make that
+  shrimp dairy-free…"* — the briefing parent-snippet fired. Proves Spectrum's reply-`target` id
+  equals the send-returned id, and completes WI-B's parent-snippet for replies-to-Chef.
 
 ## Net
 
-Both Phase-1 substrate items are verified on a real device. Spikes descoped with evidence. One
-honest limitation logged above with a proposed follow-up. Nothing was faked.
+Phase 1 (WI-A tapback, WI-B threaded reply) plus the WI-C substrate addendum are **all verified on a
+real device**. Both spikes descoped with evidence. The one limitation found during e2e was resolved
+by WI-C and re-verified live. Nothing was faked.
