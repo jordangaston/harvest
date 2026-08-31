@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { pendingPast } from "../src/imessage/consumer-logic.js";
-import { handleDoorbell } from "../src/imessage/consumer.js";
+import { Consumer } from "../src/imessage/consumer.js";
 import { RealChef, StubChef, type Chef, type ChefReply } from "../src/imessage/chef.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
@@ -113,7 +113,7 @@ describe("Test Case 2: null reply → no commit, no send (AC-2)", () => {
     const { threadId } = await seedThread(); // no pending inbound
     const sender = new StubSpectrumSender();
     const chef: Chef = { respond: async () => null };
-    await handleDoorbell({ threadId }, { db, sender, chef, lock: new StubThreadLock() });
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
 
     expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
     const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
@@ -146,7 +146,7 @@ describe("Test Case 3: a turn commits N rows + M slot updates + advances the cur
       }),
     };
     const sender = new StubSpectrumSender();
-    await handleDoorbell({ threadId }, { db, sender, chef, lock: new StubThreadLock() });
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(2);
@@ -180,7 +180,7 @@ describe("Test Case 4: commit is atomic — a failing slot update rolls back the
       }),
     };
     const sender = new StubSpectrumSender();
-    await expect(handleDoorbell({ threadId }, { db, sender, chef, lock: new StubThreadLock() })).rejects.toThrow();
+    await expect(new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId })).rejects.toThrow();
 
     expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
     const [after] = await db.select().from(threads).where(eq(threads.id, threadId));

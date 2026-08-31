@@ -7,7 +7,7 @@ import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
 import { PreferenceRepository } from '../src/repositories/preference-repository.js';
-import { handleDoorbell } from '../src/imessage/consumer.js';
+import { Consumer } from '../src/imessage/consumer.js';
 import { selectChef } from '../src/imessage/chef.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import type { Sender } from '../src/imessage/sender.js';
@@ -60,7 +60,7 @@ async function purge(db: ReturnType<typeof dbFromEnv>): Promise<void> {
     await repo.insertInboundMessage({ threadId: thread.id, senderUserId: userId, type: 'text', body: msg, messageGuid: `dev-${randomUUID()}` });
     const sender = new CaptureSender();
     const t0 = Date.now();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: selectChef(db), lock: new StubThreadLock() });
+    await new Consumer(db, sender, selectChef(db), new StubThreadLock()).handle({ threadId: thread.id });
     console.log(`\n🧑 ${msg}`);
     console.log(`🧑‍🍳 (${Date.now() - t0}ms):`);
     for (const b of sender.bubbles) console.log('   •', b);

@@ -4,7 +4,7 @@ import { eq, asc } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
 import { users, threads, threadMessages, households, householdMembers, objectives, slots } from '../src/schema.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
-import { handleDoorbell } from '../src/imessage/consumer.js';
+import { Consumer } from '../src/imessage/consumer.js';
 import { selectChef } from '../src/imessage/chef.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import type { Sender } from '../src/imessage/sender.js';
@@ -72,7 +72,7 @@ async function transcript(db: ReturnType<typeof dbFromEnv>, threadId: string): P
 
   const sender = new CaptureSender();
   const t0 = Date.now();
-  await handleDoorbell({ threadId: thread.id }, { db, sender, chef: selectChef(db), lock: new StubThreadLock() });
+  await new Consumer(db, sender, selectChef(db), new StubThreadLock()).handle({ threadId: thread.id });
 
   console.log(`\n🧑 ${arg}`);
   console.log(`🧑‍🍳 (${Date.now() - t0}ms):`);

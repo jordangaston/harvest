@@ -3,6 +3,6 @@
 export const INBOUND_TOPIC = "inbound-messages";
 
 /** The doorbell payload: which thread has pending inbound to process. */
-export interface Doorbell {
+export type Doorbell = {
   threadId: string;
-}
+};
