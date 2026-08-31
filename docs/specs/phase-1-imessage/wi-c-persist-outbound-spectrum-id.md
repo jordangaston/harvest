@@ -34,10 +34,11 @@ outbound threaded reply requires the target message's platform id).
 
 ## Objective
 
-Persist each outbound message's Spectrum platform id in a new nullable `thread_messages.external_id`
-column, and resolve reply/reaction targets against it — so a reply/tapback that points at a Chef
-message resolves to that message (fixing WI-B's parent-snippet for replies-to-Chef and enabling
-Phase-3 outbound replies).
+Persist **every** message's Spectrum platform id in a new nullable `thread_messages.external_id`
+column (inbound: the id the webhook already receives; outbound: the id `space.send()` returns), and
+resolve reply/reaction targets **solely** off `external_id` — so a reply/tapback that points at any
+message (Chef's or the user's own) resolves to that message (fixing WI-B's parent-snippet for
+replies-to-Chef and enabling Phase-3 outbound replies).
 
 ## Scope / implementation notes
 
@@ -49,9 +50,9 @@ old Chef rows stay unresolved — acceptable). Do **not** change the outbound id
 1. **Schema/migration (drizzle-kit):** add nullable `thread_messages.external_id` (text) — the
    platform message id. Update `server/src/schema.ts` and add `.nullable()` to `ThreadMessageSchema`
    (`server/src/models/thread-message.ts`), then `npm run db:generate` + `npm run db:migrate`. Do not
-   hand-edit generated SQL. `[ASSUMPTION: setting external_id on inbound rows too (= message.id) is
-   optional; resolution can fall back to message_guid, so inbound-side is the implementer's lazy
-   choice.]`
+   hand-edit generated SQL. **Inbound rows set `external_id` at insert** to their platform id (=
+   `message.id`, the value already passed as `messageGuid`), so `insertInboundMessage` populates it
+   with no caller change — every inbound arm (text/reply/reaction/attachment) carries it.
 2. **Sender** (`server/src/imessage/sender.ts`): change the `Sender` interface + `SpectrumSender.send`
    return type from `Promise<void>` to `Promise<string[]>` — the sent platform ids in send order.
    Keep the single ordered-batch send. `StubSpectrumSender.send` returns deterministic synthetic ids
@@ -61,19 +62,22 @@ old Chef rows stay unresolved — acceptable). Do **not** change the outbound id
    `ThreadRepository.setExternalId` — pick the smaller diff). **Defensive:** if the return has fewer
    ids than bubbles (or none), set `external_id` only for rows whose id is unambiguously known; leave
    the rest null. Never mis-assign.
-4. **Target resolution:** the reply/reaction parent lookup must resolve a target pointing at a Chef
-   outbound message — update `findByMessageGuid` to match a row whose `external_id` **OR**
-   `message_guid` equals the target (rename to `findByPlatformId` if clearer). This makes WI-B's
-   parent-snippet resolve for replies-to-Chef and lets WI-A/B represent targets that point at Chef
-   messages.
+4. **Target resolution:** because `external_id` is now populated for **every** row, resolve the
+   reply/reaction parent **solely** off it — rename `findByMessageGuid` → `findByPlatformId(threadId,
+   target)` matching `external_id = target` (no `message_guid` fallback; `external_id` is the single
+   uniform platform-id column). Update the WI-B caller in `chef.ts`. `message_guid` stays the internal
+   key (random UUID for outbound; the Spectrum id for inbound is fine as its internal key too). This
+   makes WI-B's parent-snippet resolve for replies-to-Chef and lets WI-A/B represent targets that
+   point at any message.
 
 ## Acceptance Criteria
 
 1. **AC1** — Given Chef sends a turn's bubbles, when the batch send returns platform ids, then each
    corresponding outbound `thread_messages` row has `external_id` set to its platform id, in order.
 2. **AC2** — Given a Chef outbound row with a known `external_id`, when an inbound reply targets that
-   `external_id`, then `findByPlatformId` resolves the parent row and the briefing includes the
-   parent snippet (WI-B's `↳ replying to: "…"` now works for replies-to-Chef).
+   `external_id`, then `findByPlatformId` (matching `external_id` only) resolves the parent row and the
+   briefing includes the parent snippet (WI-B's `↳ replying to: "…"` now works for replies-to-Chef).
+   Inbound rows also carry `external_id` = their platform id.
 3. **AC3** — Given the send returns fewer ids than bubbles (or none), when the consumer persists,
    then it does not crash or mis-assign; rows without a known id keep `external_id = null`.
 4. **AC4** — Migration applies forward cleanly; full server suite green (`npx vitest run`, 0 failed);
@@ -87,9 +91,9 @@ old Chef rows stay unresolved — acceptable). Do **not** change the outbound id
 **Expected Outcomes:** the two outbound rows have `external_id` `ext-0`, `ext-1` matching bubble order; `sent_at` set.
 
 ### Test Case 2: reply-to-Chef resolves the parent + briefs (AC2)
-**Preconditions:** Seed a Chef outbound row with `external_id = 'spc-msg-PARENT'`.
+**Preconditions:** Seed a Chef outbound row with `external_id = 'spc-msg-PARENT'` (and a distinct internal `message_guid`).
 **Steps:** POST a signed reply webhook with `target.id = 'spc-msg-PARENT'`; build the briefing for that turn.
-**Expected Outcomes:** `findByPlatformId(threadId,'spc-msg-PARENT')` returns the Chef row; the briefing text contains the parent snippet.
+**Expected Outcomes:** `findByPlatformId(threadId,'spc-msg-PARENT')` (matching `external_id` only) returns the Chef row; the briefing text contains the parent snippet. Inbound rows also have `external_id` set to their platform id.
 
 ### Test Case 3: degraded send return (AC3)
 **Preconditions:** `StubSpectrumSender` returning `[]` (or one id for a two-bubble turn).
