@@ -49,7 +49,7 @@ describe('selectResponseAgent (env gate, no network)', () => {
     else process.env.DEEPSEEK_API_KEY = prev;
   });
 
-  it('AC-6: absent key → scripted stub; present key → real Mastra agent', () => {
+  it('AC-6: absent key -> scripted stub; present key -> real Mastra agent', () => {
     delete process.env.DEEPSEEK_API_KEY;
     expect(selectResponseAgent()).toBeInstanceOf(ScriptedResponder);
     process.env.DEEPSEEK_API_KEY = 'test-key-no-network';

@@ -1,12 +1,12 @@
 import { Agent } from '@mastra/core/agent';
-import { createTool } from '@mastra/core/tools';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { z } from 'zod';
-import { TAPBACK_EMOJIS, type ChatEvent, type ChatEvents, type ReplyPlan } from './types.js';
+import type { ChatEvent, ChatEvents, ReplyPlan } from './types.js';
 
-// ponytail: swap the id if DeepSeek renames it. Q-2-1 = cheap-for-response half; mirrors REASONING_MODEL.
+// ponytail: mirrors REASONING_MODEL. Thinking off (DeepSeek thinks by default → slow/empty JSON).
 const RESPONSE_MODEL = 'deepseek/deepseek-v4-flash';
 const DEEPSEEK_URL = 'https://api.deepseek.com';
+const THINKING_OFF = { deepseek: { thinking: { type: 'disabled' } } } as const;
 
 const CHEF_VOICE =
   'You are the Chef, a warm, brief home-cooking companion texting over iMessage. Say each thing the ' +
@@ -23,27 +23,6 @@ const CHEF_VOICE =
  */
 export interface Responder {
   render(plan: ReplyPlan, transcriptWindow: string[]): Promise<ChatEvents>;
-}
-
-/** Builds the two message-emitting tools closed over one turn's `events` collector. */
-function emitTools(events: ChatEvents) {
-  const respond_with_text = createTool({
-    id: 'respond_with_text',
-    description: 'Send one iMessage text bubble. Call once per bubble; short is better.',
-    inputSchema: z.object({ text: z.string().min(1).max(1000) }),
-    execute: async ({ text }) => {
-      events.push({ kind: 'text', text });
-    },
-  });
-  const react_with_tapback = createTool({
-    id: 'react_with_tapback',
-    description: 'React to a specific inbound message with a tapback, by its message guid.',
-    inputSchema: z.object({ target: z.string(), emoji: z.enum(TAPBACK_EMOJIS) }),
-    execute: async ({ target, emoji }) => {
-      events.push({ kind: 'tapback', target, emoji });
-    },
-  });
-  return { respond_with_text, react_with_tapback };
 }
 
 /** Flattens a ReplyPlan + transcript window into one prompt string for the response agent. */
@@ -90,9 +69,10 @@ function intentText(intent: ReplyPlan['intents'][number]): string {
 }
 
 /**
- * The live response agent: a cheap Mastra `Agent` whose message-emitting tools are rebuilt per
- * `render` closed over a fresh collector, so it renders straight into that turn's events. Runs no
- * `structuredOutput` — its output *is* its tool-call side effects. Dormant until WI-06 wires it.
+ * The live response agent: a cheap Mastra `Agent` that voices a `ReplyPlan` as short iMessage text
+ * bubbles via `structuredOutput` (jsonPromptInjection — DeepSeek rejects the json_schema response
+ * format). Text-only: the sender delivers only text this increment, so the consumer skips non-text
+ * events anyway.
  */
 export class MastraResponder implements Responder {
   constructor(private readonly apiKey: string) {}
@@ -104,14 +84,9 @@ export class MastraResponder implements Responder {
   async render(plan: ReplyPlan, transcriptWindow: string[]): Promise<ChatEvents> {
     const model: OpenAICompatibleConfig = { id: RESPONSE_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
     const agent = new Agent({ id: 'chef-response', name: 'chef-response', instructions: CHEF_VOICE, model });
-    // DeepSeek won't reliably CALL emit-tools, so force the voiced bubbles as structured output
-    // (jsonPromptInjection — DeepSeek rejects the json_schema response_format). Text-only: the
-    // sender delivers only text this increment, so the consumer skips non-text events anyway.
     const res = await agent.generate(renderPrompt(plan, transcriptWindow), {
-      structuredOutput: {
-        schema: z.object({ bubbles: z.array(z.string().min(1)).min(1) }),
-        jsonPromptInjection: true,
-      },
+      structuredOutput: { schema: z.object({ bubbles: z.array(z.string().min(1)).min(1) }), jsonPromptInjection: true },
+      providerOptions: THINKING_OFF,
     });
     const { bubbles } = (res as { object: { bubbles: string[] } }).object;
     return bubbles.map((text): ChatEvent => ({ kind: 'text', text }));
@@ -119,9 +94,9 @@ export class MastraResponder implements Responder {
 }
 
 /**
- * The responder for the current env: the live Mastra agent when `DEEPSEEK_API_KEY` is set, else
- * the offline scripted stub. Mirrors `selectReasoningAgent` / `selectExtractor`. Tests pass their
- * own `ScriptedResponder`; this selector is the deploy-time env gate.
+ * The responder for the current env: the live Mastra agent when `DEEPSEEK_API_KEY` is set, else the
+ * offline scripted stub. Mirrors `selectReasoningAgent` / `selectExtractor`. Tests pass their own
+ * `ScriptedResponder`; this selector is the deploy-time env gate.
  */
 export function selectResponseAgent(): Responder {
   if (process.env.DEEPSEEK_API_KEY) return MastraResponder.create(process.env.DEEPSEEK_API_KEY);

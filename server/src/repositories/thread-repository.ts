@@ -47,6 +47,12 @@ export class ThreadRepository {
     return row!.id;
   }
 
+  /** The iMessage handle of a user (the thread initiator), or '' if none is on file. */
+  async handleForUser(userId: string, tx: Executor = this.db): Promise<string> {
+    const [row] = await tx.select({ handle: users.imessageHandle }).from(users).where(eq(users.id, userId));
+    return row?.handle ?? '';
+  }
+
   /**
    * Resolves the thread for a chat_guid, creating one owned by `ownerUserId` on first
    * contact.

@@ -1,8 +1,6 @@
 import type { Objective } from '../models/objective.js';
 import type { Slot } from '../models/slot.js';
 import { objectiveDefinition, type ObjectiveDefinition } from './objectives/index.js';
-import { TOOL_REGISTRY, type ToolEntry } from './tools/registry.js';
-import type { ChefState } from './tools/types.js';
 
 /** One turn's transcript entry (role + text), for tone and to avoid repetition. */
 export interface TranscriptLine {
@@ -18,12 +16,11 @@ export interface BriefingMember {
 }
 
 /**
- * The loaded turn state `prepareBriefing` assembles from. Superset of `ChefState` (which
- * `canRun` reads) — carries the objective + unfilled slots, members with names, the transcript
- * window, and the framed trigger (the pending inbound past the cursor). WI-06 finalizes loading.
+ * The loaded turn state `prepareBriefing` assembles the prompt from: the active objective + its
+ * UNFILLED slots, members with names, the transcript window, and the framed trigger (the pending
+ * inbound past the cursor). The tools the model may call are advertised by Mastra, not the prompt.
  */
 export interface BriefingInput {
-  state: ChefState;
   objective: Objective;
   slots: Slot[];
   members: BriefingMember[];
@@ -33,29 +30,22 @@ export interface BriefingInput {
   suspended?: string[];
 }
 
-/** What the agent generates against: the assembled prompt, the resident tools, the request context. */
-export interface Briefing {
-  prompt: string;
-  residentTools: ToolEntry[];
-  requestContext: { chefState: ChefState };
-}
-
 const HARD_RULE =
   'HARD RULE: never write a value the tools did not return. If a value has no catalog match, ' +
   'acknowledge it and move on — never confirm or guess it.';
 
 const CONDUCT_AND_SAFETY =
-  'You are the reasoning half of a private chef. Decide what must happen and what must be said; ' +
-  'you emit no prose (the response half owns voice). Change the world only through command tools. ' +
-  'Search for a tool when you need a capability you do not have. ' +
+  'You are the reasoning half of a private chef onboarding a household over text. Decide what must ' +
+  'happen and what must be said — you emit no prose (the response half owns voice). Change the world ' +
+  'only by calling tools. After the room confirms they cook together, call create_household FIRST, ' +
+  'before any member save. Whenever an answer belongs in a household preference (stores, budget, ' +
+  'shopping day, equipment, headcount, leftovers) call save_household_profile that same turn; a ' +
+  "member's allergens/diets/equipment go through save_member_profile — an allergen only counts with " +
+  'confirmed:true and a severity. In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
+  'repeat a question already answered, and never echo the user back. In slotUpdates, mark the slots ' +
+  'this turn answered — reference each slot by the [id] shown in "Slots still needed" — as filled ' +
+  '(with the value) or asked. ' +
   HARD_RULE;
-
-/** The active objective's resident tools = its declared set ∩ `canRun(state)`, resolved per turn. */
-export function residentTools(def: ObjectiveDefinition, state: ChefState): ToolEntry[] {
-  return def.tools
-    .map((id) => TOOL_REGISTRY[id])
-    .filter((e): e is ToolEntry => !!e && e.canRun(state));
-}
 
 /** L2: only the guidance whose condition holds this turn (design §L2). */
 function activeGuidance(def: ObjectiveDefinition): string {
@@ -63,22 +53,25 @@ function activeGuidance(def: ObjectiveDefinition): string {
 }
 
 /**
- * Assembles the reasoning agent's L1/L2/L3 context and resident tool set from the loaded state —
- * a pure function, no network, no model call. L1: conduct+safety, the active objective and its
- * UNFILLED slots, members, transcript, resident tools, the framed trigger. L2: the objective's
- * condition-gated guidance. L3: search_catalog + the hard rule (tool search is wired on the agent).
+ * Assembles the reasoning agent's prompt from the loaded turn state — a pure function, no network,
+ * no model call. Conduct + safety, the active objective and its UNFILLED slots, members, the
+ * condition-gated guidance, the transcript, and the framed trigger.
  * @throws If the objective's `definition` is not registered.
  */
-export function prepareBriefing(input: BriefingInput): Briefing {
+export function prepareBriefing(input: BriefingInput): string {
   const def = objectiveDefinition(input.objective.definition);
   if (!def) throw new Error(`No definition registered for objective '${input.objective.definition}'`);
 
-  const resident = residentTools(def, input.state);
-  const unfilled = input.slots.map((s) => `- ${s.key} (${s.status})`).join('\n');
-  const members = input.members.map((m) => `- ${m.name} (${m.handle})`).join('\n');
+  // Each slot is shown with its row id (uuid PK) — the model returns that id in slotUpdates, so two
+  // members' same-named slots (both `allergens`) stay distinct. Member slots name whose they are.
+  const nameByUser = new Map(input.members.map((m) => [m.userId, m.name]));
+  const unfilled = input.slots
+    .map((s) => `- [${s.id}] ${s.key}${s.memberUserId ? ` for ${nameByUser.get(s.memberUserId) ?? 'member'}` : ''} (${s.status})`)
+    .join('\n');
+  const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');
   const transcript = input.transcript.map((l) => `${l.role}: ${l.text}`).join('\n');
 
-  const prompt = [
+  return [
     `# Conduct\n${CONDUCT_AND_SAFETY}`,
     `# Objective: ${def.id}\n${def.instructions}`,
     input.suspended?.length ? `Suspended underneath: ${input.suspended.join(', ')}` : '',
@@ -87,10 +80,7 @@ export function prepareBriefing(input: BriefingInput): Briefing {
     `# Guidance\n${activeGuidance(def)}`,
     `# Recent transcript\n${transcript}`,
     `# What just arrived\n${input.trigger}`,
-    `# Resident tools\n${resident.map((e) => e.id).join(', ')}`,
   ]
     .filter(Boolean)
     .join('\n\n');
-
-  return { prompt, residentTools: resident, requestContext: { chefState: input.state } };
 }

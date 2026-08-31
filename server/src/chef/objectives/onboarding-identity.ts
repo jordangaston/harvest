@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db.js';
 import { users } from '../../schema.js';
@@ -9,9 +10,10 @@ import { memberSlotSpecs } from './onboarding.js';
 /** A drizzle transaction client — the type each write takes inside the identity transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-/** One participant in the "same kitchen" answer: their iMessage handle and name if given. */
+/** One participant in the "same kitchen" answer. The initiator has a handle (they texted);
+ *  a proxy member named by someone else may have only a name (no handle yet). */
 export interface Participant {
-  handle: string;
+  handle?: string;
   name?: string;
 }
 
@@ -70,9 +72,15 @@ export async function createSameKitchenHousehold(
   });
 }
 
-/** Upserts a user by handle and sets their name when it was given. */
+/** Upserts a participant to a user id: by handle if they've texted, else a name-only row (proxy). */
 async function upsertUser(threads: ThreadRepository, tx: Tx, p: Participant): Promise<string> {
-  const userId = await threads.upsertUserByHandle(p.handle, tx);
-  if (p.name) await tx.update(users).set({ name: p.name }).where(eq(users.id, userId));
+  if (p.handle) {
+    const userId = await threads.upsertUserByHandle(p.handle, tx);
+    if (p.name) await tx.update(users).set({ name: p.name }).where(eq(users.id, userId));
+    return userId;
+  }
+  // Proxy member named by someone else, no handle yet — a name-only user (handle nullable).
+  const userId = randomUUID();
+  await tx.insert(users).values({ id: userId, name: p.name ?? null, jwtPrivateKey: '', jwtPublicKey: '' });
   return userId;
 }

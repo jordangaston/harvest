@@ -61,8 +61,8 @@ describe('onboarding definition', () => {
     expect(requiredMember).toEqual(['allergens', 'name']);
   });
 
-  it('the tool set is exactly the three onboarding tools and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['save_household_profile', 'save_member_profile', 'search_catalog']);
+  it('the tool set is exactly the onboarding command tools and no path is scripted (AC-3, AC-7)', () => {
+    expect(onboardingObjective.tools).toEqual(['create_household', 'save_household_profile', 'save_member_profile', 'search_catalog']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();

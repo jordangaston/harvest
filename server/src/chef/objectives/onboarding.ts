@@ -22,7 +22,7 @@ export const onboardingObjective: ObjectiveDefinition = {
     "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, " +
     'allergies, diets, tastes, and skill — writing each answer through with a command tool. ' +
     'Done when every required slot is filled or defaulted; then send the close.',
-  tools: ['save_household_profile', 'save_member_profile', 'search_catalog'],
+  tools: ['create_household', 'save_household_profile', 'save_member_profile', 'search_catalog'],
   slots: [
     // household-scoped
     slot('same_household', req),
@@ -48,6 +48,10 @@ export const onboardingObjective: ObjectiveDefinition = {
     {
       when: 'a member named an allergen without a severity',
       then: 'ask mild, moderate, or severe, then write the allergen only with confirmed:true — an unconfirmed allergen is never saved.',
+    },
+    {
+      when: 'a member named a diet without saying how strictly they follow it',
+      then: 'ask whether it is strict (never breaks it) or flexible (bends occasionally) before saving, and write that strictness through.',
     },
     {
       when: 'a like is broad ("anything with chicken")',

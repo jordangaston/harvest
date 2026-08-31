@@ -193,7 +193,7 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "hey");
 
-    const reasoner = new ScriptedReasoner([], { replyPlan: { intents: [{ kind: "acknowledge", note: "hi" }], must_say: [] }, slotUpdates: [] });
+    const reasoner = new ScriptedReasoner({ replyPlan: { intents: [{ kind: "acknowledge", note: "hi" }], must_say: [] }, slotUpdates: [] });
     const responder = new ScriptedResponder();
     const runSpy = vi.spyOn(reasoner, "run");
     const renderSpy = vi.spyOn(responder, "render");

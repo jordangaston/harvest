@@ -1,4 +1,6 @@
-export { saveHouseholdProfileTool } from './save-household-profile.js';
-export { saveMemberProfileTool } from './save-member-profile.js';
-export { searchCatalogTool } from './search-catalog.js';
-export type { ChefState, SaveResult, ToolCtx } from './types.js';
+export { CreateHouseholdTool } from './create-household.js';
+export { SaveHouseholdProfileTool } from './save-household-profile.js';
+export { SaveMemberProfileTool } from './save-member-profile.js';
+export { SearchCatalogTool } from './search-catalog.js';
+export { buildTools } from './registry.js';
+export type { ChefTool, SaveResult, TurnContext } from './types.js';

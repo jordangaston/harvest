@@ -1,15 +1,12 @@
 import type { Database } from '../db.js';
 import { ObjectiveStore, type SlotUpdate } from '../chef/objective-store.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
-import { HouseholdPreferenceRepository } from '../repositories/household-preference-repository.js';
-import { PreferenceRepository } from '../repositories/preference-repository.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
-import { TasteOptionsService } from '../services/taste-options-service.js';
 import { selectReasoningAgent, type Reasoner } from '../chef/reasoning-agent.js';
 import { selectResponseAgent, type Responder } from '../chef/response-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
-import type { ToolCtx } from '../chef/tools/types.js';
+import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdSlotSpecs } from '../chef/objectives/onboarding.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
@@ -68,22 +65,22 @@ export class RealChef implements Chef {
     if (!thread) return null;
 
     for (let attempt = 0; ; attempt++) {
-      const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId);
+      const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId);
       if (!turn) return null;
 
-      const reasoning = await this.reasoner.run(turn.briefing, turn.ctx);
+      const reasoning = await this.reasoner.run(turn.briefing, turn.turnCtx);
       const chatEvents = await this.responder.render(reasoning.replyPlan, turn.transcriptWindow);
 
       // Interruption barrier: a message that landed while we reasoned discards this render and
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
       if (attempt < MAX_INTERRUPT_RESTARTS && (await this.isInterrupted(thread.id, turn.cursorTo))) continue;
 
-      return { chatEvents, slotUpdates: this.mapSlotUpdates(reasoning.slotUpdates, turn.slotIdByKey), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
+      return { chatEvents, slotUpdates: this.mapSlotUpdates(reasoning.slotUpdates, turn.slotIds), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
     }
   }
 
   /** Loads the active objective, slots, members, transcript, and pending inbound. Null if nothing pending. */
-  private async loadTurn(threadId: string, householdId: string | null, cursor: string | null) {
+  private async loadTurn(threadId: string, householdId: string | null, cursor: string | null, ownerUserId: string) {
     const pending = await this.threads.loadPendingInbound(threadId, cursor);
     if (pending.length === 0) return null;
     // A fresh thread has no objective — seed onboarding (its household slots) on the first inbound
@@ -99,31 +96,32 @@ export class RealChef implements Chef {
     const briefingMembers = members.map((m) => ({ userId: m.userId, name: m.name ?? m.imessageHandle ?? '', handle: m.imessageHandle ?? '' }));
     const transcriptWindow = pending.map((m) => m.body ?? '');
     const transcript: TranscriptLine[] = transcriptWindow.map((text) => ({ role: 'household', text }));
-    const state = { householdId: householdId ?? '', members: members.map((m) => ({ userId: m.userId })) };
 
     const briefing: BriefingInput = {
-      state,
       objective: active.objective,
       slots: active.slots,
       members: briefingMembers,
       transcript: transcript.slice(-MAX_TURN_TRANSCRIPT),
       trigger: transcriptWindow.join('\n'),
     };
-    const ctx: ToolCtx = {
-      state,
-      householdPrefs: HouseholdPreferenceRepository.create(this.db),
-      memberPrefs: PreferenceRepository.create(this.db),
-      taste: TasteOptionsService.create(this.db),
+    const turnCtx: TurnContext = {
+      db: this.db,
+      threadId,
+      objectiveId: active.objective.id,
+      initiatorHandle: await this.threads.handleForUser(ownerUserId),
+      householdId: householdId ?? null,
+      members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
     };
-    const slotIdByKey = new Map(active.slots.map((s) => [s.key, s.id]));
-    return { briefing, ctx, transcriptWindow, cursorTo: pending[pending.length - 1]!.id, slotIdByKey, objectiveId: active.objective.id };
+    const slotIds = new Set(active.slots.map((s) => s.id));
+    return { briefing, turnCtx, transcriptWindow, cursorTo: pending[pending.length - 1]!.id, slotIds, objectiveId: active.objective.id };
   }
 
-  /** Maps the reasoning component's key-scoped slot declarations to the store's slotId-scoped updates. */
-  private mapSlotUpdates(updates: { key: string; status: SlotUpdate['status'] }[], slotIdByKey: Map<string, string>): SlotUpdate[] {
+  /** Maps the reasoning component's id-addressed slot declarations to store updates, dropping any id
+   *  the model invented that isn't a slot loaded this turn. */
+  private mapSlotUpdates(updates: { id: string; status: SlotUpdate['status']; value?: unknown }[], slotIds: Set<string>): SlotUpdate[] {
     return updates.flatMap((u) => {
-      const slotId = slotIdByKey.get(u.key);
-      return slotId ? [{ slotId, status: u.status }] : [];
+      if (!slotIds.has(u.id)) return [];
+      return [u.value !== undefined ? { slotId: u.id, status: u.status, value: u.value } : { slotId: u.id, status: u.status }];
     });
   }
 }

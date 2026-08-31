@@ -24,18 +24,22 @@ export type ReplyPlan = z.infer<typeof ReplyPlanSchema>;
 const SLOT_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
 
 /**
- * The reasoning component's *declaration* that a slot changed, keyed by slot key. The turn
- * (WI-06) maps key→slotId and applies it under the code-enforced invariant (a value-bearing
- * slot becomes `filled` only if a write landed). This produces the declaration, not the apply.
+ * The reasoning component's *declaration* that a slot changed, addressed by the slot's row `id`
+ * (its uuid PK, shown to the model in the briefing). Using the PK — not the semantic key — is what
+ * lets two members' same-named slots (both `allergens`) be told apart. Applied under the code-enforced
+ * invariant (a value-bearing slot becomes `filled` only if a write landed).
  */
 export const SlotUpdateSchema = z.object({
-  key: z.string(),
+  id: z.string(),
   status: z.enum(SLOT_STATUSES),
+  /** The captured answer. For catalog-backed slots the reasoner overwrites this with the value a
+   *  command actually persisted; for free-text/scalar slots the model's value is used as-is. */
+  value: z.unknown().optional(),
 });
 
 export type SlotUpdate = z.infer<typeof SlotUpdateSchema>;
 
-/** The reasoning agent's full structured output — a validated plan, never free text. */
+/** The reasoning agent's structured output — the reply plan + slot declarations (tools run in the loop). */
 export const ReasoningOutputSchema = z.object({
   replyPlan: ReplyPlanSchema,
   slotUpdates: z.array(SlotUpdateSchema).default([]),
