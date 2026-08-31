@@ -186,6 +186,13 @@ export class RecipeRepository {
     return this.db.transaction((t) => this.persistWith(t, recipe, userId));
   }
 
+  /** The recipe's title, or null if the id is unknown — a lean read (no joins) for
+   *  naming a recipe in a message. */
+  async titleById(recipeId: string): Promise<string | null> {
+    const [row] = await this.db.select({ title: recipes.title }).from(recipes).where(eq(recipes.id, recipeId));
+    return row?.title ?? null;
+  }
+
   /** Writes the recipe aggregate on an active transaction client. */
   private async persistWith(tx: Tx, recipe: RecipeInput, userId: string | null): Promise<string> {
     const recipeId = await this.insertRecipe(tx, recipe, userId);
