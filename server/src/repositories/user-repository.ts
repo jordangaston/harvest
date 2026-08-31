@@ -3,6 +3,10 @@ import type { Database } from '../db.js';
 import { users, recipes, cookbooks, importJobs, mealPlanEntries, groceryItems, type NewUser } from '../schema.js';
 import { UserSchema, type User } from '../models/user.js';
 
+/** A write/read executor: the db singleton or an interactive transaction client. */
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+type Executor = Database | Tx;
+
 export class UserRepository {
   constructor(private readonly db: Database) {}
 
@@ -47,9 +51,14 @@ export class UserRepository {
    * @param values - Phone, the user's JWT key pair, and optional typed onboarding columns.
    * @returns The inserted row, parsed into the domain model.
    */
-  async insert(values: NewUser): Promise<User> {
-    const [row] = await this.db.insert(users).values(values).returning();
+  async insert(values: NewUser, tx: Executor = this.db): Promise<User> {
+    const [row] = await tx.insert(users).values(values).returning();
     return UserSchema.parse(row);
+  }
+
+  /** Sets a user's display name (used when a member texts under a handle we already have). */
+  async setName(id: string, name: string, tx: Executor = this.db): Promise<void> {
+    await tx.update(users).set({ name }).where(eq(users.id, id));
   }
 
   /**

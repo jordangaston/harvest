@@ -35,12 +35,12 @@ export interface SlotUpdate {
  * component's slot updates under one invariant (`applySlotUpdates`), and on completion
  * pops the objective and activates the next.
  */
-export class ObjectiveStore {
+export class ObjectiveRepository {
   constructor(private readonly db: Database) {}
 
   /** Wire from a caller-supplied db. */
   static create(db: Database) {
-    return new ObjectiveStore(db);
+    return new ObjectiveRepository(db);
   }
 
   /**

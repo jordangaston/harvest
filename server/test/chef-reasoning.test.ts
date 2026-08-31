@@ -5,7 +5,7 @@ import { HouseholdRepository } from '../src/repositories/household-repository.js
 import { AuthService } from '../src/services/auth-service.js';
 import { threads } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
-import { ObjectiveStore } from '../src/chef/objective-store.js';
+import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
 import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
@@ -39,7 +39,7 @@ async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }
   const threadId = randomUUID();
   await db.insert(threads).values({ id: threadId, chatGuid: `g-${threadId}`, ownerUserId: ownerId, householdId: household.id });
 
-  const store = ObjectiveStore.create(db);
+  const store = ObjectiveRepository.create(db);
   await store.pushObjective({
     threadId,
     definition: 'onboarding',

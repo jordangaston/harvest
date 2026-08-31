@@ -56,6 +56,15 @@ export class HouseholdRepository {
     await tx.insert(householdMembers).values(input).onConflictDoNothing({ target: householdMembers.userId });
   }
 
+  /** Links several members to a household in one insert (idempotent on the member's unique user id). */
+  async addMembers(householdId: string, userIds: string[], tx: Executor = this.db): Promise<void> {
+    if (userIds.length === 0) return;
+    await tx
+      .insert(householdMembers)
+      .values(userIds.map((userId) => ({ householdId, userId })))
+      .onConflictDoNothing({ target: householdMembers.userId });
+  }
+
   /**
    * Loads the household's members with their `users` identity (name, iMessage handle),
    * joined — never denormalized onto the link row.

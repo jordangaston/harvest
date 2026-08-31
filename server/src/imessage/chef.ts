@@ -1,5 +1,5 @@
 import type { Database } from '../db.js';
-import { ObjectiveStore, type SlotUpdate } from '../chef/objective-store.js';
+import { ObjectiveRepository, type SlotUpdate } from '../chef/objective-repository.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectReasoningAgent, type Reasoner } from '../chef/reasoning-agent.js';
@@ -41,7 +41,7 @@ export class RealChef implements Chef {
     private readonly db: Database,
     private readonly reasoner: Reasoner,
     private readonly responder: Responder,
-    private readonly objectives: ObjectiveStore,
+    private readonly objectives: ObjectiveRepository,
     private readonly threads: ThreadRepository,
     private readonly households: HouseholdRepository,
     private readonly isInterrupted: (threadId: string, loadedCursor: string) => Promise<boolean>,
@@ -53,7 +53,7 @@ export class RealChef implements Chef {
       db,
       selectReasoningAgent(),
       selectResponseAgent(),
-      ObjectiveStore.create(db),
+      ObjectiveRepository.create(db),
       threads,
       HouseholdRepository.create(db),
       (threadId, cursor) => threads.hasInboundPast(threadId, cursor),
@@ -161,5 +161,5 @@ export function selectChef(db: Database): Chef {
 
 // Re-exported through the facade so the consumer commits a ChefReply's slotUpdates atomically
 // without importing the reasoning layer directly (its only agent import stays `./chef.js`).
-export { ObjectiveStore } from '../chef/objective-store.js';
+export { ObjectiveRepository } from '../chef/objective-repository.js';
 

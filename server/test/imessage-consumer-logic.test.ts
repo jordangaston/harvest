@@ -8,7 +8,7 @@ import { Consumer } from "../src/imessage/consumer.js";
 import { RealChef, StubChef, type Chef, type ChefReply } from "../src/imessage/chef.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
-import { ObjectiveStore } from "../src/chef/objective-store.js";
+import { ObjectiveRepository } from "../src/chef/objective-repository.js";
 import { ThreadRepository } from "../src/repositories/thread-repository.js";
 import { HouseholdRepository } from "../src/repositories/household-repository.js";
 import { ScriptedReasoner } from "../src/chef/reasoning-agent.js";
@@ -79,7 +79,7 @@ async function seedThread(slotKeys: string[] = []): Promise<{ threadId: string; 
   await db.insert(threads).values({ id: threadId, chatGuid, ownerUserId: owner.id, householdId: household.id });
 
   if (slotKeys.length)
-    await ObjectiveStore.create(db).pushObjective({
+    await ObjectiveRepository.create(db).pushObjective({
       threadId,
       definition: "onboarding",
       slots: slotKeys.map((key) => ({ key, scope: "household" as const, required: true })),
@@ -98,10 +98,10 @@ async function seedInbound(threadId: string, ownerId: string, body: string): Pro
 }
 
 describe("Test Case 1: consumer imports only the Chef facade (AC-1)", () => {
-  it("names nothing from reasoning/response/briefing/ReplyPlan/objective-store/mastra", () => {
+  it("names nothing from reasoning/response/briefing/ReplyPlan/objective-repository/mastra", () => {
     const src = readFileSync(fileURLToPath(new URL("../src/imessage/consumer.ts", import.meta.url)), "utf8");
     const imports = src.split("\n").filter((l) => l.trimStart().startsWith("import"));
-    for (const forbidden of ["reasoning", "response-agent", "briefing", "ReplyPlan", "objective-store", "mastra"])
+    for (const forbidden of ["reasoning", "response-agent", "briefing", "ReplyPlan", "objective-repository", "mastra"])
       expect(imports.join("\n")).not.toContain(forbidden);
     // The only agent import is the facade.
     expect(imports.some((l) => l.includes("./chef.js"))).toBe(true);
@@ -128,7 +128,7 @@ describe("Test Case 3: a turn commits N rows + M slot updates + advances the cur
     await seedInbound(threadId, ownerId, "we shop at kroger");
     const newestId = await seedInbound(threadId, ownerId, "and cook 5 nights");
 
-    const active = (await ObjectiveStore.create(db).loadActive(threadId))!;
+    const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
     const askedSlot = active.slots.find((s) => s.key === "household.cook_days_count")!;
     const filledSlot = active.slots.find((s) => s.key === "household.grocery_stores")!;
     const chef: Chef = {
@@ -168,7 +168,7 @@ describe("Test Case 4: commit is atomic — a failing slot update rolls back the
   it("rolls back the outbound rows and cursor when applySlotUpdates throws", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     const newestId = await seedInbound(threadId, ownerId, "hi");
-    const active = (await ObjectiveStore.create(db).loadActive(threadId))!;
+    const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
     const slot = active.slots[0]!;
     const chef: Chef = {
       // filled with no landed value → applySlotUpdates rejects inside the tx.
@@ -202,7 +202,7 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
       db,
       reasoner,
       responder,
-      ObjectiveStore.create(db),
+      ObjectiveRepository.create(db),
       ThreadRepository.create(db),
       HouseholdRepository.create(db),
       async () => true, // always interrupted

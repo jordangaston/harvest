@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { createSameKitchenHousehold } from '../objectives/onboarding-identity.js';
+import { SameKitchenFlow } from '../objectives/onboarding-identity.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 const inputSchema = z.object({
@@ -43,7 +43,7 @@ export class CreateHouseholdTool implements ChefTool {
     const participants = members.map((m, i) =>
       i === 0 ? { handle: this.ctx.initiatorHandle, name: m.name } : { name: m.name },
     );
-    const { householdId, memberUserIds } = await createSameKitchenHousehold(this.ctx.db, {
+    const { householdId, memberUserIds } = await SameKitchenFlow.create(this.ctx.db).establish({
       threadId: this.ctx.threadId,
       objectiveId: this.ctx.objectiveId,
       participants,

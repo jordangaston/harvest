@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectSender, type Sender } from './sender.js';
-import { selectChef, ObjectiveStore, type Chef } from './chef.js';
+import { selectChef, ObjectiveRepository, type Chef } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
 
@@ -14,7 +14,7 @@ import type { Doorbell } from './doorbell.js';
  */
 export class Consumer {
   private readonly threads: ThreadRepository;
-  private readonly objectives: ObjectiveStore;
+  private readonly objectives: ObjectiveRepository;
 
   constructor(
     private readonly db: Database,
@@ -23,7 +23,7 @@ export class Consumer {
     private readonly lock: ThreadLock,
   ) {
     this.threads = ThreadRepository.create(db);
-    this.objectives = ObjectiveStore.create(db);
+    this.objectives = ObjectiveRepository.create(db);
   }
 
   /** Wires the consumer against the caller's db and the env-selected sender/chef/lock. */

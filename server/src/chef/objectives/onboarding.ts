@@ -1,33 +1,36 @@
-import type { SlotSpec } from '../objective-store.js';
+import type { SlotSpec } from '../objective-repository.js';
 import type { ReplyPlan } from '../types.js';
 import type { DefinitionSlot, ObjectiveDefinition } from './types.js';
 
 const req = true;
 
-/** A household-scoped definition slot. */
-const slot = (key: string, required = false): DefinitionSlot => ({ key: `household.${key}`, scope: 'household', required });
+/** A household-scoped definition slot, with optional fill guidance shown beside it. */
+const slot = (key: string, required = false, guidance?: string): DefinitionSlot => ({ key: `household.${key}`, scope: 'household', required, guidance });
 /** A member-scoped definition slot — instantiated per member as they are identified. */
-const mslot = (key: string, required = false): DefinitionSlot => ({ key, scope: 'member', required });
+const mslot = (key: string, required = false, guidance?: string): DefinitionSlot => ({ key, scope: 'member', required, guidance });
 
 /**
  * The onboarding objective: guide a household through its cooking profile. It declares the
  * slots to fill, the three command tools, and condition-gated L2 guidance — never a
  * conversational path (no step list, no cursor). The model self-orchestrates the dialogue;
- * ObjectiveStore seeds the household slots on push, and member slots are instantiated per
+ * ObjectiveRepository seeds the household slots on push, and member slots are instantiated per
  * member as the "same kitchen" identity flow (onboarding-identity.ts) creates memberships.
  */
 export const onboardingObjective: ObjectiveDefinition = {
   id: 'onboarding',
   instructions:
     "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, " +
-    'allergies, diets, tastes, and skill — writing each answer through with a command tool. ' +
-    'Done when every required slot is filled or defaulted; then send the close.',
+    'allergies, diets, tastes, and skill — writing each answer through with a command tool, following ' +
+    "each slot's fill guidance. Ack low-stakes answers with a tapback; never write a value the tools did " +
+    'not return. If a required slot stays unanswered after the room moves on, send one reworded follow-up ' +
+    'then state a default. Done when every required slot is filled or defaulted — then send the close: a ' +
+    'celebration, "drop a recipe here anytime," and the promise of a first menu, and the objective pops.',
   tools: ['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog'],
   slots: [
     // household-scoped
     slot('same_household', req),
     slot('goals'),
-    slot('grocery_stores', req),
+    slot('grocery_stores', req, 'Ground each store with search_catalog; acknowledge and drop any it does not return.'),
     slot('grocery_shopping_day'),
     slot('weekly_budget_cents'),
     slot('household_size', req),
@@ -35,48 +38,20 @@ export const onboardingObjective: ObjectiveDefinition = {
     slot('cook_days_count', req),
     slot('time_by_meal'),
     slot('eats_leftovers'),
-    slot('owned_equipment'),
+    slot('owned_equipment', false, 'Ground each item with search_catalog; drop anything off-catalog.'),
     // member-scoped (one set per member)
     mslot('name', req),
-    mslot('allergens', req),
-    mslot('diets'),
-    mslot('likes'),
+    mslot(
+      'allergens',
+      req,
+      'If an allergen is named without a severity, ask mild/moderate/severe, then write it with confirmed:true ' +
+        '(an unconfirmed allergen is never saved). If the member confirms none, save no_allergens:true — "none" ' +
+        'fills this slot. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
+    ),
+    mslot('diets', false, 'If strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before saving, and write it through.'),
+    mslot('likes', false, 'If a like is broad ("anything with chicken"), drill down (fajitas / creamy pasta / stir-fry?) and ground each value with search_catalog before saving.'),
     mslot('dislikes'),
     mslot('skill_level'),
-  ],
-  guidance: [
-    {
-      when: 'a member named an allergen without a severity',
-      then: 'ask mild, moderate, or severe, then write the allergen only with confirmed:true — an unconfirmed allergen is never saved.',
-    },
-    {
-      when: 'a member confirms they have no food allergies',
-      then: 'save their profile with no_allergens:true — "none" is real data that fills the allergens slot; do not leave it hanging.',
-    },
-    {
-      when: 'a member named a diet without saying how strictly they follow it',
-      then: 'ask whether it is strict (never breaks it) or flexible (bends occasionally) before saving, and write that strictness through.',
-    },
-    {
-      when: 'a like is broad ("anything with chicken")',
-      then: 'drill down (fajitas / creamy pasta / stir-fry?) and ground each value with search_catalog before saving it.',
-    },
-    {
-      when: 'a store, diet, or equipment answer is off-catalog',
-      then: 'acknowledge it and drop it — never write a value the tools did not return.',
-    },
-    {
-      when: 'a required slot is still unanswered after the room moved on',
-      then: 'send one reworded follow-up, then state a default. For allergens use the safety-asymmetry voice: "I\'ll plan as if Sam has no allergies until he says otherwise."',
-    },
-    {
-      when: 'an answer just landed',
-      then: 'ack low-stakes answers with a tapback; for an allergy or diet restate the consequence explicitly ("peanuts never enter this kitchen") before moving on.',
-    },
-    {
-      when: 'every required slot is filled or defaulted',
-      then: 'send the close: a celebration, "drop a recipe here anytime," and the promise of a first menu — then the objective completes and pops.',
-    },
   ],
 };
 

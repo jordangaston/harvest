@@ -3,14 +3,14 @@ import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
 import { users, threads, householdMembers, objectives, slots as slotsTable } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
-import { ObjectiveStore } from '../src/chef/objective-store.js';
+import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import {
   onboardingObjective,
   householdSlotSpecs,
   memberSlotSpecs,
   ONBOARDING_CLOSE,
 } from '../src/chef/objectives/onboarding.js';
-import { createSameKitchenHousehold } from '../src/chef/objectives/onboarding-identity.js';
+import { SameKitchenFlow } from '../src/chef/objectives/onboarding-identity.js';
 
 let db: Database;
 let cleanup: () => void;
@@ -34,7 +34,7 @@ async function seedThread(): Promise<string> {
 
 /** Seeds the onboarding objective (household slots) on a fresh thread, returns its id. */
 async function seedOnboarding(threadId: string): Promise<string> {
-  const store = ObjectiveStore.create(db);
+  const store = ObjectiveRepository.create(db);
   const obj = await store.pushObjective({ threadId, definition: onboardingObjective.id, slots: householdSlotSpecs(), position: 'top' });
   return obj.id;
 }
@@ -70,12 +70,13 @@ describe('onboarding definition', () => {
     expect(def.cursor).toBeUndefined();
   });
 
-  it('condition-gated guidance covers the allergen, drill-down, off-catalog, and default cases', () => {
-    const conditions = onboardingObjective.guidance.map((g) => g.when).join(' | ');
-    expect(conditions).toMatch(/allergen/i);
-    expect(conditions).toMatch(/broad|like/i);
-    expect(conditions).toMatch(/off-catalog/i);
-    expect(conditions).toMatch(/unanswered|default/i);
+  it('fill guidance is attached to the slots it governs, not a separate list', () => {
+    const byKey = new Map(onboardingObjective.slots.map((s) => [s.key, s.guidance]));
+    expect(byKey.get('allergens')).toMatch(/severity|no_allergens/i);
+    expect(byKey.get('diets')).toMatch(/strict|flexible/i);
+    expect(byKey.get('likes')).toMatch(/broad|drill/i);
+    // The objective carries no separate one-off guidance list anymore.
+    expect((onboardingObjective as unknown as Record<string, unknown>).guidance).toBeUndefined();
   });
 });
 
@@ -84,7 +85,7 @@ describe('same-kitchen identity flow', () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
 
-    const { householdId, memberUserIds } = await createSameKitchenHousehold(db, {
+    const { householdId, memberUserIds } = await SameKitchenFlow.create(db).establish({
       threadId,
       objectiveId: objId,
       participants: [
@@ -124,7 +125,7 @@ describe('same-kitchen identity flow', () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
 
-    const { householdId } = await createSameKitchenHousehold(db, {
+    const { householdId } = await SameKitchenFlow.create(db).establish({
       threadId,
       objectiveId: objId,
       participants: [
@@ -148,7 +149,7 @@ describe('same-kitchen identity flow', () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
 
-    await createSameKitchenHousehold(db, {
+    await SameKitchenFlow.create(db).establish({
       threadId,
       objectiveId: objId,
       participants: [{ handle: '+15551110001', name: 'Priya' }],
@@ -169,8 +170,8 @@ describe('same-kitchen identity flow', () => {
       objectiveId: objId,
       participants: [{ handle: '+15551110001', name: 'Priya' }],
     };
-    await createSameKitchenHousehold(db, input);
-    const { householdId } = await createSameKitchenHousehold(db, input);
+    await SameKitchenFlow.create(db).establish(input);
+    const { householdId } = await SameKitchenFlow.create(db).establish(input);
 
     const priya = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110001')))[0]!;
     const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
@@ -185,10 +186,10 @@ describe('completion + close', () => {
   it('isComplete flips true only when every required slot is terminal, then completeAndPop fires (AC-5)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     // Add one identified member so member-required slots exist too.
-    await createSameKitchenHousehold(db, { threadId, objectiveId: objId, participants: [{ handle: '+15551110001', name: 'Priya' }] });
+    await SameKitchenFlow.create(db).establish({ threadId, objectiveId: objId, participants: [{ handle: '+15551110001', name: 'Priya' }] });
 
     // Fill/​default every required slot except the member's allergens (leave it asked).
     const required = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.required, true)));

@@ -49,9 +49,9 @@ const CONDUCT_AND_SAFETY =
   '(with the value) or asked. ' +
   HARD_RULE;
 
-/** L2: only the guidance whose condition holds this turn (design §L2). */
-function activeGuidance(def: ObjectiveDefinition): string {
-  return def.guidance.map((g) => `When ${g.when}: ${g.then}`).join('\n');
+/** The fill guidance each slot declares, keyed by slot key (household keys are already prefixed). */
+function guidanceByKey(def: ObjectiveDefinition): Map<string, string> {
+  return new Map(def.slots.filter((s) => s.guidance).map((s) => [s.key, s.guidance!]));
 }
 
 /**
@@ -67,8 +67,13 @@ export function prepareBriefing(input: BriefingInput): string {
   // Each slot is shown with its row id (uuid PK) — the model returns that id in slotUpdates, so two
   // members' same-named slots (both `allergens`) stay distinct. Member slots name whose they are.
   const nameByUser = new Map(input.members.map((m) => [m.userId, m.name]));
+  const guidance = guidanceByKey(def);
   const unfilled = input.slots
-    .map((s) => `- [${s.id}] ${s.key}${s.memberUserId ? ` for ${nameByUser.get(s.memberUserId) ?? 'member'}` : ''} (${s.status})`)
+    .map((s) => {
+      const who = s.memberUserId ? ` for ${nameByUser.get(s.memberUserId) ?? 'member'}` : '';
+      const how = guidance.get(s.key);
+      return `- [${s.id}] ${s.key}${who} (${s.status})${how ? `\n    ↳ ${how}` : ''}`;
+    })
     .join('\n');
   const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');
   const transcript = input.transcript.map((l) => `${l.role}: ${l.text}`).join('\n');
@@ -77,9 +82,8 @@ export function prepareBriefing(input: BriefingInput): string {
     `# Conduct\n${CONDUCT_AND_SAFETY}`,
     `# Objective: ${def.id}\n${def.instructions}`,
     input.suspended?.length ? `Suspended underneath: ${input.suspended.join(', ')}` : '',
-    `# Slots still needed\n${unfilled || '(none)'}`,
+    `# Slots still needed (each with how to fill it)\n${unfilled || '(none)'}`,
     `# Household\n${members}`,
-    `# Guidance\n${activeGuidance(def)}`,
     `# Recent transcript\n${transcript}`,
     `# What just arrived\n${input.trigger}`,
   ]

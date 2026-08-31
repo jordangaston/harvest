@@ -11,5 +11,5 @@ export function objectiveDefinition(definition: string): ObjectiveDefinition | u
   return DEFINITIONS[definition];
 }
 
-export type { ObjectiveDefinition, Guidance, DefinitionSlot } from './types.js';
+export type { ObjectiveDefinition, DefinitionSlot } from './types.js';
 export { householdSlotSpecs, memberSlotSpecs, ONBOARDING_CLOSE } from './onboarding.js';

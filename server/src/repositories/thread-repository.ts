@@ -119,8 +119,9 @@ export class ThreadRepository {
       .where(eq(threads.id, threadId));
   }
 
-  /** Stamps the household onto the thread (`household_id` supersedes `owner_user_id` once set). */
-  async stampHousehold(threadId: string, householdId: string, tx: Executor = this.db): Promise<void> {
+  /** Links a thread to its household by setting `threads.household_id` (which supersedes
+   *  `owner_user_id` as the thread's owner once a household exists). */
+  async linkHousehold(threadId: string, householdId: string, tx: Executor = this.db): Promise<void> {
     await tx.update(threads).set({ householdId, updatedAt: new Date() }).where(eq(threads.id, threadId));
   }
 

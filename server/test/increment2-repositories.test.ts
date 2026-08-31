@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
 import { users, threads, objectives, slots } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
-import { ObjectiveStore } from '../src/chef/objective-store.js';
+import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
 
@@ -34,7 +34,7 @@ async function seedObjective(threadId: string, status: 'active' | 'suspended' | 
   return o!.id;
 }
 
-describe('ObjectiveStore', () => {
+describe('ObjectiveRepository', () => {
   it('loadActive returns the active objective + only its unfilled slots, else null (AC-1)', async () => {
     const threadId = await seedThread();
     const objId = await seedObjective(threadId, 'active', 1);
@@ -44,7 +44,7 @@ describe('ObjectiveStore', () => {
       { objectiveId: objId, key: 'c', scope: 'household', required: true, status: 'filled', value: 'x' },
       { objectiveId: objId, key: 'd', scope: 'household', required: true, status: 'defaulted' },
     ]);
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     const loaded = await store.loadActive(threadId);
     expect(loaded?.objective.id).toBe(objId);
@@ -57,7 +57,7 @@ describe('ObjectiveStore', () => {
   it('pushObjective positions top/bottom, keeps one active, empty-stack push is active (AC-2)', async () => {
     const threadId = await seedThread();
     const priorActive = await seedObjective(threadId, 'active', 1);
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     const top = await store.pushObjective({ threadId, definition: 'digression', slots: [], position: 'top' });
     expect(top.status).toBe('active');
@@ -85,7 +85,7 @@ describe('ObjectiveStore', () => {
         { objectiveId: objId, key: 'b', scope: 'household', required: true, status: 'asked', value: null },
       ])
       .returning({ id: slots.id });
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     await expect(
       db.transaction((tx) => store.applySlotUpdates([{ slotId: s1!.id, status: 'filled' }], tx)),
@@ -110,7 +110,7 @@ describe('ObjectiveStore', () => {
       .insert(slots)
       .values([{ objectiveId: objId, key: 'a', scope: 'household', required: true, status: 'asked', value: 'stored' }])
       .returning({ id: slots.id });
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     await db.transaction((tx) => store.applySlotUpdates([{ slotId: s!.id, status: 'filled' }], tx));
     const [filled] = await db.select().from(slots).where(eq(slots.id, s!.id));
@@ -121,7 +121,7 @@ describe('ObjectiveStore', () => {
     const threadId = await seedThread();
     const suspended = await seedObjective(threadId, 'suspended', 1);
     const active = await seedObjective(threadId, 'active', 2);
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     const next = await db.transaction((tx) => store.completeAndPop(active, tx));
     expect(next?.id).toBe(suspended);
@@ -145,7 +145,7 @@ describe('ObjectiveStore', () => {
     ]);
     const open = await seedObjective(threadId, 'suspended', 2);
     await db.insert(slots).values([{ objectiveId: open, key: 'r1', scope: 'household', required: true, status: 'asked' }]);
-    const store = ObjectiveStore.create(db);
+    const store = ObjectiveRepository.create(db);
 
     expect(await store.isComplete(done)).toBe(true);
     expect(await store.isComplete(open)).toBe(false);

@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { codeCandidates, coerce } from './catalog.js';
+import { resolveEquipment } from './equipment-grounding.js';
 import { ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type AffinityFacet } from '../../schema.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
 import { TasteOptionsService, type TasteOptions } from '../../services/taste-options-service.js';
@@ -135,10 +136,12 @@ export class SaveMemberProfileTool implements ChefTool {
     const ownedEquipment = [...current.ownedEquipment];
     for (const e of patch.owned_equipment ?? []) {
       if (e == null) continue;
-      const { value, closest } = coerce(e, codeCandidates('equipment'));
-      if (!value) { rejected.push({ input: e, reason: 'no catalog match', closest }); continue; }
-      if (!ownedEquipment.includes(value as never)) ownedEquipment.push(value as never);
-      saved.owned_equipment = (saved.owned_equipment as string[] | undefined ?? []).concat(value);
+      const matched = resolveEquipment(e);
+      if (!matched.length) { rejected.push({ input: e, reason: 'no catalog match' }); continue; }
+      for (const value of matched) {
+        if (!ownedEquipment.includes(value as never)) ownedEquipment.push(value as never);
+        saved.owned_equipment = (saved.owned_equipment as string[] | undefined ?? []).concat(value);
+      }
     }
 
     // Food prefs ground per facet against the taste catalog; savePreferences rebuilds the like set
