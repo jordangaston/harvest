@@ -80,6 +80,31 @@ function signedReactionDelivery(messageGuid: string, chatGuid: string, handle: s
   };
 }
 
+/** Builds a native Spectrum threaded *reply* webhook body + its valid signature headers.
+ *  The reply's own text nests at `content.content.text`; its parent guid is `content.target.id`. */
+function signedReplyDelivery(messageGuid: string, chatGuid: string, handle: string, text: string, targetGuid: string) {
+  const body = JSON.stringify({
+    event: "message.new",
+    message: {
+      id: messageGuid,
+      space: { id: chatGuid },
+      sender: { id: handle },
+      content: { type: "reply", content: { type: "text", text }, target: { id: targetGuid } },
+    },
+  });
+  const ts = Math.floor(Date.now() / 1000);
+  const base = Buffer.from(`v0:${ts}:${body}`);
+  const hex = createHmac("sha256", SECRET).update(base).digest("hex");
+  return {
+    body,
+    headers: {
+      "content-type": "application/json",
+      "x-spectrum-signature": `v0=${hex}`,
+      "x-spectrum-timestamp": String(ts),
+    },
+  };
+}
+
 function post(delivery: { body: string; headers: Record<string, string> }) {
   return app.request("/spectrum/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
 }
@@ -229,6 +254,45 @@ describe("iMessage substrate", () => {
     const [text] = await db.select().from(threadMessages).where(eq(threadMessages.messageGuid, "t3"));
     const [after] = await db.select().from(threads).where(eq(threads.id, thread.id));
     expect(after.lastProcessedId).toBe(text.id); // cursor advanced to the text turn
+  });
+
+  it("parseInbound captures a reply's own text + parent guid (WI-B TC1)", () => {
+    const { body } = signedReplyDelivery("rep1", "chat-rep1", "+15556667777", "make it vegetarian", "m-menu");
+    const parsed = parseInbound(new TextEncoder().encode(body));
+    expect(parsed).toEqual({
+      messageGuid: "rep1",
+      chatGuid: "chat-rep1",
+      handle: "+15556667777",
+      type: "reply",
+      body: "make it vegetarian",
+      reactionEmoji: undefined,
+      targetGuid: "m-menu",
+    });
+  });
+
+  it("a reply persists with parent guid and answers a normal turn (WI-B TC2)", async () => {
+    // Seed the parent as a prior Chef outbound (excluded from the drain), so the threaded reply is
+    // the sole pending inbound — its own text, and the parent guid on file.
+    const [thread] = await postAndGetThread("m-seed", "chat-rep2", "+15558889999", "hey");
+    await db.insert(threadMessages).values({
+      threadId: thread.id, direction: "outbound", type: "text",
+      body: "here's the menu", messageGuid: "m-parent", sentAt: new Date(),
+    });
+
+    const res = await post(signedReplyDelivery("rep2", "chat-rep2", "+15558889999", "make it vegetarian", "m-parent"));
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(2); // the seed text and the reply each ring the doorbell (a reply is answerable)
+
+    const [replyRow] = await db.select().from(threadMessages).where(eq(threadMessages.messageGuid, "rep2"));
+    expect(replyRow.type).toBe("reply");
+    expect(replyRow.body).toBe("make it vegetarian");
+    expect(replyRow.targetMessageGuid).toBe("m-parent");
+
+    const sender = new StubSpectrumSender();
+    const chef = new StubChef(db);
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId: thread.id });
+    expect(chef.reasoningReached).toBe(true); // the reply drove a reasoning turn
+    expect(sender.calls).toHaveLength(1); // an outbound reply was produced
   });
 
   async function postAndGetThread(mGuid: string, chatGuid: string, handle: string, text: string) {

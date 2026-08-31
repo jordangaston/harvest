@@ -88,6 +88,12 @@ describe('prepareBriefing (pure prompt assembly)', () => {
     const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
     expect(prepareBriefing(input)).toContain('never write a value the tools did not return');
   });
+
+  it('references the parent message when the trigger is a threaded reply (WI-B TC3)', async () => {
+    const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
+    const prompt = prepareBriefing({ ...input, replyingTo: 'here is your menu for the week' });
+    expect(prompt).toContain('replying to: "here is your menu for the week"');
+  });
 });
 
 describe('buildTools (per-turn legality gate)', () => {
