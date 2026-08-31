@@ -25,7 +25,7 @@ export const onboardingObjective: ObjectiveDefinition = {
     'not return. If a required slot stays unanswered after the room moves on, send one reworded follow-up ' +
     'then state a default. Done when every required slot is filled or defaulted — then send the close: a ' +
     'celebration, "drop a recipe here anytime," and the promise of a first menu, and the objective pops.',
-  tools: ['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog'],
+  tools: ['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog', 'import_recipe'],
   slots: [
     // household-scoped
     slot('same_household', req),
