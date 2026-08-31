@@ -58,6 +58,8 @@ async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }
     threadId,
     objectiveId: loaded.objective.id,
     initiatorHandle: '',
+    initiatorUserId: ownerId,
+    triggerExternalId: null,
     householdId: household.id,
     members: [{ userId: ownerId }],
   };
