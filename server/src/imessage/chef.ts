@@ -11,6 +11,8 @@ import { onboardingObjective, householdSlotSpecs } from '../chef/objectives/onbo
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
+/** Cap the replied-to parent to a snippet — a Chef menu can be long, and only the referent matters. */
+const MAX_REPLY_PARENT_SNIPPET = 280;
 
 /** What the consumer commits and sends for one turn — the Chef's entire output. */
 export interface ChefReply {
@@ -109,7 +111,7 @@ export class RealChef implements Chef {
       members: briefingMembers,
       transcript: transcript.slice(-MAX_TURN_TRANSCRIPT),
       trigger: transcriptWindow.join('\n'),
-      replyingTo: parent?.body ?? undefined,
+      replyingTo: parent?.body ? parent.body.slice(0, MAX_REPLY_PARENT_SNIPPET) : undefined,
     };
     const turnCtx: TurnContext = {
       db: this.db,
