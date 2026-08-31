@@ -201,6 +201,11 @@ export const threadMessages = sqliteTable(
     targetMessageGuid: text('target_message_guid'),
     reactionEmoji: text('reaction_emoji'),
     messageGuid: text('message_guid').notNull(),
+    // The Spectrum platform message id (WI-C): the id inbound webhooks carry and
+    // outbound `space.send()` returns. `message_guid` stays the internal key (random
+    // UUID for outbound); `external_id` is the uniform platform id reply/reaction
+    // targets resolve against. Nullable — an outbound row is null until its send resolves.
+    externalId: text('external_id'),
     sentAt: integer('sent_at', { mode: 'timestamp' }),
     createdAt: createdAt(),
   },
