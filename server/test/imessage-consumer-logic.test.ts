@@ -30,6 +30,8 @@ function msg(id: string, overrides: Partial<ThreadMessage> = {}): ThreadMessage 
     type: "text",
     senderUserId: null,
     body: "hi",
+    targetMessageGuid: null,
+    reactionEmoji: null,
     messageGuid: `g-${id}`,
     sentAt: null,
     createdAt: new Date(),

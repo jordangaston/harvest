@@ -10,6 +10,9 @@ export const ThreadMessageSchema = z.object({
   type: z.enum(['text', 'reaction', 'reply', 'attachment']),
   senderUserId: z.string().uuid().nullable(),
   body: z.string().nullable(),
+  // Reaction (tapback) substrate (WI-A): the emoji + the guid of the message reacted to.
+  targetMessageGuid: z.string().nullable(),
+  reactionEmoji: z.string().nullable(),
   messageGuid: z.string(),
   sentAt: z.date().nullable(),
   createdAt: z.date(),
