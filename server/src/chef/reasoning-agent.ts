@@ -62,7 +62,7 @@ export class ScriptedReasoner implements Reasoner {
  * `{ replyPlan, slotUpdates }` (never prose). Dormant until WI-06 wires the turn (WI-08 evals it).
  */
 export class MastraReasoner implements Reasoner {
-  constructor(private readonly agent: Agent) {}
+  constructor(private readonly agent: Agent, private readonly structurer: Agent) {}
 
   static create(apiKey: string): MastraReasoner {
     const model: OpenAICompatibleConfig = { id: REASONING_MODEL, url: DEEPSEEK_URL, apiKey };
@@ -84,18 +84,35 @@ export class MastraReasoner implements Reasoner {
         }),
       ],
     });
-    return new MastraReasoner(agent);
+    // Second, tool-free agent that turns the working pass's notes into the structured output.
+    const structurer = new Agent({
+      id: 'chef-reasoning-structurer',
+      name: 'chef-reasoning-structurer',
+      instructions:
+        'You convert a chef assistant\'s working notes into a structured reply plan. From the notes ' +
+        'and the conversation, produce the intents to convey next (ask/confirm/acknowledge/hand_off), ' +
+        'any must_say safety lines, and which slots are now answered. Never invent facts not in the notes.',
+      model,
+    });
+    return new MastraReasoner(agent, structurer);
   }
 
   async run(input: BriefingInput, _ctx: ToolCtx): Promise<ReasoningOutput> {
     const briefing = prepareBriefing(input);
-    const res = await this.agent.generate(briefing.prompt, {
+    // Pass 1 — tool-calling (the writes happen here). NO structuredOutput: DeepSeek can't combine
+    // tools + structured output in one call (res.object comes back undefined on tool-using turns).
+    const work = await this.agent.generate(briefing.prompt, {
       requestContext: this.context(briefing),
       stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= 6,
-      // DeepSeek rejects the json_schema `response_format`; jsonPromptInjection injects the
-      // schema into the prompt and parses the result instead (works alongside tool-calling).
-      structuredOutput: { schema: ReasoningOutputSchema, jsonPromptInjection: true },
     });
+    // Pass 2 — structure the reply. Tool-free, so structuredOutput works; jsonPromptInjection
+    // because DeepSeek rejects the json_schema response_format.
+    const res = await this.structurer.generate(
+      `Conversation & the chef's working notes for this turn:\n${(work as { text?: string }).text ?? ''}\n\n` +
+        `Unanswered slots the chef still needs: ${input.slots.map((s) => s.key).join(', ') || '(none)'}\n\n` +
+        `Produce the reply plan + slot updates.`,
+      { structuredOutput: { schema: ReasoningOutputSchema, jsonPromptInjection: true } },
+    );
     return ReasoningOutputSchema.parse((res as { object: unknown }).object);
   }
 
