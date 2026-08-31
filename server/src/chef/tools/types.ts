@@ -13,6 +13,11 @@ export interface TurnContext {
   objectiveId: string;
   /** The handle of the person texting (the initiator/owner) — from the thread's owner. */
   initiatorHandle: string;
+  /** The thread owner's user id — whose account an imported recipe is started for. */
+  initiatorUserId: string;
+  /** The triggering inbound message's Spectrum platform id (the link that started the turn),
+   *  so an import link row can thread WI-2B's completion reply. Null when it has none. */
+  triggerExternalId: string | null;
   /** Null until the "same kitchen" flow runs; `create_household` sets it in place. */
   householdId: string | null;
   members: Array<{ userId: string; name?: string }>;

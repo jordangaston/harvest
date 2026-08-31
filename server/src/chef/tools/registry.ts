@@ -3,6 +3,7 @@ import { SaveHouseholdProfileTool } from './save-household-profile.js';
 import { SaveHouseholdGoalsTool } from './save-household-goals.js';
 import { SaveMemberProfileTool } from './save-member-profile.js';
 import { SearchCatalogTool } from './search-catalog.js';
+import { ImportRecipeTool } from './import-recipe.js';
 import type { ChefTool, TurnContext } from './types.js';
 
 /** Every chef tool, keyed by id — a factory that binds the tool to one turn's context. */
@@ -12,6 +13,7 @@ const FACTORIES: Record<string, (ctx: TurnContext) => ChefTool> = {
   save_household_goals: SaveHouseholdGoalsTool.create,
   save_member_profile: SaveMemberProfileTool.create,
   search_catalog: SearchCatalogTool.create,
+  import_recipe: ImportRecipeTool.create,
 };
 
 /**

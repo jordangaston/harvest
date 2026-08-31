@@ -40,6 +40,8 @@ async function seedHousehold(): Promise<{ householdId: string; memberId: string;
     threadId: 'thread-test',
     objectiveId: 'obj-test',
     initiatorHandle: '',
+    initiatorUserId: ownerId,
+    triggerExternalId: null,
     householdId: hh.id,
     members: [{ userId: ownerId }],
   };
@@ -48,7 +50,7 @@ async function seedHousehold(): Promise<{ householdId: string; memberId: string;
 
 describe('chef tools — canRun (context-only legality)', () => {
   it('save_household_profile.canRun iff a household exists; search_catalog always runs', () => {
-    const withHh: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', householdId: 'h1', members: [] };
+    const withHh: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [] };
     const noHh: TurnContext = { ...withHh, householdId: null };
     expect(SaveHouseholdProfileTool.create(withHh).canRun()).toBe(true);
     expect(SaveHouseholdProfileTool.create(noHh).canRun()).toBe(false);
@@ -56,7 +58,7 @@ describe('chef tools — canRun (context-only legality)', () => {
   });
 
   it('save_member_profile.canRun iff the household has members', () => {
-    const withMembers: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', householdId: 'h1', members: [{ userId: 'u-sam' }] };
+    const withMembers: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [{ userId: 'u-sam' }] };
     expect(SaveMemberProfileTool.create(withMembers).canRun()).toBe(true);
     expect(SaveMemberProfileTool.create({ ...withMembers, members: [] }).canRun()).toBe(false);
   });

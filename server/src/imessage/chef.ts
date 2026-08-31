@@ -118,6 +118,8 @@ export class RealChef implements Chef {
       threadId,
       objectiveId: active.objective.id,
       initiatorHandle: await this.threads.handleForUser(ownerUserId),
+      initiatorUserId: ownerUserId,
+      triggerExternalId: trigger.externalId ?? null,
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
     };
