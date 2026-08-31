@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
-import { UserPreferencesSchema, ZERO_MEALS, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
+import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -51,7 +51,7 @@ export class PreferenceRepository {
       budgetCentsPerServing: prefs.budgetCentsPerServing,
       weeklyBudgetCents: prefs.weeklyBudgetCents,
       timeBudgetMinutes: prefs.timeBudgetMinutes,
-      timeByMeal: prefs.timeByMeal ?? null,
+      timeByMeal: timeByMealFromColumns(prefs.timeBreakfastMinutes, prefs.timeLunchMinutes, prefs.timeDinnerMinutes),
       weeklyMeals: prefs.weeklyMeals ?? ZERO_MEALS,
       weights: {
         cost: prefs.weightCost,
@@ -177,10 +177,11 @@ export class PreferenceRepository {
       const leftoversTurnedOn = input.eatsLeftovers && before && !before.eatsLeftovers;
 
       // `time_budget_minutes` is the derived max(...) scalar (back-compat + cold-start); when the
-      // client sends per-meal budgets it wins, else the client's own scalar is kept.
-      const timeBudgetMinutes = input.timeByMeal
-        ? Math.max(input.timeByMeal.breakfast, input.timeByMeal.lunch, input.timeByMeal.dinner)
-        : input.timeBudgetMinutes;
+      // client sends per-meal budgets it wins (the largest set meal), else the client's own scalar.
+      const mealTimes = input.timeByMeal
+        ? [input.timeByMeal.breakfast, input.timeByMeal.lunch, input.timeByMeal.dinner].filter((n): n is number => n != null)
+        : [];
+      const timeBudgetMinutes = mealTimes.length ? Math.max(...mealTimes) : input.timeBudgetMinutes;
 
       await tx
         .update(userPreferences)
@@ -188,7 +189,9 @@ export class PreferenceRepository {
           skillLevel: input.skillLevel,
           weeklyBudgetCents: input.weeklyBudgetCents,
           timeBudgetMinutes,
-          timeByMeal: input.timeByMeal,
+          timeBreakfastMinutes: input.timeByMeal?.breakfast ?? null,
+          timeLunchMinutes: input.timeByMeal?.lunch ?? null,
+          timeDinnerMinutes: input.timeByMeal?.dinner ?? null,
           weeklyMeals: input.weeklyMeals,
           equipmentReviewed: true,
           // Domain model keeps stores as string[]; the wire DTO already validated them against

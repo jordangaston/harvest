@@ -24,7 +24,7 @@ const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient'] as co
 // Diet-signal (WI-DS-1): the per-diet verdict. `diet_id` is a DietRule id (app-side
 // config, not a DB enum) so a new diet needs no migration — like `recipe_categories.value`.
 export const DIET_VERDICTS = ['compatible', 'incompatible', 'unknown'] as const;
-const GOALS = [
+export const GOALS = [
   'eat_healthier',
   'save_money',
   'improve_cooking',
@@ -48,6 +48,12 @@ export const GROCERY_STORES = [
   'wakefern', 'sprouts_farmers',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
+// iMessage increment-2 household shopping day (no user_preferences column mirrors it).
+export const GROCERY_SHOPPING_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+// iMessage increment-2 objective stack + slot scoreboard (D2-6).
+export const OBJECTIVE_STATUSES = ['active', 'suspended', 'complete'] as const;
+export const SLOT_SCOPES = ['household', 'member'] as const;
+export const SLOT_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
 // Meal-prep suitability band (signal #10): the ordinal fit persisted on a recipe, null
 // until scored at import. A schema tuple like DIFFICULTY_BANDS.
@@ -580,7 +586,11 @@ export const userPreferences = sqliteTable('user_preferences', {
   weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
   // Per-meal cook-time budget in minutes (three onboarding sliders). JSON; null → fall back to
   // `timeBudgetMinutes`. `timeBudgetMinutes` is retained as the derived max(...) scalar.
-  timeByMeal: text('time_by_meal', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number }>(),
+  // Per-meal cook-time budget in minutes, each independently set (an iMessage user may give just
+  // "30-min dinners"). Null → fall back to `timeBudgetMinutes`.
+  timeBreakfastMinutes: integer('time_breakfast_minutes'),
+  timeLunchMinutes: integer('time_lunch_minutes'),
+  timeDinnerMinutes: integer('time_dinner_minutes'),
   weightCost: integer('weight_cost').notNull().default(1),
   weightDifficulty: integer('weight_difficulty').notNull().default(1),
   weightNutrition: integer('weight_nutrition').notNull().default(1),
@@ -698,6 +708,102 @@ export const recipeSwipes = sqliteTable(
   (t) => [primaryKey({ columns: [t.userId, t.recipeId] }), index('recipe_swipes_user_idx').on(t.userId, t.createdAt)],
 );
 
+// iMessage increment-2: the household, first-class. Members are a pure link (name →
+// users.name, handle → users.imessage_handle); one household per user in v1 (unique
+// household_members.user_id). Preferences mirror the household-scoped subset of
+// user_preferences 1:1.
+export const households = sqliteTable('households', {
+  id: uuidPk(),
+  name: text('name'),
+  ownerUserId: text('owner_user_id')
+    .notNull()
+    .references(() => users.id),
+  createdAt: createdAt(),
+});
+
+export const householdMembers = sqliteTable('household_members', {
+  id: uuidPk(),
+  householdId: text('household_id')
+    .notNull()
+    .references(() => households.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id)
+    .unique(),
+});
+
+export const householdPreferences = sqliteTable('household_preferences', {
+  householdId: text('household_id')
+    .primaryKey()
+    .references(() => households.id, { onDelete: 'cascade' }),
+  groceryStores: text('grocery_stores', { mode: 'json' }).$type<(typeof GROCERY_STORES)[number][]>(),
+  groceryShoppingDay: text('grocery_shopping_day', { enum: GROCERY_SHOPPING_DAYS }),
+  weeklyBudgetCents: integer('weekly_budget_cents'),
+  weeklyMeals: text('weekly_meals', { mode: 'json' }).$type<{ breakfast: number; lunch: number; dinner: number; snack: number; kids: number }>(),
+  // Per-meal cook-time budget in minutes, each independently set (an iMessage user may give just
+  // "30-min dinners"). Null → fall back to `timeBudgetMinutes`.
+  timeBreakfastMinutes: integer('time_breakfast_minutes'),
+  timeLunchMinutes: integer('time_lunch_minutes'),
+  timeDinnerMinutes: integer('time_dinner_minutes'),
+  timeBudgetMinutes: integer('time_budget_minutes'),
+  cookDaysCount: integer('cook_days_count'),
+  eatsLeftovers: integer('eats_leftovers', { mode: 'boolean' }).notNull().default(true),
+  ownedEquipment: text('owned_equipment', { mode: 'json' }).$type<(typeof EQUIPMENT_TYPES)[number][]>(),
+  equipmentReviewed: integer('equipment_reviewed', { mode: 'boolean' }).notNull().default(false),
+  householdAdults: integer('household_adults').notNull().default(2),
+  householdKids: integer('household_kids').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// The objective stack — one row per instance. At most one `active` per thread is
+// DB-enforced by a partial unique index (objectives_one_active_per_thread) hand-added
+// to the migration; drizzle-kit's SQLite generator can't emit the WHERE predicate, so
+// it is not declared here. `stack_position` orders the stack (active = MAX).
+export const objectives = sqliteTable(
+  'objectives',
+  {
+    id: uuidPk(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    definition: text('definition').notNull(),
+    status: text('status', { enum: OBJECTIVE_STATUSES }).notNull(),
+    stackPosition: integer('stack_position').notNull(),
+    context: text('context', { mode: 'json' }).$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    completedAt: integer('completed_at', { mode: 'timestamp' }),
+  },
+  (t) => [index('objectives_thread_idx').on(t.threadId)],
+);
+
+// The slot scoreboard — one row per slot of an objective instance. A household-scoped
+// slot has member_user_id NULL; a member-scoped one names the member. SQLite treats
+// NULL as distinct in the unique index, so household + member slots share a key across
+// scopes without colliding.
+export const slots = sqliteTable(
+  'slots',
+  {
+    id: uuidPk(),
+    objectiveId: text('objective_id')
+      .notNull()
+      .references(() => objectives.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    scope: text('scope', { enum: SLOT_SCOPES }).notNull(),
+    memberUserId: text('member_user_id').references(() => users.id),
+    required: integer('required', { mode: 'boolean' }).notNull(),
+    status: text('status', { enum: SLOT_STATUSES }).notNull().default('unasked'),
+    value: text('value', { mode: 'json' }).$type<unknown>(),
+    followUpsSent: integer('follow_ups_sent').notNull().default(0),
+    followUpTimerId: text('follow_up_timer_id'),
+  },
+  (t) => [
+    uniqueIndex('slots_objective_key_member_uidx').on(t.objectiveId, t.key, t.memberUserId),
+    index('slots_objective_status_idx').on(t.objectiveId, t.status),
+  ],
+);
+
 export const schema = {
   users,
   recipes,
@@ -726,6 +832,11 @@ export const schema = {
   recipeSwipes,
   threads,
   threadMessages,
+  households,
+  householdMembers,
+  householdPreferences,
+  objectives,
+  slots,
 };
 export type Schema = typeof schema;
 
@@ -734,6 +845,11 @@ export type NewRecipe = typeof recipes.$inferInsert;
 export type NewImportJob = typeof importJobs.$inferInsert;
 export type NewThread = typeof threads.$inferInsert;
 export type NewThreadMessage = typeof threadMessages.$inferInsert;
+export type NewHousehold = typeof households.$inferInsert;
+export type NewHouseholdMember = typeof householdMembers.$inferInsert;
+export type NewHouseholdPreferences = typeof householdPreferences.$inferInsert;
+export type NewObjective = typeof objectives.$inferInsert;
+export type NewSlot = typeof slots.$inferInsert;
 
 /** Source-type union, shared with the domain models. */
 export type SourceType = (typeof SOURCE_TYPES)[number];

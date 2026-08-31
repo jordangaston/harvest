@@ -361,8 +361,12 @@ app.post("/spectrum/webhook", async (c) => {
     );
     return thread.id;
   });
-  // After commit: ring one per-thread doorbell, coalesced by threadId.
-  await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: threadId });
+  // After commit: ring the doorbell. Key on the inbound message_guid, NOT threadId:
+  // Vercel Queue's idempotency dedup is a TIME window (not ack-scoped, contra the design's
+  // Q-3 guess), so keying on threadId swallows every later message on an existing thread.
+  // message_guid dedups only a redelivered *same* webhook; distinct messages each wake the
+  // consumer, which still drains all pending past the cursor.
+  await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: inbound.messageGuid });
   return c.body(null, 200);
 });
 

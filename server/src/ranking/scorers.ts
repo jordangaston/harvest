@@ -93,12 +93,14 @@ const SLOT_FOR_MEAL_TYPE: Record<string, keyof TimeByMeal | undefined> = {
  */
 function pickBudget(mealTypes: string[], timeByMeal: TimeByMeal | null, fallback: number | null): number | null {
   if (timeByMeal === null) return fallback;
+  const nonNull = (n: number | null): n is number => n !== null;
   const applicable = mealTypes
     .map((mt) => SLOT_FOR_MEAL_TYPE[mt])
     .filter((slot): slot is keyof TimeByMeal => slot !== undefined)
-    .map((slot) => timeByMeal[slot]);
-  const budgets = applicable.length > 0 ? applicable : Object.values(timeByMeal);
-  return Math.max(...budgets);
+    .map((slot) => timeByMeal[slot])
+    .filter(nonNull);
+  const budgets = applicable.length > 0 ? applicable : Object.values(timeByMeal).filter(nonNull);
+  return budgets.length > 0 ? Math.max(...budgets) : fallback;
 }
 
 /** Mirrors cost: (2·T − minutes)/T, scored against the budget for the recipe's meal type. */

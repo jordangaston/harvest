@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db.js';
-import { fdcFoods, fdcFoodNutrient, type FdcPortion } from '../schema.js';
+import { fdcFoods, fdcFoodNutrient, tasteIngredients, type FdcPortion } from '../schema.js';
 
 /** One FTS5 search hit: the food plus its raw bm25 (lower = better) for the matcher to tier on. */
 export interface FdcFoodCandidate {
@@ -119,6 +119,17 @@ export class FdcFoodRepository {
       .where(eq(fdcFoods.fdcId, fdcId))
       .limit(1);
     return row?.descriptionNormalized ?? '';
+  }
+
+  /** The curated base-ingredient cluster a food rolls up to (`{id,label}`), or null if unmapped. */
+  async baseIngredient(fdcId: number): Promise<{ id: string; label: string } | null> {
+    const [row] = await this.db
+      .select({ id: tasteIngredients.id, label: tasteIngredients.label })
+      .from(fdcFoods)
+      .innerJoin(tasteIngredients, eq(fdcFoods.baseIngredientId, tasteIngredients.id))
+      .where(eq(fdcFoods.fdcId, fdcId))
+      .limit(1);
+    return row ?? null;
   }
 
   /** The food's stored gram-weight portions (empty array when the food has none). */

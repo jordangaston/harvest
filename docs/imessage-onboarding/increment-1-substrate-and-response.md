@@ -27,7 +27,7 @@ just the deliverable we prove it on.
 | Doorbell → queue → consumer | Interruption / cancel-and-restart |
 | The chef: response layer (outer) → `process_message` → reasoning layer (inner) | Per-member rendering, tapbacks, SMS/RCS degradation |
 | Compose and **send** a reply, durably and idempotently | The DB single-flight lease / commit-CAS (see Concurrency) |
-| Message-guid dedup + doorbell coalescing + idempotent send | Reminders, menus, recipe drops |
+| Message-guid dedup + per-thread Redis lock + idempotent send | Reminders, menus, recipe drops |
 
 Objectives and the objective stack are **increment 2**; the design for them lives in
 [`01-agent-architecture.md`](./01-agent-architecture.md) and
@@ -82,18 +82,20 @@ sequenceDiagram
     W->>W: timing-safe HMAC verify over the raw bytes (401 if invalid)
     W->>DB: ONE TX — upsert user, upsert thread (owned by user), insert typed inbound message
     note over W,DB: unique message_guid makes a redelivered webhook a no-op
-    W->>Q: doorbell {thread_id}, idempotencyKey = thread_id (coalesced)
+    W->>Q: doorbell {thread_id}, idempotencyKey = message_guid
     W->>IM: 200 OK
 
     note over Q,REAS: Process — asynchronous, does the work
-    Q->>P: doorbell {thread_id} (held under the visibility lease)
+    Q->>P: doorbell {thread_id}
+    P->>P: acquire per-thread Redis lock (redlock) — loser re-enqueues + stops
     P->>DB: load thread, participants, pending inbound messages (past the cursor)
-    P->>RESP: invoke the chef
+    P->>RESP: invoke the chef (lock auto-renews across the turn)
     RESP->>REAS: process_message (mandatory for a substantive user turn)
     REAS->>RESP: actions taken + facts (no prose)
     RESP->>P: reply bubbles (respond_with_text)
-    P->>DB: TX — outbound rows (message_guid = our send key, sent_at NULL), advance cursor
+    P->>DB: TX — outbound rows (self-minted message_guid, sent_at NULL), advance cursor
     P->>IM: im.space.get(chat_guid).send() for each unsent row, then set sent_at
+    P->>P: release the lock (token-checked)
     P->>Q: ack the doorbell
 ```
 
@@ -117,8 +119,9 @@ Serverless route. In order:
    The **unique index on `message_guid`** makes a redelivered webhook a no-op insert — this is
    *inbound* dedup (Spectrum delivers at-least-once). Commit.
 5. **Enqueue the doorbell** `{thread_id}` on `inbound_messages` with `idempotencyKey =
-   thread_id`. A doorbell already in flight for this thread is dropped — *doorbell coalescing*,
-   distinct from step 4's row dedup.
+   message_guid` — this dedups only a redelivered *same* webhook, not later messages on the
+   thread (see Idempotency & concurrency #2). Per-thread serialization is the consumer's Redis
+   lock (#3), not the doorbell key.
 6. **Return `2xx`.** No LLM work happened here, so this is well within the 30s timeout.
 
 The transaction (4) commits **before** the doorbell (5), so the consumer never wakes to a
@@ -205,29 +208,50 @@ missing row.
 
 # Idempotency & concurrency
 
-Three mechanisms, each doing one job — precisely because both the webhook and the queue are
-**at-least-once**:
+The webhook and the queue are both **at-least-once**, and a thread can have more than one
+message in flight — so four mechanisms, each doing one job:
 
 1. **Inbound dedup** — the unique index on `message_guid`. A redelivered webhook re-inserts
-   the same Apple guid, which is a no-op, so one inbound message = one row.
-2. **Doorbell coalescing** — `idempotencyKey = thread_id`. While a thread's doorbell is in
-   flight, further doorbells for it are dropped, so a thread is processed by one consumer at a
-   time (the queue holds it invisible under the visibility-timeout lease; the dedup window
-   releases at ack — verified). Different threads run concurrently.
-3. **Idempotent send** — the outbound row's `message_guid` is a UUID we generate at commit
-   time (step 10), *before* the first send, and pass as Spectrum's send-idempotency key. A row
-   is only sent while `sent_at` is NULL; a redelivered turn re-sends the same guid, which
-   Spectrum drops. So a redelivered turn never double-replies. (This is why the guid must be
-   ours and pre-generated — Apple's outbound guid isn't known until after the send, so it
-   couldn't serve as the retry key. One column, two sources: Apple's for inbound, ours for
-   outbound.)
+   the same Apple guid, a no-op, so one inbound message = one row.
 
-**Serialization edge, deferred.** Coalescing gives single-flight *while the consumer holds the
-visibility lease*. A turn running past the lease can be redelivered and processed
-concurrently; in increment 1 that's bounded by a generous visibility timeout / `ExtendLease`
-(tune as we go) plus mechanism 3, which makes the duplicate turn's reply a no-op. The stronger
-guarantee — a per-thread DB lease with a commit-time compare-and-set — is deferred; it isn't
-needed to ship a correct first-message reply.
+2. **Doorbell keyed by `message_guid`** — the enqueue passes `idempotencyKey = message_guid`.
+   This is **not** a per-thread coalescer. Vercel Queue's idempotency is produce-time dedup
+   over a fixed **retention window (24h default)**, *not* an in-flight lock that releases at ack
+   (Q-3 — the earlier assumption was wrong, and confirmed wrong live: a second message deduped
+   against the first thread doorbell minutes later, across a server restart). Keying on the
+   message guid dedups only a genuinely redelivered *same* webhook; two *distinct* messages —
+   even on one thread — each wake the consumer, which drains all pending past the cursor.
+   Keying on `thread_id` would silently swallow every later message on a thread for 24h.
+
+3. **Per-thread turn lock (Redis, via a well-implemented library)** — the real serializer.
+   Processing a message **mutates the database mid-turn** (increment 2's command runners save
+   preferences, advance objectives, create memberships), so guarding only the outbound send is
+   insufficient — two concurrent turns would double-apply those writes. Even in increment 1
+   (stub reasoning, no mid-turn writes) two concurrent turns would double-*reply*. So the
+   consumer takes a **distributed lock keyed by `thread_id`** and holds it for the whole turn
+   (reason → write → send); at most one processor works a thread at a time, different threads
+   run in parallel. The critical section spans a multi-second LLM call in stateless serverless,
+   so no held DB/advisory lock fits (a txn can't span the call; the queue has no ordering key to
+   lean on) — it must be a lock with **TTL + auto-renewal + safe token release**, which is why
+   we use **`redlock`'s auto-extending `using()`, never a hand-rolled lock**. The loser does
+   **not** silently drop the message: it re-enqueues its doorbell (or the holder re-drains
+   pending before releasing), so nothing is stranded — the failure mode that the `thread_id`
+   dedup created. The exact library is pinned to the Redis we provision via the Vercel
+   marketplace; `redlock` is the default.
+
+   **Accepted ceiling — no fencing.** `redlock` issues no fencing token, so it's an
+   *efficiency* lock, not a provably-safe one: a process pause (GC / VM suspend) past the lock
+   TTL can let a second holder start while the first is still live, and both write. The safe fix
+   is a **store-enforced monotonic fence token** (checked on every write) — deliberately **not**
+   built. This race is rare and explicitly tolerated for now (Jordan, 2026-08-30); it isn't
+   scheduled. If it ever bites, the fence goes in the DB, not the lock service.
+
+4. **Idempotent send (`sent_at` gate)** — outbound rows carry a self-minted UUID `message_guid`
+   (row identity) and `sent_at`. Only `sent_at IS NULL` rows are sent, and `sent_at` is stamped
+   immediately after the send resolves, so a redelivered turn re-sends nothing on the common
+   path. The SDK has **no send-idempotency key** (verified — `send()`/`text()` take none), so
+   the `sent_at` gate, under the per-thread lock, is the outbound guard; the sole residual is a
+   crash between the send accepting and the `sent_at` write.
 
 ---
 
@@ -238,10 +262,10 @@ conversation and calls reasoning via `process_message` (Poke topology), rather t
 reasoning→response pipeline. Guard: `process_message` is **mandatory** for a substantive user
 turn, so the personality layer can never silently skip persistence.
 
-**D2 — One `message_guid` column, generated by us for outbound.** No separate `client_guid`:
-outbound rows store a UUID we mint at commit time, doubling as Spectrum's send-idempotency key;
-inbound rows store Apple's guid. Both share the unique index. Simpler, and correct because the
-send key must be ours and pre-send.
+**D2 — One `message_guid` column.** No separate `client_guid`: inbound rows store Apple's guid
+(the dedup index + the doorbell idempotency key); outbound rows store a UUID we mint at commit
+time (row identity). Both share the unique index. Note: the outbound guid is *not* a Spectrum
+send key — the SDK has none; the `sent_at` gate is the send guard.
 
 **D3 — Durable outbound is in increment 1.** Outbound rows carry `message_guid` + `sent_at`
 and are sent from the consumer, not inline in the webhook. Rationale: at-least-once delivery
@@ -251,8 +275,17 @@ would otherwise make the very first increment visibly double-reply on redelivery
 now; the reasoning layer has a single default objective and no domain tools. The seam does not
 change when increment 2 adds objectives/commands.
 
-**D5 — Serialization via coalescing + idempotent send; DB lease and interruption deferred.**
-Sufficient and correct for "process the first inbound message."
+**D5 — Serialization via a per-thread Redis lock (well-implemented lib), held across the whole
+turn.** Coalescing-by-`thread_id` was struck: it was produce-dedup, not a lock, and it swallowed
+every later message on a thread for 24h (Q-3). Because a turn mutates the DB mid-flight (inc-2)
+and can double-reply (inc-1), only a real held lock is correct. It can't be a DB/advisory lock
+(can't span the LLM call on serverless) or the queue (no per-thread ordering key), so it lives
+in Redis via `redlock`'s auto-extending `using()`. **Fencing: deliberately omitted for now.**
+`redlock` has no fencing token, so a process pause past the TTL can let two turns write
+concurrently — an *efficiency* lock, not a provably-safe one. We accept this rare race for now
+(Jordan, 2026-08-30) rather than build store-enforced fencing; the fix, if it ever bites, is a
+DB-enforced monotonic fence token checked per write (not scheduled). Interruption
+(cancel-and-restart) stays deferred to increment 2.
 
 ---
 
@@ -316,8 +349,9 @@ Spectrum + DeepSeek integration that stubs can't.
 |---|---|---|
 | Q-1 | Send outbound outside a webhook request scope | **Resolved** — `im.space.get(chat_guid).send(...)`; no webhook space or persistent connection, only the line creds + `chat_guid` |
 | Q-2 | Line token renewal without a persistent process | **Resolved** — use automatic discovery (`projectId` + `projectSecret`); the SDK renews, and each serverless cold start re-discovers |
-| Q-3 | Doorbell dedup window releases at ack (not TTL) | **Resolved** — yes; the window is the message's lifetime, which ends at ack |
-| Q-4 | Visibility timeout vs. turn length | **Deferred** — tune as we go (generous timeout / `ExtendLease`); mechanism 3 covers the duplicate in the meantime |
+| Q-3 | Doorbell dedup window releases at ack (not TTL) | **Resolved — NO (assumption was wrong).** Vercel Queue `idempotencyKey` dedup is a fixed ~24h retention window, not ack-scoped; confirmed live (a 2nd message deduped against the 1st thread doorbell minutes later, across a restart). So the doorbell is keyed by `message_guid`, and serialization is the Redis lock (#3), not the queue. |
+| Q-4 | Visibility timeout vs. turn length | **Deferred** — the Redis lock's TTL + auto-renewal (`redlock` `using()`) spans the turn; the queue visibility timeout is just retry backing, no longer load-bearing for serialization |
+| Q-5 | Redis provider + `redlock` compatibility (TCP client vs Upstash HTTP) | **Open** — pin at provisioning via the Vercel marketplace |
 
 ---
 
@@ -336,3 +370,4 @@ response→reasoning seam built here do not change.
 | 2026-08-29 | Claude (w/ Jordan) | Written from Jordan's skeleton as the precise increment-1 build spec — response-outer-loop topology; the outbound send and the Spectrum-integration section |
 | 2026-08-29 | Claude (w/ Jordan) | Review fixes: single transaction for user+thread+message; timing-safe HMAC; scope = process the first inbound message; thread owned by a user pre-household (`owner_user_id`); `thread_messages.type`; dropped `client_guid` (outbound uses a self-minted `message_guid`); clarified "participants" and the cursor/pending definition |
 | 2026-08-29 | Claude (w/ Jordan) | Re-applied after an accidental editor overwrite; resolved Q-1 (`im.space.get` send outside the webhook), Q-2 (automatic-discovery tokens), Q-3 (dedup releases at ack) against the Spectrum/Vercel docs; Q-4 parked as a tuning knob |
+| 2026-08-30 | Claude (w/ Jordan) | **Concurrency correction (live-verified).** Q-3 was WRONG: Vercel Queue `idempotencyKey` is ~24h produce-dedup, not ack-scoped — `thread_id` coalescing swallowed later messages on a thread. Struck coalescing; doorbell now keyed by `message_guid`. Serialization is a **per-thread Redis lock via `redlock`** (held across the turn — a DB/advisory lock can't span the LLM call on serverless, the queue has no ordering key), because processing mutates the DB mid-turn so guarding only the send is insufficient. Rewrote Idempotency & concurrency (#2–4), D2, D5, step 5, the diagram, Q-3/Q-4; added Q-5 (Redis provider). Fencing deferred to inc-2 (when mid-turn writes exist). |
