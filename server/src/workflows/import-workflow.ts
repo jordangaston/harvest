@@ -6,6 +6,7 @@ import { ImportJobRepository } from "../repositories/import-job-repository.js";
 import { fetchSource, fetchLinkedRecipe, extract, type Material } from "../providers.js";
 import { toExtractedData, hasRecipe } from "../parse/mapping.js";
 import { persistAndReady } from "../import-persist.js";
+import { ImportNotifier } from "../imessage/import-notifier.js";
 import { importErrorCode, type ImportInput } from "../import-domain.js";
 import { extractMedia, transcribe, readFrame, describePhoto, readSlideRecipe } from "./media-steps.js";
 import type { ExtractedRecipeData } from "../parse/extractor.js";
@@ -45,8 +46,10 @@ export async function importWorkflow(input: ImportInput): Promise<void> {
     const equipped = await equipmentStep(categorized, input);
     const dieted = await dietStep(equipped, input);
     await persistStep(dieted, input);
+    await notifyStep(input.jobId, "ready");
   } catch (err) {
     await markFailed(input.jobId, importErrorCode(err));
+    await notifyStep(input.jobId, "failed");
   }
 }
 
@@ -470,6 +473,19 @@ async function persistStep(recipes: ExtractedRecipeData[], input: ImportInput): 
   console.log(`[step] persisted recipes=${recipeIds.join(",")} job=${input.jobId}`);
 }
 persistStep.maxRetries = 3;
+
+/**
+ * Notify the iMessage origin thread of the terminal outcome (WI-2B): on `ready` save to Liked +
+ * reply naming the recipe, on `failed` reply an apology. Guarded + exactly-once inside the notifier
+ * (no-op for a mobile import or an already-notified job), and a dedicated step so a WDK replay caches
+ * its result — belt-and-suspenders with the notifier's own `notified_at` gate.
+ */
+async function notifyStep(jobId: string, outcome: "ready" | "failed"): Promise<void> {
+  "use step";
+  console.log(`[step] notify job=${jobId} outcome=${outcome}`);
+  await (await ImportNotifier.create(dbFromEnv())).notify(jobId, outcome);
+}
+notifyStep.maxRetries = 2;
 
 /** Record the terminal failure. The workflow itself never throws. */
 async function markFailed(jobId: string, code: string): Promise<void> {
