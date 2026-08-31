@@ -376,9 +376,9 @@ app.post("/spectrum/webhook", async (c) => {
   // consumer, which still drains all pending past the cursor.
   //
   // A bare reaction (tapback) carries no request — persist it but don't wake the consumer,
-  // so Chef never runs a reasoning turn on a thumbs-up. It's still marked read on the next
-  // real turn's drain, so it remains available as context. This is the one place that
-  // decides answerability.
+  // so Chef never runs a reasoning turn on a thumbs-up. The row stays on file as context (the
+  // drain only pulls text, so a reaction is neither answered nor cursor-advanced). This is the
+  // one place that decides answerability.
   if (inbound.type !== 'reaction') await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: inbound.messageGuid });
   return c.body(null, 200);
 });
