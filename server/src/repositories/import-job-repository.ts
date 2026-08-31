@@ -111,6 +111,13 @@ export class ImportJobRepository {
       .onConflictDoNothing();
   }
 
+  /** The owner of a job, or null if the id is unknown — a lean read for the completion
+   *  notify, which knows only the job id. */
+  async userIdById(jobId: string): Promise<string | null> {
+    const [row] = await this.db.select({ userId: importJobs.userId }).from(importJobs).where(eq(importJobs.id, jobId));
+    return row?.userId ?? null;
+  }
+
   /**
    * Reads the recipe ids an import produced, in slide order.
    * @param jobId - The import job.
