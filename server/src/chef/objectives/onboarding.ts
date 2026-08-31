@@ -50,6 +50,10 @@ export const onboardingObjective: ObjectiveDefinition = {
       then: 'ask mild, moderate, or severe, then write the allergen only with confirmed:true — an unconfirmed allergen is never saved.',
     },
     {
+      when: 'a member confirms they have no food allergies',
+      then: 'save their profile with no_allergens:true — "none" is real data that fills the allergens slot; do not leave it hanging.',
+    },
+    {
       when: 'a member named a diet without saying how strictly they follow it',
       then: 'ask whether it is strict (never breaks it) or flexible (bends occasionally) before saving, and write that strictness through.',
     },

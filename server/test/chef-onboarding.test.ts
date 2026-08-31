@@ -113,6 +113,11 @@ describe('same-kitchen identity flow', () => {
     const [sh] = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.key, 'household.same_household')));
     expect(sh!.status).toBe('filled');
     expect(sh!.value).toBe(true);
+
+    // household_size filled deterministically with the roster count (not model-volunteered)
+    const [hs] = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.key, 'household.household_size')));
+    expect(hs!.status).toBe('filled');
+    expect(hs!.value).toBe(2);
   });
 
   it('an un-named participant blocks only their own membership + member slots (AC-4)', async () => {

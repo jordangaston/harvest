@@ -4,8 +4,9 @@ import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { userAllergens, userDiets, householdPreferences, tasteIngredients, userFoodPrefs, userPreferences, users } from '../src/schema.js';
+import { userAllergens, userDiets, householdPreferences, tasteIngredients, userFoodPrefs, userPreferences, users, fdcFoods } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
+import { seedFdcFixture, SALMON_FDC_ID } from './fixtures/fdc-foods.fixture.js';
 import { SaveHouseholdProfileTool } from '../src/chef/tools/save-household-profile.js';
 import { SaveHouseholdGoalsTool } from '../src/chef/tools/save-household-goals.js';
 import { SaveMemberProfileTool } from '../src/chef/tools/save-member-profile.js';
@@ -154,26 +155,51 @@ describe('search_catalog.run (grounds, writes nothing)', () => {
     const after = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
     expect(after).toEqual(before);
   });
+
+  it('resolves a taste query with no label match through the food matcher (salmon→Fish cluster)', async () => {
+    const { ctx } = await seedHousehold();
+    await seedFdcFixture(db);
+    await db.insert(tasteIngredients).values([{ id: 'ti-fish', label: 'Fish', section: 'Meat & Seafood', foodGroup: 10 }]);
+    await db.update(fdcFoods).set({ baseIngredientId: 'ti-fish' }).where(eq(fdcFoods.fdcId, SALMON_FDC_ID));
+
+    // "salmon" is no taste-catalog label, but the matcher rolls it up — grounding must surface it.
+    const taste = await SearchCatalogTool.create(ctx).run({ kind: 'taste', query: 'salmon' });
+    expect(taste.candidates[0]).toEqual({ value: 'ti-fish', label: 'Fish' });
+  });
 });
 
 describe('save_member_profile.run — food prefs + skill', () => {
-  it('grounds likes/dislikes to the taste catalog (affinity) and sets skill_level', async () => {
+  it('grounds an ingredient like via the food matcher (string→FDC→base cluster), echoes labels, sets skill', async () => {
     const { memberId, ctx } = await seedHousehold();
-    await db.insert(tasteIngredients).values([{ id: 'ti-basil', label: 'Basil', section: 'Herbs', foodGroup: 11 }]);
+    // Reuse the real ingredient matcher: seed the FDC slice, a "Fish" cluster, and roll salmon up to it.
+    await seedFdcFixture(db);
+    await db.insert(tasteIngredients).values([{ id: 'ti-fish', label: 'Fish', section: 'Meat & Seafood', foodGroup: 10 }]);
+    await db.update(fdcFoods).set({ baseIngredientId: 'ti-fish' }).where(eq(fdcFoods.fdcId, SALMON_FDC_ID));
+
     const res = await SaveMemberProfileTool.create(ctx).run({
       member_user_id: memberId,
       patch: {
-        likes: [{ facet: 'ingredient', value: 'basil' }],
+        likes: [{ facet: 'ingredient', value: 'grilled salmon' }], // modifier the old prefix matcher rejected
         dislikes: [{ facet: 'cuisine', value: 'thai' }],
         skill_level: 'advanced',
       },
     });
-    expect(res.saved).toMatchObject({ likes: ['ti-basil'], dislikes: ['thai'], skill_level: 'advanced' });
+    // saved echoes display labels (not opaque ids) so the reply can name what landed (fidelity).
+    expect(res.saved.likes).toEqual(['Fish']);
+    expect((res.saved.dislikes as string[])[0]).toMatch(/thai/i);
+    expect(res.saved.skill_level).toBe('advanced');
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-basil', sentiment: 'like' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-fish', sentiment: 'like' }));
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'dislike' }));
     const [up] = await db.select().from(userPreferences).where(eq(userPreferences.userId, memberId));
     expect(up.skillLevel).toBe('advanced');
+  });
+
+  it('records "no allergies" as none so the required allergens slot can flip, writing no allergen row', async () => {
+    const { memberId, ctx } = await seedHousehold();
+    const res = await SaveMemberProfileTool.create(ctx).run({ member_user_id: memberId, patch: { no_allergens: true } });
+    expect(res.saved.allergens).toBe('none');
+    expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(0);
   });
 });
 

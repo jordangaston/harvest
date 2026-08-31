@@ -68,6 +68,9 @@ export async function createSameKitchenHousehold(
     }
 
     await objectives.markSlotFilled(input.objectiveId, 'household.same_household', true, tx);
+    // household_size is the roster count — derivable here, so fill it deterministically rather
+    // than leaving the model to volunteer a slotUpdate for a slot no tool grounds.
+    await objectives.markSlotFilled(input.objectiveId, 'household.household_size', input.participants.length, tx);
     return { householdId, memberUserIds };
   });
 }

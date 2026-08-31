@@ -1,9 +1,10 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { codeCandidates, coerce, type Candidate } from './catalog.js';
+import { codeCandidates, coerce } from './catalog.js';
 import { ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type AffinityFacet } from '../../schema.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
 import { TasteOptionsService, type TasteOptions } from '../../services/taste-options-service.js';
+import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
 import type { PreferencesUpdate, UserPreferences } from '../../models/user-preferences.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
@@ -21,6 +22,7 @@ const inputSchema = z.object({
       allergens: z
         .array(z.object({ allergen: z.string(), severity: z.string().nullish(), confirmed: z.boolean().nullish() }))
         .nullish(),
+      no_allergens: z.boolean().nullish(),
       diets: z.array(z.object({ dietId: z.string(), strictness: z.string().nullish() })).nullish(),
       likes: z.array(affinitySelection).nullish(),
       dislikes: z.array(affinitySelection).nullish(),
@@ -66,10 +68,12 @@ export class SaveMemberProfileTool implements ChefTool {
   readonly saved: SaveResult[] = [];
   private readonly memberPrefs: PreferenceRepository;
   private readonly taste: TasteOptionsService;
+  private readonly ingredients: BaseIngredientResolver;
 
   private constructor(private readonly ctx: TurnContext) {
     this.memberPrefs = PreferenceRepository.create(ctx.db);
     this.taste = TasteOptionsService.create(ctx.db);
+    this.ingredients = BaseIngredientResolver.create(ctx.db);
   }
 
   static create(ctx: TurnContext): SaveMemberProfileTool {
@@ -86,10 +90,11 @@ export class SaveMemberProfileTool implements ChefTool {
       description:
         "Save one household member's profile (allergens, diets, likes, dislikes, skill, equipment) once " +
         'they give it. Allergens require confirmed:true and a severity (mild|moderate|severe) before they ' +
-        'are written (safety). Each diet carries a strictness of "strict" or "flexible". likes/dislikes ' +
-        'are { facet: "cuisine"|"dish_type"|"ingredient", value } — ground the value with search_catalog ' +
-        '(kind:"taste") first (e.g. "Thai" -> cuisine, "cilantro" -> ingredient). skill_level is ' +
-        'beginner|intermediate|advanced. Unmatched values are rejected with the nearest matches. ' +
+        'are written (safety); pass no_allergens:true when a member confirms they have none. Each diet ' +
+        'carries a strictness of "strict" or "flexible". likes/dislikes are { facet: ' +
+        '"cuisine"|"dish_type"|"ingredient", value } — pass the plain food word (e.g. "Thai" -> cuisine, ' +
+        '"grilled chicken" -> ingredient); ingredient values are resolved against the food catalog for you. ' +
+        'skill_level is beginner|intermediate|advanced. Unmatched values are rejected. ' +
         "member_user_id is the member's id from the Household list.",
       inputSchema,
       execute: async (input) => this.run(input),
@@ -114,6 +119,9 @@ export class SaveMemberProfileTool implements ChefTool {
       if (!allergens.some((x) => x.allergen === value)) allergens.push({ allergen: value as never, severity: a.severity });
       saved.allergens = (saved.allergens as string[] | undefined ?? []).concat(value);
     }
+    // "No allergies" is real data — nothing to write, but echo 'none' so the required allergens
+    // slot can flip on a value (a member with none is distinct from one not yet asked).
+    if (patch.no_allergens === true && !allergens.length) saved.allergens = 'none';
 
     const diets = [...current.diets];
     for (const d of patch.diets ?? []) {
@@ -137,8 +145,8 @@ export class SaveMemberProfileTool implements ChefTool {
     // from what we pass, so merge new selections onto the member's existing ones.
     const currentFood = foodPrefsToLikesDislikes(current);
     const opts = (patch.likes?.length || patch.dislikes?.length) ? await this.taste.options() : null;
-    const likes = mergeSelections(currentFood.likes, opts ? this.ground(patch.likes ?? [], opts, saved, 'likes', rejected) : []);
-    const dislikes = mergeSelections(currentFood.dislikes, opts ? this.ground(patch.dislikes ?? [], opts, saved, 'dislikes', rejected) : []);
+    const likes = mergeSelections(currentFood.likes, opts ? await this.ground(patch.likes ?? [], opts, saved, 'likes', rejected) : []);
+    const dislikes = mergeSelections(currentFood.dislikes, opts ? await this.ground(patch.dislikes ?? [], opts, saved, 'dislikes', rejected) : []);
 
     const skillLevel = patch.skill_level ?? current.skillLevel;
     if (patch.skill_level) saved.skill_level = patch.skill_level;
@@ -164,21 +172,35 @@ export class SaveMemberProfileTool implements ChefTool {
     return result;
   }
 
-  /** Grounds each {facet,value} against its taste facet catalog, recording landed ids under `savedKey`. */
-  private ground(raw: { facet: FoodFacet; value: string }[], opts: TasteOptions, saved: Record<string, unknown>, savedKey: string, rejected: SaveResult['rejected']): Selection[] {
+  /** Grounds each {facet,value} to a catalog id, recording the landed display label under `savedKey`
+   *  (a label, not an opaque id, so the reply can faithfully name what was saved). */
+  private async ground(raw: { facet: FoodFacet; value: string }[], opts: TasteOptions, saved: Record<string, unknown>, savedKey: string, rejected: SaveResult['rejected']): Promise<Selection[]> {
     const out: Selection[] = [];
     for (const sel of raw) {
-      const { value, closest } = coerce(sel.value, this.candidatesFor(sel.facet, opts));
+      const { value, label, closest } = await this.resolve(sel, opts);
       if (!value) { rejected.push({ input: sel.value, reason: 'no catalog match', closest }); continue; }
       out.push({ facet: sel.facet, value });
-      saved[savedKey] = (saved[savedKey] as string[] | undefined ?? []).concat(value);
+      saved[savedKey] = (saved[savedKey] as string[] | undefined ?? []).concat(label);
     }
     return out;
   }
 
-  private candidatesFor(facet: FoodFacet, opts: TasteOptions): Candidate[] {
-    if (facet === 'cuisine') return opts.cuisines;
-    if (facet === 'dish_type') return opts.dish_types;
-    return opts.ingredients;
+  /**
+   * Resolves one {facet,value} to its catalog id + display label. An `ingredient` value runs through
+   * the shared food matcher (string → FDC food → base-ingredient cluster) — the same tuned path recipes
+   * use, so "grilled chicken"→Chicken, "salmon"→Fish. cuisine/dish_type coerce onto the code VOCAB.
+   */
+  private async resolve(sel: { facet: FoodFacet; value: string }, opts: TasteOptions): Promise<{ value?: string; label: string; closest: string[] }> {
+    if (sel.facet === 'ingredient') {
+      // The value is either an already-grounded taste-ingredient id (from search_catalog) or free
+      // text ("grilled chicken") — accept the id directly, else resolve the text through the matcher.
+      const known = opts.ingredients.find((i) => i.value === sel.value);
+      if (known) return { value: known.value, label: known.label, closest: [] };
+      const base = await this.ingredients.resolve(sel.value);
+      return base ? { value: base.id, label: base.label, closest: [] } : { label: sel.value, closest: [] };
+    }
+    const cands = sel.facet === 'cuisine' ? opts.cuisines : opts.dish_types;
+    const { value, closest } = coerce(sel.value, cands);
+    return { value, label: cands.find((c) => c.value === value)?.label ?? sel.value, closest };
   }
 }

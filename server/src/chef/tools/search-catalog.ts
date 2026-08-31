@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { codeCandidates, rank, type CatalogKind, type Candidate } from './catalog.js';
 import { TasteOptionsService } from '../../services/taste-options-service.js';
+import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 const inputSchema = z.object({
@@ -18,9 +19,11 @@ export class SearchCatalogTool implements ChefTool {
   readonly id = 'search_catalog';
   readonly saved: SaveResult[] = []; // grounding never writes
   private readonly taste: TasteOptionsService;
+  private readonly ingredients: BaseIngredientResolver;
 
   private constructor(ctx: TurnContext) {
     this.taste = TasteOptionsService.create(ctx.db);
+    this.ingredients = BaseIngredientResolver.create(ctx.db);
   }
 
   static create(ctx: TurnContext): SearchCatalogTool {
@@ -50,6 +53,11 @@ export class SearchCatalogTool implements ChefTool {
   private async candidates(kind: CatalogKind, query: string): Promise<Candidate[]> {
     if (kind !== 'taste') return rank(query, codeCandidates(kind));
     const opts = await this.taste.options();
-    return rank(query, [...opts.cuisines, ...opts.dish_types, ...opts.ingredients]);
+    const ranked = rank(query, [...opts.cuisines, ...opts.dish_types, ...opts.ingredients]);
+    if (!query.trim()) return ranked;
+    // A modified/synonym ingredient ("grilled chicken", "salmon") won't label-match — resolve it
+    // through the shared food matcher so grounding agrees with what save_member_profile will store.
+    const base = await this.ingredients.resolve(query);
+    return base && !ranked.some((c) => c.value === base.id) ? [{ value: base.id, label: base.label }, ...ranked] : ranked;
   }
 }
