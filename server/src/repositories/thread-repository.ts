@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
@@ -83,9 +83,11 @@ export class ThreadRepository {
   }
 
   /**
-   * Loads the thread's inbound `text` messages newer than the cursor, in order. The
-   * cursor cut is the pure `pendingPast` (unit-tested without a DB).
-   * @param cursor - The current `last_processed_id`; null loads all inbound text.
+   * Loads the thread's inbound *answerable* messages (`text` and threaded `reply`) newer
+   * than the cursor, in order — a reply carries its own text, so it drives a turn like a
+   * plain text does (a bare reaction stays context-only). The cursor cut is the pure
+   * `pendingPast` (unit-tested without a DB).
+   * @param cursor - The current `last_processed_id`; null loads all answerable inbound.
    */
   async loadPendingInbound(threadId: string, cursor: string | null): Promise<ThreadMessage[]> {
     const rows = await this.db
@@ -95,11 +97,20 @@ export class ThreadRepository {
         and(
           eq(threadMessages.threadId, threadId),
           eq(threadMessages.direction, 'inbound'),
-          eq(threadMessages.type, 'text'),
+          inArray(threadMessages.type, ['text', 'reply']),
         ),
       )
       .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
     return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
+  }
+
+  /** Finds a message in a thread by its `message_guid` (the parent a reply points at), or null. */
+  async findByMessageGuid(threadId: string, messageGuid: string): Promise<ThreadMessage | null> {
+    const [row] = await this.db
+      .select()
+      .from(threadMessages)
+      .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.messageGuid, messageGuid)));
+    return row ? ThreadMessageSchema.parse(row) : null;
   }
 
   /** True when an inbound text message exists past the cursor (the interruption-barrier check). */
