@@ -82,11 +82,15 @@ text), so flattening is a pure simplification if we ever want the native path.
    persists correctly** (via `save_member_profile`), but the member slots never flip to `filled` in
    the ledger — so objective completion can't be detected from member slots. Fix: scope the key the
    model sees/returns by member (e.g. `member:<userId>:<key>`), and map + reconcile on that.
-2. **Scalar/free-text slots aren't persisted to preference columns.** `weekly_meals`,
-   `cook_days_count`, `household_size`, `time_by_meal`, member `likes`/`dislikes`/`skill_level` land
-   in the slot ledger but have no `save_*` tool field, so they don't reach `household_preferences` /
-   `user_preferences`. Add tool fields (and catalog grounding for likes/dislikes) when the planner
-   needs them.
+2. ~~Scalar/free-text slots aren't persisted to preference columns.~~ **Resolved.** The tools now
+   write every signal to its real home: member `likes`/`dislikes` → `user_food_prefs` (the affinity
+   feed, grounded to a facet + catalog value via `search_catalog`), `skill_level` →
+   `user_preferences.skill_level`, `weekly_meals`/`cook_days_count`/`time_by_meal` →
+   `household_preferences`, and household `goals` → each member's `users.goals` (via a new
+   `save_household_goals` tool; feeds `PreferenceRepository.coldStart` weight seeding). `time_by_meal`
+   is only written when all three meal times are given (the model requires them positive).
+   Remaining minor gaps: the `household_size` slot doesn't always flip to filled (adults/kids are
+   captured), and a partial `time_by_meal` is deferred to the settings screen.
 3. **Latency.** flash+on is workable but the worst turn (~92s) is slow for a text UX. Options:
    - **decide-once → execute-in-code → respond**: a thinking, *tool-free* call emits the plan +
      the tool actions as data; code runs them. Reasoning fires **once** (no per-step thinking

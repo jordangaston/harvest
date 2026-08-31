@@ -6,6 +6,24 @@ import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 // Enum arrays and budget arrive as raw strings the tool coerces; scalars pass through. Optionals are
 // `.nullish()` so a model that emits `null` for an absent field parses cleanly (treated as absent).
+const mealCounts = z.object({
+  breakfast: z.number().int().nonnegative().nullish(),
+  lunch: z.number().int().nonnegative().nullish(),
+  dinner: z.number().int().nonnegative().nullish(),
+  snack: z.number().int().nonnegative().nullish(),
+  kids: z.number().int().nonnegative().nullish(),
+});
+const mealMinutes = z.object({
+  breakfast: z.number().int().nonnegative().nullish(),
+  lunch: z.number().int().nonnegative().nullish(),
+  dinner: z.number().int().nonnegative().nullish(),
+});
+
+/** Drop null/undefined values from a flat object (the model emits null for absent meal slots). */
+function dropNulls<T extends Record<string, unknown>>(obj: T): { [K in keyof T]?: NonNullable<T[K]> } {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null)) as { [K in keyof T]?: NonNullable<T[K]> };
+}
+
 const inputSchema = z.object({
   patch: z
     .object({
@@ -16,6 +34,12 @@ const inputSchema = z.object({
       eats_leftovers: z.boolean().nullish(),
       household_adults: z.number().int().nullish(),
       household_kids: z.number().int().nullish(),
+      // Per-meal counts to plan each week (e.g. "5 dinners" -> { dinner: 5 }); missing meals are 0.
+      weekly_meals: mealCounts.nullish(),
+      // How many days a week they cook.
+      cook_days_count: z.number().int().nullish(),
+      // Per-meal cook-time budget in minutes (e.g. "30-min dinners" -> { dinner: 30 }).
+      time_by_meal: mealMinutes.nullish(),
     })
     .passthrough(),
 });
@@ -63,8 +87,9 @@ export class SaveHouseholdProfileTool implements ChefTool {
       id: this.id,
       description:
         'Save household-scoped preferences (grocery stores, budget, equipment, shopping day, headcount, ' +
-        'leftovers) once the user gives them. Coerces values to catalog ids; unmatched values are ' +
-        'rejected with the nearest matches, never guessed. Allergens are member-scoped — not here.',
+        'leftovers, weekly meal counts, cook-days-per-week, per-meal time budget) once the user gives ' +
+        'them. weekly_meals/time_by_meal are per-meal maps (e.g. "5 dinners" -> { dinner: 5 }). Coerces ' +
+        'catalog values; unmatched are rejected with the nearest matches. Allergens are member-scoped — not here.',
       inputSchema,
       execute: async ({ patch }) => this.run(patch),
     });
@@ -76,7 +101,22 @@ export class SaveHouseholdProfileTool implements ChefTool {
     const rejected: SaveResult['rejected'] = [];
     const write: HouseholdPreferencesPatch = {};
 
-    const { grocery_stores, weekly_budget_cents, owned_equipment, ...scalars } = patch;
+    const { grocery_stores, weekly_budget_cents, owned_equipment, weekly_meals, cook_days_count, time_by_meal, ...scalars } = patch;
+
+    if (weekly_meals != null) {
+      const meals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0, ...dropNulls(weekly_meals) };
+      write.weeklyMeals = meals; saved.weekly_meals = meals;
+    }
+    // time_by_meal is the three cook-time sliders — the model requires all three positive, so only
+    // write it when every meal is given; a partial ("30-min dinners") is left for the settings screen.
+    if (time_by_meal != null) {
+      const t = dropNulls(time_by_meal);
+      if (t.breakfast && t.lunch && t.dinner) {
+        const mins = { breakfast: t.breakfast, lunch: t.lunch, dinner: t.dinner };
+        write.timeByMeal = mins; saved.time_by_meal = mins;
+      }
+    }
+    if (cook_days_count != null) { write.cookDaysCount = cook_days_count; saved.cook_days_count = cook_days_count; }
 
     if (grocery_stores) {
       const r = coerceSet(grocery_stores, 'store');

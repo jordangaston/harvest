@@ -22,7 +22,7 @@ export const onboardingObjective: ObjectiveDefinition = {
     "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, " +
     'allergies, diets, tastes, and skill — writing each answer through with a command tool. ' +
     'Done when every required slot is filled or defaulted; then send the close.',
-  tools: ['create_household', 'save_household_profile', 'save_member_profile', 'search_catalog'],
+  tools: ['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog'],
   slots: [
     // household-scoped
     slot('same_household', req),

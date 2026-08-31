@@ -24,7 +24,7 @@ const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient'] as co
 // Diet-signal (WI-DS-1): the per-diet verdict. `diet_id` is a DietRule id (app-side
 // config, not a DB enum) so a new diet needs no migration — like `recipe_categories.value`.
 export const DIET_VERDICTS = ['compatible', 'incompatible', 'unknown'] as const;
-const GOALS = [
+export const GOALS = [
   'eat_healthier',
   'save_money',
   'improve_cooking',

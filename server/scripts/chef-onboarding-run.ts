@@ -77,7 +77,8 @@ async function purge(db: ReturnType<typeof dbFromEnv>): Promise<void> {
   const prefRepo = PreferenceRepository.create(db);
   for (const m of members) {
     const p = await prefRepo.getPreferences(m.userId);
-    console.log(`member ${m.name ?? m.imessageHandle}: allergens=${JSON.stringify(p.allergens)} diets=${JSON.stringify(p.diets)} foodPrefs=${JSON.stringify(p.foodPrefs)} skill=${p.skillLevel}`);
+    const [u] = await db.select().from(users).where(eq(users.id, m.userId));
+    console.log(`member ${m.name ?? m.imessageHandle}: allergens=${JSON.stringify(p.allergens)} diets=${JSON.stringify(p.diets)} foodPrefs=${JSON.stringify(p.foodPrefs)} skill=${p.skillLevel} goals=${JSON.stringify(u?.goals ?? null)}`);
   }
   const sl = await db.select().from(slots);
   console.log('\nfilled slots:\n  ' + sl.filter((s) => s.status === 'filled').map((s) => `${s.key}=${JSON.stringify(s.value)}`).join('\n  '));

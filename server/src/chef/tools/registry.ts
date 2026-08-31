@@ -1,5 +1,6 @@
 import { CreateHouseholdTool } from './create-household.js';
 import { SaveHouseholdProfileTool } from './save-household-profile.js';
+import { SaveHouseholdGoalsTool } from './save-household-goals.js';
 import { SaveMemberProfileTool } from './save-member-profile.js';
 import { SearchCatalogTool } from './search-catalog.js';
 import type { ChefTool, TurnContext } from './types.js';
@@ -8,6 +9,7 @@ import type { ChefTool, TurnContext } from './types.js';
 const FACTORIES: Record<string, (ctx: TurnContext) => ChefTool> = {
   create_household: CreateHouseholdTool.create,
   save_household_profile: SaveHouseholdProfileTool.create,
+  save_household_goals: SaveHouseholdGoalsTool.create,
   save_member_profile: SaveMemberProfileTool.create,
   search_catalog: SearchCatalogTool.create,
 };

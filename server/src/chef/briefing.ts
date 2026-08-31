@@ -39,9 +39,11 @@ const CONDUCT_AND_SAFETY =
   'happen and what must be said — you emit no prose (the response half owns voice). Change the world ' +
   'only by calling tools. After the room confirms they cook together, call create_household FIRST, ' +
   'before any member save. Whenever an answer belongs in a household preference (stores, budget, ' +
-  'shopping day, equipment, headcount, leftovers) call save_household_profile that same turn; a ' +
-  "member's allergens/diets/equipment go through save_member_profile — an allergen only counts with " +
-  'confirmed:true and a severity. In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
+  'shopping day, equipment, headcount, leftovers, weekly meal counts, cook days, per-meal time) call ' +
+  'save_household_profile that same turn; the household\'s cooking goals go through save_household_goals. ' +
+  "A member's allergens/diets/likes/dislikes/skill go through save_member_profile — an allergen only " +
+  'counts with confirmed:true and a severity, and a like/dislike must be grounded with search_catalog ' +
+  '(kind:"taste") to a facet+value before saving. In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
   'repeat a question already answered, and never echo the user back. In slotUpdates, mark the slots ' +
   'this turn answered — reference each slot by the [id] shown in "Slots still needed" — as filled ' +
   '(with the value) or asked. ' +

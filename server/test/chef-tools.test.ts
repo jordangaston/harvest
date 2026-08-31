@@ -4,9 +4,10 @@ import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { userAllergens, userDiets, householdPreferences, tasteIngredients } from '../src/schema.js';
+import { userAllergens, userDiets, householdPreferences, tasteIngredients, userFoodPrefs, userPreferences, users } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { SaveHouseholdProfileTool } from '../src/chef/tools/save-household-profile.js';
+import { SaveHouseholdGoalsTool } from '../src/chef/tools/save-household-goals.js';
 import { SaveMemberProfileTool } from '../src/chef/tools/save-member-profile.js';
 import { SearchCatalogTool } from '../src/chef/tools/search-catalog.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
@@ -152,5 +153,47 @@ describe('search_catalog.run (grounds, writes nothing)', () => {
 
     const after = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
     expect(after).toEqual(before);
+  });
+});
+
+describe('save_member_profile.run — food prefs + skill', () => {
+  it('grounds likes/dislikes to the taste catalog (affinity) and sets skill_level', async () => {
+    const { memberId, ctx } = await seedHousehold();
+    await db.insert(tasteIngredients).values([{ id: 'ti-basil', label: 'Basil', section: 'Herbs', foodGroup: 11 }]);
+    const res = await SaveMemberProfileTool.create(ctx).run({
+      member_user_id: memberId,
+      patch: {
+        likes: [{ facet: 'ingredient', value: 'basil' }],
+        dislikes: [{ facet: 'cuisine', value: 'thai' }],
+        skill_level: 'advanced',
+      },
+    });
+    expect(res.saved).toMatchObject({ likes: ['ti-basil'], dislikes: ['thai'], skill_level: 'advanced' });
+    const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-basil', sentiment: 'like' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'dislike' }));
+    const [up] = await db.select().from(userPreferences).where(eq(userPreferences.userId, memberId));
+    expect(up.skillLevel).toBe('advanced');
+  });
+});
+
+describe('save_household_profile.run — planning fields', () => {
+  it('writes weekly meal counts, cook-days, and per-meal time budget', async () => {
+    const { householdId, ctx } = await seedHousehold();
+    await SaveHouseholdProfileTool.create(ctx).run({ weekly_meals: { dinner: 5 }, cook_days_count: 4, time_by_meal: { breakfast: 10, lunch: 20, dinner: 30 } });
+    const [row] = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
+    expect(row.weeklyMeals).toEqual({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    expect(row.timeByMeal).toEqual({ breakfast: 10, lunch: 20, dinner: 30 });
+    expect(row.cookDaysCount).toBe(4);
+  });
+});
+
+describe('save_household_goals.run', () => {
+  it('coerces goals and unions them onto each member users.goals', async () => {
+    const { memberId, ctx } = await seedHousehold();
+    const res = await SaveHouseholdGoalsTool.create(ctx).run(['eat healthier', 'save money']);
+    expect(res.saved).toEqual({ goals: ['eat_healthier', 'save_money'] });
+    const [u] = await db.select().from(users).where(eq(users.id, memberId));
+    expect(u.goals).toEqual(expect.arrayContaining(['eat_healthier', 'save_money']));
   });
 });
