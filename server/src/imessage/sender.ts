@@ -10,7 +10,12 @@ function buildProvider(app: SpectrumInstance) {
 
 /** Sends outbound iMessage text via Spectrum, resolved outside any request scope. */
 export interface Sender {
-  send(chatGuid: string, body: string): Promise<void>;
+  /** Send a turn's bubbles as ONE ordered batch (so iMessage can't reorder them). */
+  send(chatGuid: string, bodies: string[]): Promise<void>;
+  /** Send read receipts for the given inbound message guids (fire-and-forget). */
+  markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
+  /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
+  responding<T>(chatGuid: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -39,23 +44,54 @@ export class SpectrumSender implements Sender {
   }
 
   /**
-   * Sends a text to the space identified by chat_guid.
+   * Sends a turn's bubbles to the space identified by chat_guid as ONE ordered batch —
+   * Spectrum's variadic `send(a, b, …)` sequences them server-side, so they arrive in order.
+   * A rapid-fire loop of single sends lets iMessage reorder them (the bug this fixes).
    * ponytail: no send-idempotency key exists in the SDK — outbound idempotency is the
-   * `sent_at` gate (only unsent rows are sent). A crash between the send resolving and
-   * the sent_at write can double-send on redelivery (documented increment-1 ceiling).
+   * `sent_at` gate. A crash between the batch resolving and the sent_at write can double-send
+   * the whole batch on redelivery (documented increment-1 ceiling).
    */
-  async send(chatGuid: string, body: string): Promise<void> {
+  async send(chatGuid: string, bodies: string[]): Promise<void> {
+    if (bodies.length === 0) return;
     const space = await this.im.space.get(chatGuid);
-    await space.send(text(body));
+    const contents = bodies.map((b) => text(b));
+    // The SDK types the variadic send for ≥2 args, so call it generically (works for 1 or many).
+    await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
+  }
+
+  // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
+  // does 2-3 resolves. Fine at turn frequency; fold into one resolve if it ever matters.
+  async markRead(chatGuid: string, messageGuids: string[]): Promise<void> {
+    const space = await this.im.space.get(chatGuid);
+    for (const guid of messageGuids) {
+      const msg = await space.getMessage(guid);
+      await msg?.read(); // fire-and-forget, best-effort (dedicated lines only); inbound only
+    }
+  }
+
+  async responding<T>(chatGuid: string, fn: () => Promise<T>): Promise<T> {
+    const space = await this.im.space.get(chatGuid);
+    return space.responding(fn); // typing on → run fn → typing off
   }
 }
 
 /** Records sends without touching the network — the offline test double. */
 export class StubSpectrumSender implements Sender {
   readonly calls: { chatGuid: string; body: string }[] = [];
+  readonly reads: string[] = [];
+  respondingCount = 0;
 
-  async send(chatGuid: string, body: string): Promise<void> {
-    this.calls.push({ chatGuid, body });
+  async send(chatGuid: string, bodies: string[]): Promise<void> {
+    for (const body of bodies) this.calls.push({ chatGuid, body });
+  }
+
+  async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {
+    this.reads.push(...messageGuids);
+  }
+
+  async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {
+    this.respondingCount += 1;
+    return fn();
   }
 }
 

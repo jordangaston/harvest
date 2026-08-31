@@ -11,9 +11,10 @@ const { send } = vi.hoisted(() => ({ send: vi.fn(async (..._args: unknown[]) => 
 vi.mock("../src/queue.js", () => ({ send, handleCallback: vi.fn() }));
 
 import { buildApp } from "../src/index.js";
-import { handleDoorbell } from "../src/imessage/consumer.js";
+import { Consumer } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubChef } from "../src/imessage/chef.js";
+import { StubThreadLock } from "../src/imessage/lock.js";
 
 const SECRET = "whsec_test";
 process.env.SPECTRUM_WEBHOOK_SECRET = SECRET;
@@ -73,13 +74,17 @@ describe("iMessage substrate", () => {
     expect(send.mock.calls[0][1]).toEqual({ threadId: thread.id });
 
     const sender = new StubSpectrumSender();
-    const chef = new StubChef();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef });
+    const chef = new StubChef(db);
+    const lock = new StubThreadLock();
+    await new Consumer(db, sender, chef, lock).handle({ threadId: thread.id });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(1);
     expect(outbound[0].sentAt).not.toBeNull();
     expect(sender.calls).toEqual([{ chatGuid: "chat-1", body: outbound[0].body }]);
+    expect(sender.reads).toContain(inbound[0].messageGuid); // marked the inbound read
+    expect(sender.respondingCount).toBe(1); // reply composed + sent under the typing indicator
+    expect(lock.calls).toBe(1); // the turn ran under the per-thread lock
     const [updated] = await db.select().from(threads).where(eq(threads.id, thread.id));
     expect(updated.lastProcessedId).toBe(inbound[0].id);
     expect(chef.reasoningReached).toBe(true);
@@ -98,12 +103,24 @@ describe("iMessage substrate", () => {
   it("redelivered doorbell sends exactly once (AC-7)", async () => {
     const [thread] = await postAndGetThread("m3", "chat-3", "+15553334444", "yo");
     const sender = new StubSpectrumSender();
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef() });
-    await handleDoorbell({ threadId: thread.id }, { db, sender, chef: new StubChef() });
+    await new Consumer(db, sender, new StubChef(db), new StubThreadLock()).handle({ threadId: thread.id });
+    await new Consumer(db, sender, new StubChef(db), new StubThreadLock()).handle({ threadId: thread.id });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound).toHaveLength(1);
     expect(sender.calls).toHaveLength(1);
+  });
+
+  it("a lock loser does nothing — no reply, cursor untouched", async () => {
+    const [thread] = await postAndGetThread("m-lock", "chat-lock", "+15557778888", "hey");
+    const sender = new StubSpectrumSender();
+    // Lock not acquired (another processor holds it): the turn must not run.
+    await new Consumer(db, sender, new StubChef(db), new StubThreadLock(false)).handle({ threadId: thread.id });
+
+    expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
+    expect(sender.calls).toHaveLength(0);
+    const [after] = await db.select().from(threads).where(eq(threads.id, thread.id));
+    expect(after.lastProcessedId).toBeNull(); // cursor never advanced
   });
 
   it("senderless delivery is acked and ignored (no user/thread/message, no doorbell)", async () => {

@@ -120,15 +120,16 @@ Given a delivery whose HMAC does not verify (tampered body, wrong secret, or mis
 header), when it hits the webhook, then the route returns `401` and nothing is persisted and no
 doorbell is enqueued.
 
-**AC-3 — Webhook rings exactly one coalesced doorbell.**
+**AC-3 — Webhook rings one doorbell, keyed by `message_guid`.**
 Given a verified delivery, when the transaction commits, then a doorbell `{thread_id}` is
-enqueued on the inbound topic with `idempotencyKey = thread_id`, after the commit (never
-before).
+enqueued on the inbound topic with `idempotencyKey = message_guid`, after the commit (never
+before). (Keyed by message, NOT thread — see the Concurrency section; a `thread_id` key would
+swallow later messages on the thread for the queue's 24h dedup window.)
 
 **AC-4 — Redelivered webhook is a no-op (inbound dedup).**
 Given a delivery already recorded, when the identical body (same `message_guid`) is POSTed
-again, then the unique index on `message_guid` makes the insert a no-op (still one row) and
-coalescing produces no second in-flight doorbell.
+again, then the unique index on `message_guid` makes the insert a no-op (still one row) and the
+`message_guid` doorbell key produces no second doorbell for that same message.
 
 **AC-5 — Consumer processes pending and advances the cursor.**
 Given a doorbell `{thread_id}` and one pending inbound `text` message, when the consumer runs,
@@ -217,8 +218,8 @@ the stub chef was reached via `process_message` (assert the reasoning stub was i
 
 **Steps:** Re-POST the identical signed body (same `message_guid`).
 
-**Expected Outcomes:** Still one inbound row; no second doorbell becomes in-flight (coalesced);
-response is `2xx`.
+**Expected Outcomes:** Still one inbound row; the same `message_guid` doorbell key yields no
+second doorbell for that message; response is `2xx`.
 
 ### Test Case 5: Redelivered doorbell (integration) — covers AC-7
 
@@ -316,8 +317,15 @@ Carried from the design doc (see it for full rationale):
 - **D3** — Durable outbound (rows + `sent_at`, sent from the consumer) ships in increment 1, so
   at-least-once delivery can't double-reply on the common redelivery path.
 - **D4** — Objective machinery deferred to increment 2; reasoning layer is a stub now.
-- **D5** — Serialization via doorbell coalescing + the `sent_at` gate; DB single-flight lease and
-  interruption deferred (Q-4 visibility-timeout tuning parked).
+- **D5** — Serialization via a **per-thread Redis lock** (a well-implemented lib — `redlock`'s
+  auto-extending `using()`), held across the whole turn; the `sent_at` gate guards outbound.
+  Coalescing-by-`thread_id` was struck (it's 24h produce-dedup, not a lock, and swallowed later
+  messages — Q-3). A turn mutates the DB mid-flight (inc-2) and can double-reply (inc-1), and no
+  held DB/advisory lock fits across the LLM call on serverless, so the lock lives in Redis. The
+  doorbell is keyed by `message_guid` (dedup redeliveries only). **Fencing deliberately omitted:**
+  `redlock` isn't fenced, so a pause past the TTL can let two turns write concurrently — a rare
+  race explicitly accepted for now (Jordan, 2026-08-30), not scheduled; the fix would be a
+  DB-enforced monotonic fence token. Interruption deferred to inc-2.
 - **D6 — Chef built as plain TypeScript layers now; Mastra deferred to increment 2.** The design
   names both chef layers as Mastra `Agent`s, but Mastra is not installed and increment 1's
   reasoning layer is a stub with no tools. Building it as a plain `ResponseLayer` (one DeepSeek
@@ -333,8 +341,9 @@ Carried from the design doc (see it for full rationale):
 |---|---|---|---|
 | Q-1 | Send outbound outside a webhook request scope | resolved | `im.space.get(chat_guid).send(...)` — only line creds + `chat_guid` |
 | Q-2 | Line token renewal without a persistent process | resolved | Automatic discovery (`projectId`+`projectSecret`); SDK renews, cold start re-discovers |
-| Q-3 | Doorbell dedup window releases at ack (not TTL) | resolved | Yes — the message's lifetime ends at ack |
-| Q-4 | Visibility timeout vs. turn length | open | Tune as we go (generous timeout / `ExtendLease`); mechanism 3 covers the duplicate meanwhile |
+| Q-3 | Doorbell dedup window releases at ack (not TTL) | **resolved — NO** | Wrong assumption. Vercel Queue `idempotencyKey` dedup is a fixed ~24h retention window, not ack-scoped (confirmed live). Doorbell keyed by `message_guid`; serialization moved to the Redis lock (D5). |
+| Q-4 | Visibility timeout vs. turn length | resolved | The Redis lock's TTL + auto-renewal spans the turn; the queue visibility timeout is only retry backing now, not load-bearing for serialization |
+| Q-6 | Redis provider + `redlock` client compatibility (TCP vs Upstash HTTP) | open | Pin at provisioning via the Vercel marketplace |
 | Q-5 | Does Photon discovery return a usable textable line for this project? | open | Check during build; if empty, Jordan provisions a dedicated/Business line |
 
 ## Appendix A — Changelog
@@ -343,3 +352,4 @@ Carried from the design doc (see it for full rationale):
 |---|---|---|
 | 2026-08-29 | Claude (w/ Jordan) | Work-item spec derived from `increment-1-substrate-and-response.md` + verified repo facts; AC→test-case mapping; deployment + verification; human-gated line prerequisite (Q-5) called out |
 | 2026-08-29 | Claude | Verified the SDK against `@spectrum-ts` 12.8.0 type declarations; added the Verified SDK section; corrected: use `verifySpectrumSignature` (not hand-rolled HMAC); no send-idempotency key → `sent_at` gate + documented ceiling (AC-7, D2, D5); don't use the fire-and-forget `app.webhook` handler on serverless; added D6 (chef as plain layers, Mastra deferred to inc-2) |
+| 2026-08-30 | Claude (w/ Jordan) | Concurrency correction (live-verified): Q-3 was wrong — Vercel Queue `idempotencyKey` is ~24h produce-dedup, so `thread_id` coalescing swallowed later messages. Doorbell now keyed by `message_guid` (AC-3/AC-4 + Test Case 4); serialization is a per-thread **Redis lock via `redlock`** held across the turn (D5) since processing mutates the DB mid-turn; Q-4 resolved (lock TTL spans the turn), Q-6 added (Redis provider) |

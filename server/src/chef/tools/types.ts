@@ -1,0 +1,43 @@
+import type { Tool } from '@mastra/core/tools';
+import type { Database } from '../../db.js';
+
+/**
+ * One turn's mutable context, shared by every tool built for that turn. A tool reads the current
+ * `householdId`/`members` at execute time (not at build time), so `create_household` running earlier
+ * in a turn flows the new household to a later `save_*` in the same turn. `db` + the identity fields
+ * let a tool wire its own repositories (CLAUDE.md: tools create their own dependencies).
+ */
+export interface TurnContext {
+  db: Database;
+  threadId: string;
+  objectiveId: string;
+  /** The handle of the person texting (the initiator/owner) — from the thread's owner. */
+  initiatorHandle: string;
+  /** Null until the "same kitchen" flow runs; `create_household` sets it in place. */
+  householdId: string | null;
+  members: Array<{ userId: string; name?: string }>;
+}
+
+/**
+ * What a tool actually did: the normalized values that landed, and each value the model tried that
+ * was refused (unknown enum, unconfirmed allergen, absent member), with the nearest valid ids when
+ * they exist. Returned to the model in the tool-loop and collected to reconcile slot updates.
+ */
+export interface SaveResult {
+  saved: Record<string, unknown>;
+  rejected: Array<{ input: string; reason: string; closest?: string[] }>;
+}
+
+/**
+ * A chef command, as a self-contained class. `static create(ctx)` wires its own repositories from
+ * the turn context; the instance binds to that turn. `asMastraTool()` returns the Mastra tool that
+ * closes over the instance, so the native tool-loop calls straight into our services — nothing is
+ * threaded through Mastra's context. `canRun()` is the prompt-time legality gate (context only, no
+ * args). `saved` accumulates what landed this turn, for slot reconciliation.
+ */
+export interface ChefTool {
+  readonly id: string;
+  readonly saved: SaveResult[];
+  canRun(): boolean;
+  asMastraTool(): Tool<any, any>;
+}

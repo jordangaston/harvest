@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
@@ -47,6 +47,12 @@ export class ThreadRepository {
     return row!.id;
   }
 
+  /** The iMessage handle of a user (the thread initiator), or '' if none is on file. */
+  async handleForUser(userId: string, tx: Executor = this.db): Promise<string> {
+    const [row] = await tx.select({ handle: users.imessageHandle }).from(users).where(eq(users.id, userId));
+    return row?.handle ?? '';
+  }
+
   /**
    * Resolves the thread for a chat_guid, creating one owned by `ownerUserId` on first
    * contact.
@@ -92,6 +98,11 @@ export class ThreadRepository {
     return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
   }
 
+  /** True when an inbound text message exists past the cursor (the interruption-barrier check). */
+  async hasInboundPast(threadId: string, cursor: string): Promise<boolean> {
+    return (await this.loadPendingInbound(threadId, cursor)).length > 0;
+  }
+
   /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). */
   async insertOutbound(
     input: { threadId: string; body: string; messageGuid: string },
@@ -108,6 +119,12 @@ export class ThreadRepository {
       .where(eq(threads.id, threadId));
   }
 
+  /** Links a thread to its household by setting `threads.household_id` (which supersedes
+   *  `owner_user_id` as the thread's owner once a household exists). */
+  async linkHousehold(threadId: string, householdId: string, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ householdId, updatedAt: new Date() }).where(eq(threads.id, threadId));
+  }
+
   /** Loads the thread's unsent outbound rows (the send gate: `sent_at IS NULL`). */
   async loadUnsentOutbound(threadId: string): Promise<ThreadMessage[]> {
     const rows = await this.db
@@ -120,7 +137,9 @@ export class ThreadRepository {
           isNull(threadMessages.sentAt),
         ),
       )
-      .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
+      // rowid = true insertion order; created_at is second-granularity so a turn's bubbles tie
+      // there, and ordering by the uuid id would scramble them. Batch order must be send order.
+      .orderBy(sql`rowid`);
     return rows.map((row) => ThreadMessageSchema.parse(row));
   }
 

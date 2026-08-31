@@ -25,13 +25,20 @@ export const WeeklyMealsSchema = z.object({
 export type WeeklyMeals = z.infer<typeof WeeklyMealsSchema>;
 export const ZERO_MEALS: WeeklyMeals = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
 
-/** Per-meal cook-time budget in minutes. Mirrors WeeklyMeals; only the three onboarding sliders. */
+/** Per-meal cook-time budget in minutes, each independently optional (an iMessage user may give
+ *  just "30-min dinners"). Backed by three columns; a meal with no budget is null. */
 export const TimeByMealSchema = z.object({
-  breakfast: z.number().int().positive(),
-  lunch: z.number().int().positive(),
-  dinner: z.number().int().positive(),
+  breakfast: z.number().int().positive().nullable(),
+  lunch: z.number().int().positive().nullable(),
+  dinner: z.number().int().positive().nullable(),
 });
 export type TimeByMeal = z.infer<typeof TimeByMealSchema>;
+
+/** Assemble the domain `timeByMeal` from its three columns — null when no meal has a budget. */
+export function timeByMealFromColumns(breakfast: number | null, lunch: number | null, dinner: number | null): TimeByMeal | null {
+  if (breakfast === null && lunch === null && dinner === null) return null;
+  return { breakfast, lunch, dinner };
+}
 
 /** The fully-resolved per-user ranking preferences, with the child tables folded in. */
 export const UserPreferencesSchema = z.object({
