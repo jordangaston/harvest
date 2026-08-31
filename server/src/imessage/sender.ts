@@ -10,8 +10,9 @@ function buildProvider(app: SpectrumInstance) {
 
 /** Sends outbound iMessage text via Spectrum, resolved outside any request scope. */
 export interface Sender {
-  /** Send a turn's bubbles as ONE ordered batch (so iMessage can't reorder them). */
-  send(chatGuid: string, bodies: string[]): Promise<void>;
+  /** Send a turn's bubbles as ONE ordered batch (so iMessage can't reorder them).
+   *  @returns the sent messages' Spectrum platform ids, in send order (one per bubble). */
+  send(chatGuid: string, bodies: string[]): Promise<string[]>;
   /** Send read receipts for the given inbound message guids (fire-and-forget). */
   markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
   /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
@@ -50,13 +51,19 @@ export class SpectrumSender implements Sender {
    * ponytail: no send-idempotency key exists in the SDK — outbound idempotency is the
    * `sent_at` gate. A crash between the batch resolving and the sent_at write can double-send
    * the whole batch on redelivery (documented increment-1 ceiling).
+   *
+   * @returns the sent messages' platform ids in send order. Confirmed against @spectrum-ts/core:
+   * `send(...content)` returns `Message[]` for a batch (≥2, in input order) and `Message | undefined`
+   * for a single content; each `Message` carries a `.id`. Normalized to an id array here.
    */
-  async send(chatGuid: string, bodies: string[]): Promise<void> {
-    if (bodies.length === 0) return;
+  async send(chatGuid: string, bodies: string[]): Promise<string[]> {
+    if (bodies.length === 0) return [];
     const space = await this.im.space.get(chatGuid);
     const contents = bodies.map((b) => text(b));
     // The SDK types the variadic send for ≥2 args, so call it generically (works for 1 or many).
-    await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
+    const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
+    const messages = Array.isArray(sent) ? sent : sent ? [sent] : [];
+    return messages.map((m) => (m as { id: string }).id);
   }
 
   // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
@@ -81,8 +88,13 @@ export class StubSpectrumSender implements Sender {
   readonly reads: string[] = [];
   respondingCount = 0;
 
-  async send(chatGuid: string, bodies: string[]): Promise<void> {
+  /** Synthetic platform ids in send order (`ext-0`, `ext-1`, …), or override `sendReturn` to
+   *  simulate a degraded return (fewer ids than bubbles, or none). */
+  sendReturn?: string[];
+
+  async send(chatGuid: string, bodies: string[]): Promise<string[]> {
     for (const body of bodies) this.calls.push({ chatGuid, body });
+    return this.sendReturn ?? bodies.map((_, i) => `ext-${i}`);
   }
 
   async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {

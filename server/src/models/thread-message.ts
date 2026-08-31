@@ -14,6 +14,9 @@ export const ThreadMessageSchema = z.object({
   targetMessageGuid: z.string().nullable(),
   reactionEmoji: z.string().nullable(),
   messageGuid: z.string(),
+  // The Spectrum platform message id (WI-C): reply/reaction targets resolve against it.
+  // Set at insert for inbound, after send for outbound; null on an unsent outbound row.
+  externalId: z.string().nullable(),
   sentAt: z.date().nullable(),
   createdAt: z.date(),
 });

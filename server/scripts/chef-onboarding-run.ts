@@ -18,7 +18,7 @@ const HANDLE = 'dev:+15550000000';
 
 class CaptureSender implements Sender {
   bubbles: string[] = [];
-  async send(_g: string, bodies: string[]): Promise<void> { this.bubbles.push(...bodies); }
+  async send(_g: string, bodies: string[]): Promise<string[]> { this.bubbles.push(...bodies); return bodies.map((_, i) => `ext-${i}`); }
   async markRead(): Promise<void> {}
   async responding<T>(_g: string, fn: () => Promise<T>): Promise<T> { return fn(); }
 }

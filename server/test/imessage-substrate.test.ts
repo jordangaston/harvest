@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { type Database } from "../src/db.js";
 import { threads, threadMessages, users } from "../src/schema.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
@@ -16,9 +16,30 @@ import { Consumer } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubChef } from "../src/imessage/chef.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
+import { ThreadRepository } from "../src/repositories/thread-repository.js";
 
 const SECRET = "whsec_test";
 process.env.SPECTRUM_WEBHOOK_SECRET = SECRET;
+
+/** A Chef double that emits TWO text bubbles per turn — for the outbound external_id mapping tests. */
+class TwoBubbleChef {
+  private readonly threads: ThreadRepository;
+  constructor(private readonly db: Database) {
+    this.threads = ThreadRepository.create(db);
+  }
+  async respond(threadId: string) {
+    const thread = await this.threads.findById(threadId);
+    if (!thread) return null;
+    const pending = await this.threads.loadPendingInbound(threadId, thread.lastProcessedId);
+    if (pending.length === 0) return null;
+    return {
+      chatEvents: [{ kind: "text" as const, text: "first" }, { kind: "text" as const, text: "second" }],
+      slotUpdates: [],
+      cursorTo: pending[pending.length - 1]!.id,
+      objectiveId: "",
+    };
+  }
+}
 
 let db: Database;
 let cleanup: () => void;
@@ -293,6 +314,68 @@ describe("iMessage substrate", () => {
     await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId: thread.id });
     expect(chef.reasoningReached).toBe(true); // the reply drove a reasoning turn
     expect(sender.calls).toHaveLength(1); // an outbound reply was produced
+  });
+
+  it("inbound rows carry external_id = their platform id (WI-C)", async () => {
+    const [thread] = await postAndGetThread("m-ext", "chat-ext", "+15551110000", "hi chef");
+    const [row] = await db.select().from(threadMessages).where(eq(threadMessages.threadId, thread.id));
+    expect(row.externalId).toBe("m-ext"); // the Spectrum message id the webhook carried
+  });
+
+  it("outbound external_id captured in send order (WI-C AC1)", async () => {
+    const [thread] = await postAndGetThread("m-ac1", "chat-ac1", "+15552220000", "hey");
+    const sender = new StubSpectrumSender(); // returns ext-0, ext-1, … in order
+    await new Consumer(db, sender, new TwoBubbleChef(db), new StubThreadLock()).handle({ threadId: thread.id });
+
+    const outbound = await db
+      .select()
+      .from(threadMessages)
+      .where(eq(threadMessages.direction, "outbound"))
+      .orderBy(sql`rowid`);
+    expect(outbound).toHaveLength(2);
+    expect(outbound.map((r) => r.externalId)).toEqual(["ext-0", "ext-1"]);
+    expect(outbound.every((r) => r.sentAt !== null)).toBe(true);
+  });
+
+  it("reply-to-Chef resolves the parent via external_id + briefs (WI-C AC2)", async () => {
+    const [thread] = await postAndGetThread("m-seed2", "chat-ac2", "+15553330000", "hey");
+    // A prior Chef outbound whose external_id is the platform id; its message_guid is a distinct UUID.
+    await db.insert(threadMessages).values({
+      threadId: thread.id, direction: "outbound", type: "text",
+      body: "here's the menu for the week", messageGuid: crypto.randomUUID(),
+      externalId: "spc-msg-PARENT", sentAt: new Date(),
+    });
+
+    expect((await post(signedReplyDelivery("rep-ac2", "chat-ac2", "+15553330000", "make it vegetarian", "spc-msg-PARENT"))).status).toBe(200);
+
+    const threads = ThreadRepository.create(db);
+    const parent = await threads.findByPlatformId(thread.id, "spc-msg-PARENT");
+    expect(parent?.body).toBe("here's the menu for the week"); // resolved solely off external_id
+    // The briefing surfaces the resolved parent (WI-B's ↳ replying to snippet) for a reply-to-Chef.
+    const { prepareBriefing } = await import("../src/chef/briefing.js");
+    const prompt = prepareBriefing({
+      objective: { definition: "onboarding" } as any,
+      slots: [], members: [], transcript: [], trigger: "make it vegetarian",
+      replyingTo: parent!.body!,
+    });
+    expect(prompt).toContain('replying to: "here\'s the menu for the week"');
+  });
+
+  it("degraded send return doesn't crash or mis-assign (WI-C AC3)", async () => {
+    const [thread] = await postAndGetThread("m-ac3", "chat-ac3", "+15554440000", "yo");
+    const sender = new StubSpectrumSender();
+    sender.sendReturn = ["only-0"]; // one id for a two-bubble turn
+    await new Consumer(db, sender, new TwoBubbleChef(db), new StubThreadLock()).handle({ threadId: thread.id });
+
+    const outbound = await db
+      .select()
+      .from(threadMessages)
+      .where(eq(threadMessages.direction, "outbound"))
+      .orderBy(sql`rowid`);
+    expect(outbound).toHaveLength(2);
+    expect(outbound[0].externalId).toBe("only-0"); // the known one is set
+    expect(outbound[1].externalId).toBeNull(); // the unmatched one stays null — never mis-assigned
+    expect(outbound.every((r) => r.sentAt !== null)).toBe(true); // both still marked sent
   });
 
   async function postAndGetThread(mGuid: string, chatGuid: string, handle: string, text: string) {
