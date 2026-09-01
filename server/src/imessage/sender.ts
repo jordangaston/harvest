@@ -1,4 +1,4 @@
-import { Spectrum, text } from '@spectrum-ts/core';
+import { Spectrum, reply, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
 import { imessage } from '@spectrum-ts/imessage';
 
@@ -13,6 +13,10 @@ export interface Sender {
   /** Send a turn's bubbles as ONE ordered batch (so iMessage can't reorder them).
    *  @returns the sent messages' Spectrum platform ids, in send order (one per bubble). */
   send(chatGuid: string, bodies: string[]): Promise<string[]>;
+  /** Send a turn's bubbles as a THREADED reply to `targetPlatformId`, in order. Falls back to a
+   *  normal (un-threaded) send if the target message can't be resolved, so it still delivers.
+   *  @returns the sent messages' platform ids, in send order (one per bubble). */
+  sendReply(chatGuid: string, targetPlatformId: string, bodies: string[]): Promise<string[]>;
   /** Send read receipts for the given inbound message guids (fire-and-forget). */
   markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
   /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
@@ -62,8 +66,24 @@ export class SpectrumSender implements Sender {
     const contents = bodies.map((b) => text(b));
     // The SDK types the variadic send for ≥2 args, so call it generically (works for 1 or many).
     const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
-    const messages = Array.isArray(sent) ? sent : sent ? [sent] : [];
-    return messages.map((m) => (m as { id: string }).id);
+    return normalizeSentIds(sent);
+  }
+
+  /**
+   * Sends the bodies as a threaded reply to `targetPlatformId` — resolves the parent via
+   * `space.getMessage`, then batches `reply(text(body), target)` bubbles through the same
+   * ordered variadic `send` as {@link send}. If the parent can't be resolved (undefined), falls
+   * back to a plain `text` batch so the message still delivers un-threaded (spec AC2).
+   *
+   * @returns the sent messages' platform ids in send order (one per bubble).
+   */
+  async sendReply(chatGuid: string, targetPlatformId: string, bodies: string[]): Promise<string[]> {
+    if (bodies.length === 0) return [];
+    const space = await this.im.space.get(chatGuid);
+    const target = await space.getMessage(targetPlatformId);
+    const contents = bodies.map((b) => (target ? reply(text(b), target) : text(b)));
+    const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
+    return normalizeSentIds(sent);
   }
 
   // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
@@ -82,9 +102,18 @@ export class SpectrumSender implements Sender {
   }
 }
 
+/** Normalizes a Spectrum `send` result (`Message | Message[] | undefined`) to a platform-id
+ *  array in send order — a batch returns `Message[]`, a single content `Message | undefined`. */
+function normalizeSentIds(sent: unknown): string[] {
+  const messages = Array.isArray(sent) ? sent : sent ? [sent] : [];
+  return messages.map((m) => (m as { id: string }).id);
+}
+
 /** Records sends without touching the network — the offline test double. */
 export class StubSpectrumSender implements Sender {
   readonly calls: { chatGuid: string; body: string }[] = [];
+  /** `sendReply` calls, with the resolved target (null when the parent didn't resolve → fallback). */
+  readonly replyCalls: { chatGuid: string; target: string | null; body: string }[] = [];
   readonly reads: string[] = [];
   respondingCount = 0;
 
@@ -92,8 +121,18 @@ export class StubSpectrumSender implements Sender {
    *  simulate a degraded return (fewer ids than bubbles, or none). */
   sendReturn?: string[];
 
+  /** Target ids that `sendReply` should treat as unresolvable (mirrors `getMessage` → undefined),
+   *  so tests can drive the graceful-fallback path. Empty ⇒ every target resolves. */
+  readonly missingTargets = new Set<string>();
+
   async send(chatGuid: string, bodies: string[]): Promise<string[]> {
     for (const body of bodies) this.calls.push({ chatGuid, body });
+    return this.sendReturn ?? bodies.map((_, i) => `ext-${i}`);
+  }
+
+  async sendReply(chatGuid: string, targetPlatformId: string, bodies: string[]): Promise<string[]> {
+    const target = this.missingTargets.has(targetPlatformId) ? null : targetPlatformId;
+    for (const body of bodies) this.replyCalls.push({ chatGuid, target, body });
     return this.sendReturn ?? bodies.map((_, i) => `ext-${i}`);
   }
 
