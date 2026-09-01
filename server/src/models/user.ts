@@ -55,6 +55,7 @@ export const UserSchema = z.object({
   jwtPublicKey: z.string(),
   accessTokenNonce: z.number().int(),
   refreshTokenNonce: z.number().int(),
+  webLinkNonce: z.number().int(),
   goals: z.array(z.enum(GOALS)).nullable(),
   recipeSources: z.array(z.enum(RECIPE_SOURCES)).nullable(),
   cookDaysCount: z.number().int().min(1).max(7).nullable(),
