@@ -42,6 +42,12 @@ class CaptureSender implements Sender {
   async sendReaction(_chatGuid: string, target: string, emoji: string): Promise<void> {
     this.bubbles.push(`[reaction:${emoji}->${target}]`);
   }
+  async renameChat(_chatGuid: string, name: string): Promise<void> {
+    this.bubbles.push(`[rename:${name}]`);
+  }
+  async sendContactCard(_chatGuid: string): Promise<void> {
+    this.bubbles.push('[contact-card]');
+  }
   async markRead(): Promise<void> {}
   async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {
     return fn();

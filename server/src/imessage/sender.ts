@@ -1,6 +1,6 @@
-import { Spectrum, reaction, reply, richlink, text } from '@spectrum-ts/core';
+import { Spectrum, UnsupportedError, reaction, reply, richlink, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
-import { effect, imessage } from '@spectrum-ts/imessage';
+import { effect, imessage, nativeContactCard } from '@spectrum-ts/imessage';
 
 /** The screen effects Chef uses (WI-4B): confetti on greeting, fireworks on onboarding-complete.
  *  A key of the provider's `effect.message` map, resolved to a bundle-id at send. */
@@ -31,6 +31,12 @@ export interface Sender {
   /** React to `targetPlatformId` with a native tapback (`emoji` is the glyph). No-op if the target
    *  message can't be resolved — a tapback with no resolvable target can't be sent. */
   sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void>;
+  /** Rename the chat (WI-4C) — group chats only. iMessage `rename` throws on a 1:1 DM, so this
+   *  guards on `space.type` and no-ops on a DM. Fire-and-forget; called once after household creation. */
+  renameChat(chatGuid: string, name: string): Promise<void>;
+  /** Send Chef's native contact card (WI-4C) — `space.send(nativeContactCard())`, sharing the line's
+   *  own Apple-account name/photo. Fire-and-forget; called once after the onboarding fireworks. */
+  sendContactCard(chatGuid: string): Promise<void>;
   /** Send read receipts for the given inbound message guids (fire-and-forget). */
   markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
   /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
@@ -142,6 +148,30 @@ export class SpectrumSender implements Sender {
     await space.send(reaction(emoji, target));
   }
 
+  /**
+   * Renames the chat (WI-4C) — iMessage `rename` is group-only, so a 1:1 DM throws
+   * `UnsupportedError`. Guards on the resolved space's `type` (the iMessage platform space
+   * carries `type: 'dm' | 'group'`) and no-ops on a DM; the `UnsupportedError` catch is a
+   * defensive backstop so the turn never crashes even if the guard is wrong.
+   */
+  async renameChat(chatGuid: string, name: string): Promise<void> {
+    const space = await this.im.space.get(chatGuid);
+    if (space.type !== 'group') return; // 1:1 DM — rename would throw; no-op (spec AC2)
+    try {
+      await space.rename(name);
+    } catch (err) {
+      if (err instanceof UnsupportedError) return; // belt-and-braces; a DM never reaches here
+      throw err;
+    }
+  }
+
+  /** Sends Chef's native contact card (WI-4C) — `space.send(nativeContactCard())`, which shares the
+   *  line's own Apple-account name/photo. Works on DMs and groups. Fire-and-forget. */
+  async sendContactCard(chatGuid: string): Promise<void> {
+    const space = await this.im.space.get(chatGuid);
+    await space.send(nativeContactCard());
+  }
+
   // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
   // does 2-3 resolves. Fine at turn frequency; fold into one resolve if it ever matters.
   async markRead(chatGuid: string, messageGuids: string[]): Promise<void> {
@@ -176,8 +206,16 @@ export class StubSpectrumSender implements Sender {
   readonly reactionCalls: { chatGuid: string; target: string; emoji: string }[] = [];
   /** `sendEffect` calls (WI-4B) — the bubble body and which screen effect it carried. */
   readonly effectCalls: { chatGuid: string; body: string; effectName: MessageEffect }[] = [];
+  /** `renameChat` calls that actually renamed (a DM no-ops, recording nothing — spec AC2). */
+  readonly renameCalls: { chatGuid: string; name: string }[] = [];
+  /** `sendContactCard` calls (WI-4C). */
+  readonly contactCardCalls: { chatGuid: string }[] = [];
   readonly reads: string[] = [];
   respondingCount = 0;
+
+  /** The space type `renameChat` guards on: `'group'` renames, `'dm'` no-ops (mirrors the live
+   *  `space.type` guard). Defaults to a group so the rename path is exercised by default. */
+  spaceType: 'dm' | 'group' = 'group';
 
   /** Synthetic platform ids in send order (`ext-0`, `ext-1`, …), or override `sendReturn` to
    *  simulate a degraded return (fewer ids than bubbles, or none). */
@@ -212,6 +250,15 @@ export class StubSpectrumSender implements Sender {
   async sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void> {
     if (this.missingTargets.has(targetPlatformId)) return; // unresolvable target no-ops (spec AC2)
     this.reactionCalls.push({ chatGuid, target: targetPlatformId, emoji });
+  }
+
+  async renameChat(chatGuid: string, name: string): Promise<void> {
+    if (this.spaceType !== 'group') return; // DM no-ops without throwing (spec AC2)
+    this.renameCalls.push({ chatGuid, name });
+  }
+
+  async sendContactCard(chatGuid: string): Promise<void> {
+    this.contactCardCalls.push({ chatGuid });
   }
 
   async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {

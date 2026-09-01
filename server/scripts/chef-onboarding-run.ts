@@ -23,6 +23,8 @@ class CaptureSender implements Sender {
   async sendReply(g: string, _t: string, bodies: string[]): Promise<string[]> { return this.send(g, bodies); }
   async sendLink(_g: string, url: string): Promise<string[]> { this.bubbles.push(`[richlink:${url}]`); return ['ext-0']; }
   async sendReaction(_g: string, target: string, emoji: string): Promise<void> { this.bubbles.push(`[reaction:${emoji}->${target}]`); }
+  async renameChat(_g: string, name: string): Promise<void> { this.bubbles.push(`[rename:${name}]`); }
+  async sendContactCard(_g: string): Promise<void> { this.bubbles.push('[contact-card]'); }
   async markRead(): Promise<void> {}
   async responding<T>(_g: string, fn: () => Promise<T>): Promise<T> { return fn(); }
 }
