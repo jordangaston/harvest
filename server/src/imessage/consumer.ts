@@ -5,6 +5,7 @@ import { selectSender, type Sender } from './sender.js';
 import { selectChef, ObjectiveRepository, type Chef } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
+import type { ThreadMessage } from '../models/thread-message.js';
 
 /**
  * Drains a thread's pending inbound and answers it. The consumer owns its collaborators — the
@@ -65,8 +66,12 @@ export class Consumer {
 
           await this.db.transaction(async (tx) => {
             for (const event of reply.chatEvents) {
-              if (event.kind !== 'text') continue; // the sender only sends text this increment
-              await this.threads.insertOutbound({ threadId, body: event.text, messageGuid: randomUUID() }, tx);
+              // A richlink persists as a `[richlink:<url>]` body marker (no enum value); the send
+              // half unwraps it and dispatches via sendLink. Other kinds (tapback) aren't sent yet.
+              const body =
+                event.kind === 'text' ? event.text : event.kind === 'richlink' ? `[richlink:${event.url}]` : null;
+              if (body === null) continue;
+              await this.threads.insertOutbound({ threadId, body, messageGuid: randomUUID() }, tx);
             }
             await this.objectives.applySlotUpdates(reply.slotUpdates, tx);
             // Completion is a computable predicate — when every required slot is terminal the
@@ -77,23 +82,51 @@ export class Consumer {
           });
 
           const unsent = await this.threads.loadUnsentOutbound(threadId);
-          if (unsent.length > 0) {
-            // One ordered batch, not a rapid-fire loop — so the bubbles arrive in order. The send
-            // returns the platform ids in that same order; map each back to its row by index.
-            const ids = await this.sender.send(thread.chatGuid, unsent.map((r) => r.body ?? ''));
-            const now = new Date();
-            for (const [i, row] of unsent.entries()) {
-              await this.threads.markSent(row.id, now);
-              // Defensive: a degraded return (fewer ids than bubbles, or none) leaves the
-              // unmatched rows' external_id null rather than mis-assigning another bubble's id.
-              if (ids[i]) await this.threads.setExternalId(row.id, ids[i]!);
-            }
-          }
+          await this.dispatch(thread.chatGuid, unsent);
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining
         cursor = cursorTo; // re-check for messages that landed mid-turn before releasing the lock
       }
     });
+  }
+
+  /**
+   * Sends the unsent outbound rows in row order, preserving both text batching and richlink
+   * ordering. Contiguous text rows accumulate into one ordered `send` batch (so iMessage can't
+   * reorder the bubbles); a richlink row (a `[richlink:<url>]` body marker) first flushes any
+   * pending text batch, then sends the link via `sendLink` — keeping the overall sequence intact.
+   * Every row gets its `external_id` captured from the send's returned platform ids.
+   */
+  private async dispatch(chatGuid: string, unsent: ThreadMessage[]): Promise<void> {
+    let batch: ThreadMessage[] = [];
+    const flush = async () => {
+      if (batch.length === 0) return;
+      const ids = await this.sender.send(chatGuid, batch.map((r) => r.body ?? ''));
+      await this.markRowsSent(batch, ids);
+      batch = [];
+    };
+
+    for (const row of unsent) {
+      const link = /^\[richlink:(.+)\]$/.exec(row.body ?? '');
+      if (!link) {
+        batch.push(row);
+        continue;
+      }
+      await flush(); // text before this link must land first
+      const ids = await this.sender.sendLink(chatGuid, link[1]!);
+      await this.markRowsSent([row], ids);
+    }
+    await flush(); // any trailing text
+  }
+
+  /** Marks each row sent and maps the send's returned platform ids back to rows by index. A degraded
+   *  return (fewer ids than rows) leaves the unmatched rows' external_id null rather than mis-assigning. */
+  private async markRowsSent(rows: ThreadMessage[], ids: string[]): Promise<void> {
+    const now = new Date();
+    for (const [i, row] of rows.entries()) {
+      await this.threads.markSent(row.id, now);
+      if (ids[i]) await this.threads.setExternalId(row.id, ids[i]!);
+    }
   }
 }
