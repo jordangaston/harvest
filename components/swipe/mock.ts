@@ -62,6 +62,9 @@ export type WeeklyMeals = Record<MealType, number>; // how many of each meal typ
 /** A taste preference tagged by which corpus the value came from (WI-1 wire facet). */
 export type TasteFacet = "cuisine" | "dish_type" | "ingredient";
 export interface TastePref { facet: TasteFacet; value: string }
+/** A degreed "eat more/less of a food class" intent: `target` −1 (less) … +1 (more), with an
+ *  optional `reason`. `value` is a server food-class id (`red_meat`, `seafood`, …). */
+export interface ModerationPref { value: string; target: number; reason?: string | null }
 export interface Preferences {
   skillLevel: DifficultyBand;
   weeklyBudgetCents: number; // max weekly grocery spend (per-serving cost is calculated, not input)
@@ -70,6 +73,7 @@ export interface Preferences {
   weights: Weights;
   likes: TastePref[];
   dislikes: TastePref[];
+  moderation: ModerationPref[]; // eat more/less of a food class (degreed)
   allergens: AllergenPref[];
   diets: DietPref[];
   ownedEquipment: string[];
@@ -87,6 +91,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   weights: { cost: 3, difficulty: 1, nutrition: 3, affinity: 2, time: 2, mealPrep: 1 },
   likes: [],
   dislikes: [],
+  moderation: [],
   allergens: [],
   diets: [],
   ownedEquipment: ["oven", "stovetop", "microwave", "blender", "air_fryer"],

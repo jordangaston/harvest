@@ -1,7 +1,20 @@
 import { apiFetch } from "./client";
 
-/** A taste preference on the wire — `facet` names the corpus the value came from (WI-1). */
-export interface ApiTastePref { facet: "cuisine" | "dish_type" | "ingredient"; value: string }
+/** The facets the picker can write. `food_category` carries the eat-more/less moderation. */
+export type ApiFacet = "cuisine" | "dish_type" | "ingredient" | "food_category";
+
+/**
+ * One food preference on the wire, mirroring the server `user_food_prefs` row 1:1. Two orthogonal
+ * axes: `sentiment` (taste) and `target` (intent, −1 less … +1 more), plus a `reason`. Each element
+ * carries whichever axes apply — a taste like sets `sentiment`, a moderation sets `target`.
+ */
+export interface ApiFoodPref {
+  facet: ApiFacet;
+  value: string;
+  sentiment?: "like" | "dislike" | null;
+  target?: number | null;
+  reason?: string | null;
+}
 
 /** The wire shape of the preference model (snake_case), mirroring the server's `GET/PUT /v1/preferences`. */
 export interface ApiPreferences {
@@ -10,8 +23,7 @@ export interface ApiPreferences {
   time_budget_minutes: number | null;
   time_by_meal: { breakfast: number; lunch: number; dinner: number } | null;
   weekly_meals: { breakfast: number; lunch: number; dinner: number; snack: number; kids: number };
-  likes: ApiTastePref[];
-  dislikes: ApiTastePref[];
+  food_prefs: ApiFoodPref[];
   allergens: { allergen: string; severity: "severe" | "moderate" | "mild" }[];
   diets: { diet: string; strictness: "strict" | "flexible" }[];
   owned_equipment: string[];
