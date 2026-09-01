@@ -56,7 +56,25 @@ export class ImportNotifier {
 
     const body = outcome === 'ready' ? await this.saveAndCompose(jobId) : FAILURE_MESSAGE;
     await this.send(link.threadId, body, link.targetExternalId);
+    if (outcome === 'ready') await this.sendCard(link.threadId, jobId, link.targetExternalId);
     await this.imports.markNotified(jobId, new Date());
+  }
+
+  /**
+   * Follows the confirmation with a live recipe app card (docs/spikes/photon-app-recipe-card.md)
+   * threaded to the same drop. Opt-in via `PUBLIC_APP_URL` (the public origin serving `GET /r/:id`);
+   * skipped when unset or when the import produced more than one recipe (no single card to show).
+   * Best-effort — it runs after the confirmation and before `markNotified`, so its ceiling is the
+   * same replay double-send the confirmation already documents.
+   */
+  private async sendCard(threadId: string, jobId: string, threadParentId?: string | null): Promise<void> {
+    const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
+    if (!base) return;
+    const recipeIds = await this.jobs.findRecipeIds(jobId);
+    if (recipeIds.length !== 1) return;
+    const thread = await this.threads.findById(threadId);
+    if (!thread) return;
+    await this.sender.sendRecipeCard(thread.chatGuid, `${base}/r/${recipeIds[0]}`, threadParentId ?? undefined);
   }
 
   /** Saves the job's recipes to the owner's Liked cookbook and composes the success message. */
