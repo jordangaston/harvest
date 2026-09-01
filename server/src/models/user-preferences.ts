@@ -1,14 +1,15 @@
 import { z } from 'zod';
+import { AFFINITY_FACETS, SENTIMENTS } from '../schema.js';
 
 // Ranking enum value tuples, re-declared here (repo convention: the model validates
 // independently of the Drizzle table). The 0–3 weight range is enforced in this
-// schema at the read boundary, not by a DB check constraint.
+// schema at the read boundary, not by a DB check constraint. `AFFINITY_FACETS`/`SENTIMENTS`
+// are the one exception — shared with the recipe/user facet columns, so imported from schema.
 const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient'] as const;
-const SENTIMENTS = ['like', 'dislike'] as const;
+export { AFFINITY_FACETS };
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
 const weight = () => z.number().int().min(0).max(3);
