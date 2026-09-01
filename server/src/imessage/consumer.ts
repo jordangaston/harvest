@@ -53,6 +53,12 @@ export class Consumer {
 
     await this.lock.withThreadLock(threadId, async () => {
       let cursor = thread.lastProcessedId;
+      // One-time screen-effect gates (WI-4B): confetti on the first-ever Chef turn, fireworks the
+      // turn onboarding completes. Seeded from the thread's flags (null ⇒ still pending) so a
+      // redelivered doorbell — a fresh handle() that reloads the thread — can't re-fire; flipped
+      // once fired so the multi-turn drain loop fires each at most once.
+      let greetPending = thread.greetedAt === null;
+      let celebratePending = thread.celebratedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
@@ -64,6 +70,11 @@ export class Consumer {
         const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
           const reply = await this.chef.respond(threadId);
           if (!reply) return null; // nothing to say this turn — no commit, no send
+
+          // Whether this turn fires an effect, decided in-txn (below) against the fresh flags +
+          // post-update completion, then honoured by the send half after the commit.
+          const greetNow = greetPending;
+          let celebrateNow = false;
 
           await this.db.transaction(async (tx) => {
             for (const event of reply.chatEvents) {
@@ -82,13 +93,24 @@ export class Consumer {
             await this.objectives.applySlotUpdates(reply.slotUpdates, tx);
             // Completion is a computable predicate — when every required slot is terminal the
             // objective completes and pops (the next suspended one, if any, activates).
-            if (reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx)))
-              await this.objectives.completeAndPop(reply.objectiveId, tx);
+            const completedNow =
+              !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
+            if (completedNow) await this.objectives.completeAndPop(reply.objectiveId, tx);
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
+            // Stamp the effect gates in the same commit as the outbound rows, so the send fires
+            // exactly once even if the process dies before the send (redelivery reloads a set flag).
+            const now = new Date();
+            if (greetNow) await this.threads.markGreeted(threadId, now, tx);
+            celebrateNow = completedNow && celebratePending;
+            if (celebrateNow) await this.threads.markCelebrated(threadId, now, tx);
           });
 
+          greetPending = greetPending && !greetNow; // fired once; don't confetti a later turn
+          celebratePending = celebratePending && !celebrateNow; // fired once; don't re-fireworks a later completion
           const unsent = await this.threads.loadUnsentOutbound(threadId);
-          await this.dispatch(thread.chatGuid, unsent);
+          await this.dispatch(thread.chatGuid, unsent, greetNow);
+          // Fireworks the moment onboarding completes — a short extra bubble, not a normal reply.
+          if (celebrateNow) await this.sender.sendEffect(thread.chatGuid, 'Your first menu is on its way! 🎆', 'fireworks');
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining
@@ -105,7 +127,7 @@ export class Consumer {
    * keeping the overall sequence intact. Every row gets marked sent (the `sent_at` idempotency gate);
    * text/richlink rows also capture the send's returned `external_id` (a reaction returns none).
    */
-  private async dispatch(chatGuid: string, unsent: ThreadMessage[]): Promise<void> {
+  private async dispatch(chatGuid: string, unsent: ThreadMessage[], greet = false): Promise<void> {
     let batch: ThreadMessage[] = [];
     const flush = async () => {
       if (batch.length === 0) return;
@@ -123,6 +145,14 @@ export class Consumer {
       }
       const link = /^\[richlink:(.+)\]$/.exec(row.body ?? '');
       if (!link) {
+        // Confetti greeting (WI-4B): the first text bubble of the greeting turn ships alone via
+        // sendEffect(confetti); the rest batch normally. Consumed once, so only that bubble carries it.
+        if (greet) {
+          greet = false;
+          const ids = await this.sender.sendEffect(chatGuid, row.body ?? '', 'confetti');
+          await this.markRowsSent([row], ids);
+          continue;
+        }
         batch.push(row);
         continue;
       }

@@ -1,6 +1,10 @@
 import { Spectrum, reaction, reply, richlink, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
-import { imessage } from '@spectrum-ts/imessage';
+import { effect, imessage } from '@spectrum-ts/imessage';
+
+/** The screen effects Chef uses (WI-4B): confetti on greeting, fireworks on onboarding-complete.
+ *  A key of the provider's `effect.message` map, resolved to a bundle-id at send. */
+export type MessageEffect = 'confetti' | 'fireworks';
 
 /** Binds the imessage provider to a Spectrum app instance — pins the app-instance
  * overload of `imessage()` (it is also overloaded for a space/message argument). */
@@ -13,6 +17,9 @@ export interface Sender {
   /** Send a turn's bubbles as ONE ordered batch (so iMessage can't reorder them).
    *  @returns the sent messages' Spectrum platform ids, in send order (one per bubble). */
   send(chatGuid: string, bodies: string[]): Promise<string[]>;
+  /** Send one bubble carrying a native iMessage screen effect (WI-4B) — confetti/fireworks.
+   *  @returns the sent message's platform id(s), via `normalizeSentIds`. */
+  sendEffect(chatGuid: string, body: string, effectName: MessageEffect): Promise<string[]>;
   /** Send a turn's bubbles as a THREADED reply to `targetPlatformId`, in order. Falls back to a
    *  normal (un-threaded) send if the target message can't be resolved, so it still delivers.
    *  @returns the sent messages' platform ids, in send order (one per bubble). */
@@ -73,6 +80,20 @@ export class SpectrumSender implements Sender {
     const contents = bodies.map((b) => text(b));
     // The SDK types the variadic send for ≥2 args, so call it generically (works for 1 or many).
     const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(...contents);
+    return normalizeSentIds(sent);
+  }
+
+  /**
+   * Sends one bubble carrying a native screen effect (WI-4B) — `space.send(effect(text(body),
+   * this.im.effect.message.<name>))`, where the map resolves the key to Apple's effect bundle-id.
+   * Used only for the confetti greeting and the fireworks onboarding-complete moment.
+   *
+   * @returns the sent message's platform id(s), via {@link normalizeSentIds}.
+   */
+  async sendEffect(chatGuid: string, body: string, effectName: MessageEffect): Promise<string[]> {
+    const space = await this.im.space.get(chatGuid);
+    // The effect-name → bundle-id map lives on the `imessage` module const, not the bound instance.
+    const sent = await space.send(effect(text(body), imessage.effect.message[effectName]));
     return normalizeSentIds(sent);
   }
 
@@ -153,6 +174,8 @@ export class StubSpectrumSender implements Sender {
   readonly linkCalls: { chatGuid: string; url: string; target: string | null }[] = [];
   /** `sendReaction` calls that resolved a target (an unresolvable target no-ops, recording nothing). */
   readonly reactionCalls: { chatGuid: string; target: string; emoji: string }[] = [];
+  /** `sendEffect` calls (WI-4B) — the bubble body and which screen effect it carried. */
+  readonly effectCalls: { chatGuid: string; body: string; effectName: MessageEffect }[] = [];
   readonly reads: string[] = [];
   respondingCount = 0;
 
@@ -167,6 +190,11 @@ export class StubSpectrumSender implements Sender {
   async send(chatGuid: string, bodies: string[]): Promise<string[]> {
     for (const body of bodies) this.calls.push({ chatGuid, body });
     return this.sendReturn ?? bodies.map((_, i) => `ext-${i}`);
+  }
+
+  async sendEffect(chatGuid: string, body: string, effectName: MessageEffect): Promise<string[]> {
+    this.effectCalls.push({ chatGuid, body, effectName });
+    return this.sendReturn ?? ['ext-0'];
   }
 
   async sendReply(chatGuid: string, targetPlatformId: string, bodies: string[]): Promise<string[]> {

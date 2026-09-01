@@ -175,6 +175,10 @@ export const threads = sqliteTable('threads', {
     .references(() => users.id),
   householdId: text('household_id'),
   lastProcessedId: text('last_processed_id'),
+  // One-time screen-effect flags (WI-4B): NULL until Chef fires the effect, then stamped
+  // in the turn's commit txn so a redelivered doorbell can't re-fire (mirrors sent_at).
+  greetedAt: integer('greeted_at', { mode: 'timestamp' }),
+  celebratedAt: integer('celebrated_at', { mode: 'timestamp' }),
   createdAt: createdAt(),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()

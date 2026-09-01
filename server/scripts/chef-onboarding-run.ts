@@ -19,6 +19,7 @@ const HANDLE = 'dev:+15550000000';
 class CaptureSender implements Sender {
   bubbles: string[] = [];
   async send(_g: string, bodies: string[]): Promise<string[]> { this.bubbles.push(...bodies); return bodies.map((_, i) => `ext-${i}`); }
+  async sendEffect(_g: string, body: string, effectName: string): Promise<string[]> { this.bubbles.push(`[effect:${effectName}] ${body}`); return ['ext-0']; }
   async sendReply(g: string, _t: string, bodies: string[]): Promise<string[]> { return this.send(g, bodies); }
   async sendLink(_g: string, url: string): Promise<string[]> { this.bubbles.push(`[richlink:${url}]`); return ['ext-0']; }
   async sendReaction(_g: string, target: string, emoji: string): Promise<void> { this.bubbles.push(`[reaction:${emoji}->${target}]`); }
