@@ -167,8 +167,8 @@ export class RecipeRepository {
       .where(eq(recipeCategories.recipeId, recipeId))
       .orderBy(recipeCategories.facet, recipeCategories.value);
     const categories = emptyCategories();
-    const BUCKET = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient };
-    for (const { facet, value } of rows) BUCKET[facet].push(value);
+    const BUCKET: Partial<Record<typeof rows[number]['facet'], string[]>> = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient };
+    for (const { facet, value } of rows) BUCKET[facet]?.push(value);
     return categories;
   }
 
