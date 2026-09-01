@@ -218,6 +218,13 @@
       "when": 1788228790355,
       "tag": "0030_supreme_thaddeus_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1788231124682,
+      "tag": "0031_remarkable_lady_mastermind",
+      "breakpoints": true
     }
   ]
 }
