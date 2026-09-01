@@ -52,8 +52,14 @@ const VALID = {
   weekly_budget_cents: 12000,
   time_budget_minutes: 45,
   weekly_meals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
-  likes: [{ facet: "cuisine", value: "italian" }, { facet: "dish_type", value: "bowls" }],
-  dislikes: [{ facet: "ingredient", value: LIVER_ID }],
+  // Unified array: a taste like, a taste dislike, a pure moderation, and a combined taste+intent.
+  food_prefs: [
+    { facet: "cuisine", value: "italian", sentiment: "like" },
+    { facet: "dish_type", value: "bowls", sentiment: "like" },
+    { facet: "ingredient", value: LIVER_ID, sentiment: "dislike" },
+    { facet: "food_category", value: "seafood", target: 0.8 },
+    { facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" },
+  ],
   allergens: [{ allergen: "peanut", severity: "severe" }],
   diets: [{ diet: "pescatarian", strictness: "flexible" }],
   owned_equipment: ["blender", "slow_cooker"],
@@ -70,15 +76,15 @@ describe("preferences API (WI-1)", () => {
     expect(status).toBe(200);
     expect(body.preferences.weekly_meals).toEqual({ breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 });
     expect(body.preferences.weekly_budget_cents).toBeNull();
-    expect(body.preferences.likes).toEqual([]);
+    expect(body.preferences.food_prefs).toEqual([]);
     expect(body.preferences.owned_equipment).toEqual([]);
     expect(body.preferences.grocery_stores).toEqual([]);
     expect(body.preferences.household_adults).toBe(2);
     expect(body.preferences.household_kids).toBe(0);
     expect(body.preferences.eats_leftovers).toBe(true);
-    // Legacy keys are gone.
-    expect(body.preferences.liked_cuisines).toBeUndefined();
-    expect(body.preferences.disliked_ingredients).toBeUndefined();
+    // The unified DTO replaced likes/dislikes — those keys are gone.
+    expect(body.preferences.likes).toBeUndefined();
+    expect(body.preferences.dislikes).toBeUndefined();
   });
 
   it("PUT then GET round-trips the editable subset", async () => {
@@ -91,9 +97,16 @@ describe("preferences API (WI-1)", () => {
     expect(body.preferences.skill_level).toBe("advanced");
     expect(body.preferences.weekly_budget_cents).toBe(12000);
     expect(body.preferences.weekly_meals).toEqual(VALID.weekly_meals);
-    expect(body.preferences.likes).toContainEqual({ facet: "cuisine", value: "italian" });
-    expect(body.preferences.likes).toContainEqual({ facet: "dish_type", value: "bowls" });
-    expect(body.preferences.dislikes).toEqual([{ facet: "ingredient", value: LIVER_ID }]);
+    // Every axis of every food-pref round-trips (AC 11): taste like, taste dislike, pure
+    // moderation (target only), and the combined taste+intent element.
+    const fp = body.preferences.food_prefs;
+    expect(fp).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
+    expect(fp).toContainEqual({ facet: "ingredient", value: LIVER_ID, sentiment: "dislike", target: null, reason: null });
+    expect(fp).toContainEqual({ facet: "food_category", value: "seafood", sentiment: null, target: 0.8, reason: null });
+    expect(fp).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" });
+    // Response carries no legacy likes/dislikes keys.
+    expect(body.preferences.likes).toBeUndefined();
+    expect(body.preferences.dislikes).toBeUndefined();
     expect(body.preferences.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
     expect(body.preferences.diets).toContainEqual({ diet: "pescatarian", strictness: "flexible" });
     expect(body.preferences.owned_equipment.sort()).toEqual(["blender", "slow_cooker"]);
@@ -104,10 +117,10 @@ describe("preferences API (WI-1)", () => {
 
   it("rejects an ingredient pref whose value is not a known base_ingredient_id with 422", async () => {
     const token = await mintToken();
-    const bad = await putPrefs(token, { ...VALID, dislikes: [{ facet: "ingredient", value: "not-a-real-id" }] });
+    const bad = await putPrefs(token, { ...VALID, food_prefs: [{ facet: "ingredient", value: "not-a-real-id", sentiment: "dislike" }] });
     expect(bad.status).toBe(422);
     // Cuisine/dish_type values are code-vocab, not DB-checked here — an unknown one is accepted.
-    const okCuisine = await putPrefs(token, { ...VALID, likes: [{ facet: "cuisine", value: "anything" }], dislikes: [] });
+    const okCuisine = await putPrefs(token, { ...VALID, food_prefs: [{ facet: "cuisine", value: "anything", sentiment: "like" }] });
     expect(okCuisine.status).toBe(200);
   });
 

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
@@ -64,7 +64,7 @@ export class PreferenceRepository {
       },
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
-      foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment })),
+      foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment, target: f.target, reason: f.reason })),
       ownedEquipment: equipment.map((e) => e.equipment),
       equipmentReviewed: prefs.equipmentReviewed,
       groceryStores: prefs.groceryStores ?? [],
@@ -217,22 +217,23 @@ export class PreferenceRepository {
       if (input.ownedEquipment.length)
         await tx.insert(userEquipment).values(input.ownedEquipment.map((equipment) => ({ userId, equipment })));
 
-      // The picker fully owns the like set (rebuild it); for dislikes, replace only the values
-      // it re-supplies so a dislike-loop dislike on an untouched value survives (Test Case 2).
-      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'like')));
-      const dislikeValues = input.dislikes.map((d) => d.value);
-      if (dislikeValues.length)
-        await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'dislike'), inArray(userFoodPrefs.value, dislikeValues)));
-
-      const foodRows = [
-        ...input.likes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'like' as const })),
-        ...input.dislikes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'dislike' as const })),
-      ];
+      // One write routine: upsert each unified foodPref by (userId, facet, value), writing all
+      // three axis columns. Untouched rows (a dislike-loop dislike, a moderation the picker didn't
+      // resend) survive — the picker sends only what it changed. The Zod model already rejects a
+      // neither-axis element; guard here too since the repo is a public boundary.
+      const foodRows = input.foodPrefs.map((p) => {
+        if (p.sentiment == null && p.target == null)
+          throw new Error(`food pref (${p.facet}, ${p.value}) has neither sentiment nor target`);
+        return { userId, facet: p.facet, value: p.value, sentiment: p.sentiment ?? null, target: p.target ?? null, reason: p.reason ?? null };
+      });
       if (foodRows.length)
         await tx
           .insert(userFoodPrefs)
           .values(foodRows)
-          .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: sql`excluded.sentiment` } });
+          .onConflictDoUpdate({
+            target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value],
+            set: { sentiment: sql`excluded.sentiment`, target: sql`excluded.target`, reason: sql`excluded.reason` },
+          });
     });
     return this.getPreferences(userId);
   }

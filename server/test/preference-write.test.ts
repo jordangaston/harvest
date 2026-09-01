@@ -64,7 +64,39 @@ describe("PreferenceRepository write-path (WI-RANK-4)", () => {
     await repo.addDislike(userId, "cuisine", "thai"); // insert
 
     const rows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
-    expect(rows).toContainEqual({ userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
-    expect(rows).toContainEqual({ userId, facet: "cuisine", value: "thai", sentiment: "dislike" });
+    expect(rows).toContainEqual({ userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+    expect(rows).toContainEqual({ userId, facet: "cuisine", value: "thai", sentiment: "dislike", target: null, reason: null });
+  });
+
+  it("Test Case 4: round-trips both axes + reason, a pure-intent row, and rejects a neither-axis element", async () => {
+    const repo = PreferenceRepository.create(db);
+    const base = {
+      skillLevel: "advanced" as const, weeklyBudgetCents: null, timeBudgetMinutes: null, timeByMeal: null,
+      weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
+      allergens: [], diets: [], ownedEquipment: [], groceryStores: [],
+      household: { adults: 2, kids: 0 }, eatsLeftovers: true,
+    };
+
+    // Both axes + reason (the steak case).
+    const u1 = await makeUser();
+    const saved1 = await repo.savePreferences(u1, {
+      ...base,
+      foodPrefs: [{ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" }],
+    });
+    expect(saved1.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" });
+
+    // Pure intent — no sentiment.
+    const u2 = await makeUser();
+    const saved2 = await repo.savePreferences(u2, {
+      ...base,
+      foodPrefs: [{ facet: "food_category", value: "red_meat", target: -0.9 }],
+    });
+    expect(saved2.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: null, target: -0.9, reason: null });
+
+    // Neither axis → rejected at the repo boundary.
+    const u3 = await makeUser();
+    await expect(
+      repo.savePreferences(u3, { ...base, foodPrefs: [{ facet: "food_category", value: "red_meat" }] }),
+    ).rejects.toThrow();
   });
 });
