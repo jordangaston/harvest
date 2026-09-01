@@ -221,14 +221,14 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
 });
 
 describe("Test Case 6: selectChef(db) returns StubChef offline (AC-6)", () => {
-  const prev = process.env.DEEPSEEK_API_KEY;
+  const prev = process.env.GROQ_API_KEY;
   afterEach(() => {
-    if (prev === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = prev;
+    if (prev === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = prev;
   });
 
   it("no key → StubChef, respond returns a fixed non-null reply, no network", async () => {
-    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.GROQ_API_KEY;
     const { selectChef } = await import("../src/imessage/chef.js");
     const { threadId, ownerId } = await seedThread();
     const newestId = await seedInbound(threadId, ownerId, "hello");

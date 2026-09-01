@@ -3,10 +3,10 @@ import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { z } from 'zod';
 import { CHEF_TAPBACK_KINDS, type ChatEvent, type ChatEvents, type ReplyPlan, type TapbackKind } from './types.js';
 
-// ponytail: mirrors REASONING_MODEL. Thinking off (DeepSeek thinks by default → slow/empty JSON).
-const RESPONSE_MODEL = 'deepseek/deepseek-v4-flash';
-const DEEPSEEK_URL = 'https://api.deepseek.com';
-const THINKING_OFF = { deepseek: { thinking: { type: 'disabled' } } } as const;
+// ponytail: mirrors REASONING_MODEL. gpt-oss can't disable reasoning, so use the lowest tier — the
+// responder only voices a ready plan, so it needs the least thinking Groq allows.
+const RESPONSE_MODEL = 'openai/gpt-oss-120b';
+const RESPONSE_PROVIDER_OPTS = { openai: { reasoningEffort: 'low' } } as const;
 
 // The responder is the VOICE half of the two-agent Chef: the reasoner (reasoning-agent.ts) decides
 // the facts and must_say lines, the responder only phrases them. So every rule here is about
@@ -130,8 +130,8 @@ function intentText(intent: ReplyPlan['intents'][number]): string {
 
 /**
  * The live response agent: a cheap Mastra `Agent` that voices a `ReplyPlan` as short iMessage text
- * bubbles via `structuredOutput` (jsonPromptInjection — DeepSeek rejects the json_schema response
- * format). Text-only: the sender delivers only text this increment, so the consumer skips non-text
+ * bubbles via `structuredOutput` (jsonPromptInjection — mirrors the reasoner's structured-output
+ * path). Text-only: the sender delivers only text this increment, so the consumer skips non-text
  * events anyway.
  */
 export class MastraResponder implements Responder {
@@ -150,11 +150,11 @@ export class MastraResponder implements Responder {
     if (plan.address && triggerExternalId && plan.must_say.length === 0 && plan.intents.length > 0 && plan.intents.every(isAckLike)) {
       return [{ kind: 'tapback', target: triggerExternalId, emoji: chefTapbackKind() }];
     }
-    const model: OpenAICompatibleConfig = { id: RESPONSE_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
+    const model: OpenAICompatibleConfig = { providerId: 'groq', modelId: RESPONSE_MODEL, apiKey: this.apiKey };
     const agent = new Agent({ id: 'chef-response', name: 'chef-response', instructions: CHEF_VOICE, model });
     const res = await agent.generate(renderPrompt(plan, transcriptWindow), {
       structuredOutput: { schema: z.object({ bubbles: z.array(z.string().min(1)).min(1) }), jsonPromptInjection: true },
-      providerOptions: THINKING_OFF,
+      providerOptions: RESPONSE_PROVIDER_OPTS,
     });
     const { bubbles } = (res as { object: { bubbles: string[] } }).object;
     return bubbles.map((text): ChatEvent => ({ kind: 'text', text }));
@@ -162,11 +162,11 @@ export class MastraResponder implements Responder {
 }
 
 /**
- * The responder for the current env: the live Mastra agent when `DEEPSEEK_API_KEY` is set, else the
+ * The responder for the current env: the live Mastra agent when `GROQ_API_KEY` is set, else the
  * offline scripted stub. Mirrors `selectReasoningAgent` / `selectExtractor`. Tests pass their own
  * `ScriptedResponder`; this selector is the deploy-time env gate.
  */
 export function selectResponseAgent(): Responder {
-  if (process.env.DEEPSEEK_API_KEY) return MastraResponder.create(process.env.DEEPSEEK_API_KEY);
+  if (process.env.GROQ_API_KEY) return MastraResponder.create(process.env.GROQ_API_KEY);
   return new ScriptedResponder();
 }

@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { createTool } from '@mastra/core/tools';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { prepareBriefing, type BriefingInput } from './briefing.js';
 import { ReasoningOutputSchema, type ReasoningOutput } from './types.js';
@@ -6,17 +7,16 @@ import { objectiveDefinition } from './objectives/index.js';
 import { buildTools } from './tools/registry.js';
 import type { SaveResult, TurnContext } from './tools/types.js';
 
-// ponytail: swap the id if DeepSeek renames it. `-flash` with thinking ON (DeepSeek's default) is the
-// middle ground: reasoning fixes decision quality (thinking-OFF conflated household members) while
-// flash's small size keeps the reasoning trace — and so the latency — a fraction of `-pro`'s
-// (~6s/call vs 30-120s). See NOTE on run().
-const REASONING_MODEL = 'deepseek/deepseek-v4-flash';
-const DEEPSEEK_URL = 'https://api.deepseek.com';
-// An onboarding turn needs at most create_household + a couple saves + the final answer. Cap the
-// tool-loop tight — with thinking ON, every extra step is another expensive reasoning call.
-const MAX_STEPS = 4;
-// The tool-loop intermittently ends on a tool call with no final structured object (res.object
-// undefined); we retry the whole call rather than a second tool-free phase.
+// Groq-hosted gpt-oss-120b (LPU): a real reasoning tier at several times DeepSeek's throughput, so the
+// reasoning trace stays cheap in wall-clock. `reasoning_effort: 'low'` is the light-but-on tier —
+// enough decision quality (fully-off once conflated household members) without a long trace.
+const REASONING_MODEL = 'openai/gpt-oss-120b';
+const REASONING_PROVIDER_OPTS = { openai: { reasoningEffort: 'low' } } as const;
+// An onboarding turn needs at most create_household + a couple saves + the submit call. Cap the
+// tool-loop tight — with reasoning on, every extra step is another reasoning call.
+const MAX_STEPS = 5;
+// The model occasionally finishes without calling submit_reply_plan (no plan captured); we retry
+// the whole call rather than a second tool-free phase.
 const MAX_ATTEMPTS = 3;
 
 /**
@@ -42,13 +42,13 @@ export class ScriptedReasoner implements Reasoner {
 }
 
 /**
- * The live reasoning agent: a Mastra `Agent` on DeepSeek `-flash` (thinking on) with the active objective's tools
+ * The live reasoning agent: a Mastra `Agent` on Groq gpt-oss-120b (reasoning_effort low) with the active objective's tools
  * (self-contained classes bound to this turn), running the native tool-loop plus `structuredOutput`
  * for `{replyPlan, slotUpdates}` in ONE call. The tools write during the loop; afterward we reconcile
- * the model's slot declarations against what actually landed. jsonPromptInjection because DeepSeek
- * rejects the json_schema response_format.
+ * the model's slot declarations against what actually landed. The plan returns via a registered
+ * `submit_reply_plan` tool because gpt-oss delivers structured data as a tool call, not as content.
  *
- * NOTE (chef-reasoning, revisit): thinking is left ON (DeepSeek's default) because thinking-OFF
+ * NOTE (chef-reasoning, revisit): reasoning is left ON at `low` effort because fully-off
  * degraded decision quality (it conflated household members). The cost is (a) latency — reasoning
  * adds ~hundreds of tokens/call — and (b) the tool-loop sometimes ends on a tool call with no final
  * structured object, so we RETRY up to MAX_ATTEMPTS. Cleaner long-term options we deferred:
@@ -68,7 +68,7 @@ export class MastraReasoner implements Reasoner {
   async run(input: BriefingInput, ctx: TurnContext): Promise<ReasoningOutput> {
     const def = objectiveDefinition(input.objective.definition);
     if (!def) throw new Error(`No definition registered for objective '${input.objective.definition}'`);
-    const model: OpenAICompatibleConfig = { id: REASONING_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
+    const model: OpenAICompatibleConfig = { providerId: 'groq', modelId: REASONING_MODEL, apiKey: this.apiKey };
     const briefing = prepareBriefing(input);
 
     const allSaved: SaveResult[] = [];
@@ -77,27 +77,40 @@ export class MastraReasoner implements Reasoner {
       // Rebuild tools each attempt so canRun re-evaluates against ctx a prior attempt may have mutated
       // (e.g. create_household set householdId → it drops out, save_* become legal).
       const tools = buildTools(ctx, def.tools);
+      // gpt-oss delivers structured data as a tool call (harmony 'commentary' channel), which Groq
+      // rejects unless the tool is registered — so the plan comes back through a real submit tool, not
+      // `structuredOutput`. The holder captures the model's final call; stopWhen ends the loop then.
+      const submitted: { plan: ReasoningOutput | null } = { plan: null };
+      const submitTool = createTool({
+        id: 'submit_reply_plan',
+        description: 'Finish the turn: submit the reply plan (what to say, in order) and the slot updates. Call this exactly once, last.',
+        inputSchema: ReasoningOutputSchema,
+        execute: async (input) => {
+          submitted.plan = input as ReasoningOutput;
+          return { submitted: true };
+        },
+      });
       const agent = new Agent({
         id: 'chef-reasoning',
         name: 'chef-reasoning',
-        instructions: 'You are the reasoning half of a private chef. Call tools to persist what the household tells you, then return the reply plan and slot updates. Emit no prose.',
+        instructions:
+          'You are the reasoning half of a private chef. Call tools to persist what the household tells you, ' +
+          'then call submit_reply_plan exactly once with the reply plan and slot updates to finish. Emit no prose.',
         model,
-        tools: Object.fromEntries(tools.map((t) => [t.id, t.asMastraTool()])),
+        tools: { ...Object.fromEntries(tools.map((t) => [t.id, t.asMastraTool()])), submit_reply_plan: submitTool },
       });
-      let object: unknown;
       try {
-        const res = await agent.generate(briefing, {
-          structuredOutput: { schema: ReasoningOutputSchema, jsonPromptInjection: true },
-          stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= MAX_STEPS,
+        await agent.generate(briefing, {
+          stopWhen: ({ steps }: { steps: unknown[] }) => !!submitted.plan || steps.length >= MAX_STEPS,
+          providerOptions: REASONING_PROVIDER_OPTS,
         });
-        object = (res as { object: unknown }).object;
       } catch (err) {
         console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS} threw:`, (err as Error)?.message);
       }
       allSaved.push(...tools.flatMap((t) => t.saved));
-      const parsed = ReasoningOutputSchema.safeParse(object);
+      const parsed = ReasoningOutputSchema.safeParse(submitted.plan);
       if (parsed.success) plan = parsed.data;
-      else console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS}: object ${object ? 'malformed' : 'undefined'}${attempt + 1 < MAX_ATTEMPTS ? ', retrying' : ''}`);
+      else console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS}: plan ${submitted.plan ? 'malformed' : 'not submitted'}${attempt + 1 < MAX_ATTEMPTS ? ', retrying' : ''}`);
     }
     if (!plan) {
       console.warn('[chef] reasoning: all attempts failed; returning an empty plan.');
@@ -127,10 +140,10 @@ function reconcileSlotUpdates(updates: ReasoningOutput['slotUpdates'], saved: Sa
 }
 
 /**
- * The reasoner for the current env: the live Mastra agent when `DEEPSEEK_API_KEY` is set, else the
+ * The reasoner for the current env: the live Mastra agent when `GROQ_API_KEY` is set, else the
  * offline scripted stub (empty plan). Mirrors `selectExtractor`. Tests pass their own `ScriptedReasoner`.
  */
 export function selectReasoningAgent(): Reasoner {
-  if (process.env.DEEPSEEK_API_KEY) return MastraReasoner.create(process.env.DEEPSEEK_API_KEY);
+  if (process.env.GROQ_API_KEY) return MastraReasoner.create(process.env.GROQ_API_KEY);
   return new ScriptedReasoner({ replyPlan: { intents: [], must_say: [] }, slotUpdates: [] });
 }

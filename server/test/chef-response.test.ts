@@ -65,16 +65,16 @@ describe('MastraResponder tapback emission (WI-4A, grounded, no network)', () =>
 });
 
 describe('selectResponseAgent (env gate, no network)', () => {
-  const prev = process.env.DEEPSEEK_API_KEY;
+  const prev = process.env.GROQ_API_KEY;
   afterEach(() => {
-    if (prev === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = prev;
+    if (prev === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = prev;
   });
 
   it('AC-6: absent key -> scripted stub; present key -> real Mastra agent', () => {
-    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.GROQ_API_KEY;
     expect(selectResponseAgent()).toBeInstanceOf(ScriptedResponder);
-    process.env.DEEPSEEK_API_KEY = 'test-key-no-network';
+    process.env.GROQ_API_KEY = 'test-key-no-network';
     expect(selectResponseAgent()).toBeInstanceOf(MastraResponder);
   });
 });
