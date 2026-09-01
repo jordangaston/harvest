@@ -43,7 +43,7 @@ describe("VOCAB", () => {
     expect(inVocab("primaryIngredient", "seafood")).toBe(true);
   });
 
-  // O-CL-1: the expanded cuisine vocabulary (from seed/cuisines.json) is the exact chokepoint
+  // O-CL-1: the expanded cuisine vocabulary (from cuisines-data.ts) is the exact chokepoint
   // that silently swallowed richer picks before the overhaul.
   it("includes the expanded cuisine hierarchy (tex_mex, cajun, …) so constrain keeps them", () => {
     expect(inVocab("cuisine", "tex_mex")).toBe(true);

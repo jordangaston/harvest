@@ -543,7 +543,7 @@ export const recipeTasteProfiles = sqliteTable('recipe_taste_profiles', {
   builtAt: integer('built_at').notNull(),
 });
 
-// Taste overhaul: the authored cuisine hierarchy (seed/cuisines.json → seed:cuisines).
+// Taste overhaul: the authored cuisine hierarchy (cuisines-data.ts → seed:cuisines).
 // `slug` is a natural key (stored directly on recipe_categories.value); `parent_slug`
 // self-references for parent-fallback ranking of sparse leaves.
 export const cuisines = sqliteTable('cuisines', {
