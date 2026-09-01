@@ -121,12 +121,16 @@ export class ThreadRepository {
     return (await this.loadPendingInbound(threadId, cursor)).length > 0;
   }
 
-  /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). */
+  /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). `targetGuid`, when
+   *  present, records the parent this row is a threaded reply to (symmetry with inbound). */
   async insertOutbound(
-    input: { threadId: string; body: string; messageGuid: string },
+    input: { threadId: string; body: string; messageGuid: string; targetGuid?: string | null },
     tx: Executor = this.db,
   ): Promise<void> {
-    await tx.insert(threadMessages).values({ ...input, direction: 'outbound', type: 'text' });
+    const { targetGuid, ...rest } = input;
+    await tx
+      .insert(threadMessages)
+      .values({ ...rest, direction: 'outbound', type: 'text', targetMessageGuid: targetGuid });
   }
 
   /** Advances the cursor to the newest processed inbound id and bumps updated_at. */

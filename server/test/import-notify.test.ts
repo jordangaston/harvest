@@ -7,7 +7,7 @@ import { ImessageImportRepository } from '../src/repositories/imessage-import-re
 import { CookbookRepository } from '../src/repositories/cookbook-repository.js';
 import { ImportNotifier } from '../src/imessage/import-notifier.js';
 import { StubSpectrumSender } from '../src/imessage/sender.js';
-import { importJobs, importJobRecipes, recipes, threads, cookbooks, cookbookRecipes, imessageImport } from '../src/schema.js';
+import { importJobs, importJobRecipes, recipes, threads, cookbooks, cookbookRecipes, imessageImport, threadMessages } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 
 let db: Database;
@@ -49,8 +49,8 @@ describe('ImportNotifier.notify', () => {
     await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
 
     expect(await likedMembership(ownerId)).toEqual([recipeId]);
-    expect(sender.calls).toHaveLength(1);
-    expect(sender.calls[0]!.body).toBe('Saved "Miso Salmon" to your Liked cookbook.');
+    expect(sender.replyCalls).toHaveLength(1);
+    expect(sender.replyCalls[0]!.body).toBe('Saved "Miso Salmon" to your Liked cookbook.');
     const [link] = await db.select().from(imessageImport).where(eq(imessageImport.jobId, jobId));
     expect(link!.notifiedAt).not.toBeNull();
   });
@@ -61,8 +61,8 @@ describe('ImportNotifier.notify', () => {
 
     await (await ImportNotifier.create(db, sender)).notify(jobId, 'failed');
 
-    expect(sender.calls).toHaveLength(1);
-    expect(sender.calls[0]!.body).toBe("I couldn't save that recipe — we're looking into it.");
+    expect(sender.replyCalls).toHaveLength(1);
+    expect(sender.replyCalls[0]!.body).toBe("I couldn't save that recipe — we're looking into it.");
     expect(await likedMembership(ownerId)).toEqual([]);
     const [link] = await db.select().from(imessageImport).where(eq(imessageImport.jobId, jobId));
     expect(link!.notifiedAt).not.toBeNull();
@@ -76,7 +76,7 @@ describe('ImportNotifier.notify', () => {
     await notifier.notify(jobId, 'ready');
     await notifier.notify(jobId, 'ready');
 
-    expect(sender.calls).toHaveLength(1);
+    expect(sender.replyCalls).toHaveLength(1);
   });
 
   it('mobile import (no link) is untouched — no send, no Liked change (AC4)', async () => {
@@ -86,6 +86,22 @@ describe('ImportNotifier.notify', () => {
     await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
 
     expect(sender.calls).toHaveLength(0);
+    expect(sender.replyCalls).toHaveLength(0);
     expect(await likedMembership(ownerId)).toEqual([]);
+  });
+
+  it('WI-3A: threads the confirmation to target_external_id, records the parent on the outbound row (AC3)', async () => {
+    const { threadId, jobId } = await seedReadyJob();
+    const sender = new StubSpectrumSender();
+
+    await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
+
+    expect(sender.replyCalls).toHaveLength(1);
+    expect(sender.replyCalls[0]!.target).toBe('msg-42');
+    const [row] = await db
+      .select()
+      .from(threadMessages)
+      .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.direction, 'outbound')));
+    expect(row!.targetMessageGuid).toBe('msg-42');
   });
 });
