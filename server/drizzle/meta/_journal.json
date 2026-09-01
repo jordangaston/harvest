@@ -225,6 +225,13 @@
       "when": 1788231124682,
       "tag": "0031_remarkable_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1788294761918,
+      "tag": "0032_late_scourge",
+      "breakpoints": true
     }
   ]
 }
