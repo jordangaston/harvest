@@ -33,3 +33,4 @@ coverage/
 
 # macOS
 .DS_Store
+styles/recipe.gen.css

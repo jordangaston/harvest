@@ -77,10 +77,13 @@ export function buildApp(db: Database) {
 
 /** GET /r/:id — the public recipe web page (the iMessage recipe app card's target,
  * docs/spikes/photon-app-recipe-card.md). Unauthed like the mobile detail read — recipes
- * are shared — and returns HTML (404 HTML for an unknown id). */
+ * are shared — and returns HTML (404 HTML for an unknown id). Edge-cached: recipes rarely
+ * change, so the CDN serves repeat opens and link-unfurler fetches without re-running the
+ * function/DB (`stale-while-revalidate` keeps it fresh after edits). */
 app.get("/r/:id", async (c) => {
   try {
     const recipe = await recipes.get(c.req.param("id")!);
+    c.header("cache-control", "public, s-maxage=3600, stale-while-revalidate=604800");
     return c.html(renderRecipePage(recipe, new URL(c.req.url).origin));
   } catch (error) {
     if (error instanceof NotFoundError) return c.html(RECIPE_NOT_FOUND_HTML, 404);

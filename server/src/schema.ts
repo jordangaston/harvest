@@ -145,6 +145,7 @@ export const users = sqliteTable(
     jwtPublicKey: text('jwt_public_key').notNull(),
     accessTokenNonce: integer('access_token_nonce').notNull().default(0),
     refreshTokenNonce: integer('refresh_token_nonce').notNull().default(0),
+    webLinkNonce: integer('web_link_nonce').notNull().default(0),
     // C2 onboarding. Multi-selects (pg enum[]) become JSON-mode text arrays; the
     // single-selects are plain enum-text columns. All nullable — a user may skip a screen.
     goals: text('goals', { mode: 'json' }).$type<(typeof GOALS)[number][]>(),

@@ -132,8 +132,9 @@ export const signInSchema = z.object({
     .object({
       otp: z.object({ phone_number: z.string(), code: z.string() }).optional(),
       refresh_token: z.string().optional(),
+      web_link: z.string().optional(),
     })
-    .refine((auth) => Boolean(auth.otp) !== Boolean(auth.refresh_token), {
-      message: "provide exactly one of otp or refresh_token",
+    .refine((auth) => [auth.otp, auth.refresh_token, auth.web_link].filter(Boolean).length === 1, {
+      message: "provide exactly one of otp, refresh_token, or web_link",
     }),
 });

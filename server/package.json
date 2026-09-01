@@ -16,7 +16,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "demo": "tsx scripts/demo-data.mjs",
     "dev": "NITRO_PRESET=vercel nitro dev",
-    "build": "nitro build",
+    "build": "npm run build:styles && nitro build",
     "backfill:fdc": "tsx scripts/backfill-fdc-matches.ts",
     "backfill:food-category": "tsx scripts/backfill-food-category.ts",
     "build:taste": "tsx scripts/build-taste-space.ts",
@@ -24,7 +24,8 @@
     "demo:affinity": "tsx scripts/demo-affinity.ts",
     "reclassify:diets": "tsx scripts/reclassify-diets.ts",
     "eval:matcher": "tsx scripts/eval-matcher.ts",
-    "seed:seasonings": "tsx scripts/seed-seasonings.ts"
+    "seed:seasonings": "tsx scripts/seed-seasonings.ts",
+    "build:styles": "tailwindcss -i styles/recipe.css -o styles/recipe.gen.css --minify && node scripts/publish-recipe-css.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
@@ -52,12 +53,15 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.9.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "daisyui": "^5.7.25",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.6",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
