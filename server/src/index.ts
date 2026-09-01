@@ -4,6 +4,7 @@ import { dbFromEnv } from "./edge-db.js";
 import type { Database } from "./db.js";
 import { toPublicUser } from "./models/user.js";
 import { ImportService } from "./import-service.js";
+import { renderRecipePage } from "./recipe-page.js";
 import { ThreadRepository } from "./repositories/thread-repository.js";
 import { verifyWebhook } from "./imessage/webhook-verify.js";
 import { parseInbound } from "./imessage/inbound.js";
@@ -73,6 +74,19 @@ export function buildApp(db: Database) {
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+/** GET /r/:id — the public recipe web page (the iMessage recipe app card's target,
+ * docs/spikes/photon-app-recipe-card.md). Unauthed like the mobile detail read — recipes
+ * are shared — and returns HTML (404 HTML for an unknown id). */
+app.get("/r/:id", async (c) => {
+  try {
+    const recipe = await recipes.get(c.req.param("id")!);
+    return c.html(renderRecipePage(recipe, new URL(c.req.url).origin));
+  } catch (error) {
+    if (error instanceof NotFoundError) return c.html(RECIPE_NOT_FOUND_HTML, 404);
+    throw error;
+  }
+});
 
 /** POST /v1/otps — sends an SMS verification code. Public. 502 if the send fails. */
 app.post("/v1/otps", async (c) => {
@@ -445,6 +459,9 @@ async function assertKnownIngredients(
 function inboundType(type: string): "text" | "reaction" | "reply" | "attachment" {
   return type === "text" || type === "reaction" || type === "reply" || type === "attachment" ? type : "attachment";
 }
+
+/** The HTML body served when `GET /r/:id` names an unknown recipe. */
+const RECIPE_NOT_FOUND_HTML = `<!doctype html><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Recipe not found · Harvest</title><body style="background:#F1E6D2;color:#2E2419;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;margin:0"><div><div style="font-size:44px">🍽️</div><p style="color:#6E5B48;margin-top:12px">This recipe couldn't be found.</p></div></body>`;
 
 /** A cheap, stable FNV-1a hash (hex) of a string — the ETag basis for the served-once catalog. */
 function weakHash(input: string): string {

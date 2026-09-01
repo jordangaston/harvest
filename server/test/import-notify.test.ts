@@ -90,6 +90,41 @@ describe('ImportNotifier.notify', () => {
     expect(await likedMembership(ownerId)).toEqual([]);
   });
 
+  it('ready (single recipe) with PUBLIC_APP_URL → also sends a live recipe card threaded to the drop', async () => {
+    const { jobId, recipeId } = await seedReadyJob();
+    const sender = new StubSpectrumSender();
+    process.env.PUBLIC_APP_URL = 'https://harvest.example/';
+    try {
+      await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
+    } finally {
+      delete process.env.PUBLIC_APP_URL;
+    }
+    expect(sender.recipeCardCalls).toEqual([{ chatGuid: 'chat-1', url: `https://harvest.example/r/${recipeId}`, target: 'msg-42' }]);
+  });
+
+  it('no PUBLIC_APP_URL → confirmation only, no card', async () => {
+    const { jobId } = await seedReadyJob();
+    const sender = new StubSpectrumSender();
+
+    await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
+
+    expect(sender.recipeCardCalls).toHaveLength(0);
+  });
+
+  it('multi-recipe import → no card even with PUBLIC_APP_URL (no single recipe to show)', async () => {
+    const { ownerId, jobId } = await seedReadyJob();
+    const [r2] = await db.insert(recipes).values({ userId: ownerId, title: 'Second', sourceType: 'tiktok' }).returning();
+    await db.insert(importJobRecipes).values({ importJobId: jobId, recipeId: r2!.id, position: 1 });
+    const sender = new StubSpectrumSender();
+    process.env.PUBLIC_APP_URL = 'https://harvest.example';
+    try {
+      await (await ImportNotifier.create(db, sender)).notify(jobId, 'ready');
+    } finally {
+      delete process.env.PUBLIC_APP_URL;
+    }
+    expect(sender.recipeCardCalls).toHaveLength(0);
+  });
+
   it('WI-3A: threads the confirmation to target_external_id, records the parent on the outbound row (AC3)', async () => {
     const { threadId, jobId } = await seedReadyJob();
     const sender = new StubSpectrumSender();

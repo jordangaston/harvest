@@ -39,6 +39,10 @@ class CaptureSender implements Sender {
     this.bubbles.push(`[richlink:${url}]`);
     return ['ext-0'];
   }
+  async sendRecipeCard(_chatGuid: string, url: string): Promise<string[]> {
+    this.bubbles.push(`[recipecard:${url}]`);
+    return ['ext-0'];
+  }
   async sendReaction(_chatGuid: string, target: string, emoji: string): Promise<void> {
     this.bubbles.push(`[reaction:${emoji}->${target}]`);
   }

@@ -1,4 +1,4 @@
-import { Spectrum, UnsupportedError, reaction, reply, richlink, text } from '@spectrum-ts/core';
+import { Spectrum, UnsupportedError, app, reaction, reply, richlink, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
 import { effect, imessage, nativeContactCard } from '@spectrum-ts/imessage';
 
@@ -28,6 +28,11 @@ export interface Sender {
    *  `threadParentId` when given, falling back to an un-threaded send if the parent can't resolve.
    *  @returns the sent message's platform id(s). */
   sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
+  /** Send `url` as a live iMessage app card (`app(url, {live:true})`) — a native, tappable balloon
+   *  that renders the page inline for recipients with the Spectrum app, degrading to a caption/link
+   *  otherwise (docs/spikes/photon-app-recipe-card.md). Threads to `threadParentId` when given.
+   *  @returns the sent message's platform id(s). */
+  sendRecipeCard(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
   /** React to `targetPlatformId` with a native tapback (`emoji` is the glyph). No-op if the target
    *  message can't be resolved — a tapback with no resolvable target can't be sent. */
   sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void>;
@@ -137,6 +142,22 @@ export class SpectrumSender implements Sender {
   }
 
   /**
+   * Sends `url` as a live app card — `app(url, {live:true})`, threaded to `threadParentId` via
+   * `reply(...)` when it resolves (mirrors {@link sendLink}). Delivered natively regardless; the
+   * live mini-app UI only draws for recipients with the Spectrum app installed.
+   *
+   * @returns the sent message's platform id(s), via {@link normalizeSentIds}.
+   */
+  async sendRecipeCard(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
+    const space = await this.im.space.get(chatGuid);
+    const target = threadParentId ? await space.getMessage(threadParentId) : undefined;
+    const card = app(url, { live: true });
+    const content = target ? reply(card, target) : card;
+    const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(content);
+    return normalizeSentIds(sent);
+  }
+
+  /**
    * Reacts to `targetPlatformId` with a native tapback — resolves the target via `space.getMessage`,
    * then `space.send(reaction(emoji, target))`. If the target can't be resolved (undefined), no-ops:
    * a tapback has no un-threaded fallback (unlike sendReply), so it's simply dropped (spec AC2).
@@ -202,6 +223,8 @@ export class StubSpectrumSender implements Sender {
   readonly replyCalls: { chatGuid: string; target: string | null; body: string }[] = [];
   /** `sendLink` calls, with the resolved target (null when un-threaded or the parent didn't resolve). */
   readonly linkCalls: { chatGuid: string; url: string; target: string | null }[] = [];
+  /** `sendRecipeCard` calls, with the resolved target (null when un-threaded or the parent didn't resolve). */
+  readonly recipeCardCalls: { chatGuid: string; url: string; target: string | null }[] = [];
   /** `sendReaction` calls that resolved a target (an unresolvable target no-ops, recording nothing). */
   readonly reactionCalls: { chatGuid: string; target: string; emoji: string }[] = [];
   /** `sendEffect` calls (WI-4B) — the bubble body and which screen effect it carried. */
@@ -244,6 +267,12 @@ export class StubSpectrumSender implements Sender {
   async sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
     const target = threadParentId && !this.missingTargets.has(threadParentId) ? threadParentId : null;
     this.linkCalls.push({ chatGuid, url, target });
+    return this.sendReturn ?? ['ext-0'];
+  }
+
+  async sendRecipeCard(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
+    const target = threadParentId && !this.missingTargets.has(threadParentId) ? threadParentId : null;
+    this.recipeCardCalls.push({ chatGuid, url, target });
     return this.sendReturn ?? ['ext-0'];
   }
 
