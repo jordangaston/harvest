@@ -1,4 +1,4 @@
-import { Spectrum, reply, richlink, text } from '@spectrum-ts/core';
+import { Spectrum, reaction, reply, richlink, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
 import { imessage } from '@spectrum-ts/imessage';
 
@@ -21,6 +21,9 @@ export interface Sender {
    *  `threadParentId` when given, falling back to an un-threaded send if the parent can't resolve.
    *  @returns the sent message's platform id(s). */
   sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
+  /** React to `targetPlatformId` with a native tapback (`emoji` is the glyph). No-op if the target
+   *  message can't be resolved — a tapback with no resolvable target can't be sent. */
+  sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void>;
   /** Send read receipts for the given inbound message guids (fire-and-forget). */
   markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
   /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
@@ -106,6 +109,18 @@ export class SpectrumSender implements Sender {
     return normalizeSentIds(sent);
   }
 
+  /**
+   * Reacts to `targetPlatformId` with a native tapback — resolves the target via `space.getMessage`,
+   * then `space.send(reaction(emoji, target))`. If the target can't be resolved (undefined), no-ops:
+   * a tapback has no un-threaded fallback (unlike sendReply), so it's simply dropped (spec AC2).
+   */
+  async sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void> {
+    const space = await this.im.space.get(chatGuid);
+    const target = await space.getMessage(targetPlatformId);
+    if (!target) return;
+    await space.send(reaction(emoji, target));
+  }
+
   // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
   // does 2-3 resolves. Fine at turn frequency; fold into one resolve if it ever matters.
   async markRead(chatGuid: string, messageGuids: string[]): Promise<void> {
@@ -136,6 +151,8 @@ export class StubSpectrumSender implements Sender {
   readonly replyCalls: { chatGuid: string; target: string | null; body: string }[] = [];
   /** `sendLink` calls, with the resolved target (null when un-threaded or the parent didn't resolve). */
   readonly linkCalls: { chatGuid: string; url: string; target: string | null }[] = [];
+  /** `sendReaction` calls that resolved a target (an unresolvable target no-ops, recording nothing). */
+  readonly reactionCalls: { chatGuid: string; target: string; emoji: string }[] = [];
   readonly reads: string[] = [];
   respondingCount = 0;
 
@@ -162,6 +179,11 @@ export class StubSpectrumSender implements Sender {
     const target = threadParentId && !this.missingTargets.has(threadParentId) ? threadParentId : null;
     this.linkCalls.push({ chatGuid, url, target });
     return this.sendReturn ?? ['ext-0'];
+  }
+
+  async sendReaction(chatGuid: string, targetPlatformId: string, emoji: string): Promise<void> {
+    if (this.missingTargets.has(targetPlatformId)) return; // unresolvable target no-ops (spec AC2)
+    this.reactionCalls.push({ chatGuid, target: targetPlatformId, emoji });
   }
 
   async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {
