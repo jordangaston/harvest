@@ -9,6 +9,9 @@ export const ThreadSchema = z.object({
   ownerUserId: z.string().uuid(),
   householdId: z.string().nullable(),
   lastProcessedId: z.string().nullable(),
+  // One-time screen-effect flags (WI-4B): null until the effect has fired.
+  greetedAt: z.date().nullable(),
+  celebratedAt: z.date().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

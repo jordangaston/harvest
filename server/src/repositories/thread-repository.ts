@@ -183,6 +183,16 @@ export class ThreadRepository {
     await this.db.update(threadMessages).set({ externalId }).where(eq(threadMessages.id, messageId));
   }
 
+  /** Stamps `greeted_at` — the one-time confetti-greeting gate (WI-4B), set in the turn's commit txn. */
+  async markGreeted(threadId: string, at: Date, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ greetedAt: at }).where(eq(threads.id, threadId));
+  }
+
+  /** Stamps `celebrated_at` — the one-time fireworks gate (WI-4B), set in the turn's commit txn. */
+  async markCelebrated(threadId: string, at: Date, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ celebratedAt: at }).where(eq(threads.id, threadId));
+  }
+
   /** Loads a thread by id (the doorbell payload), parsed into the domain model, or null. */
   async findById(threadId: string): Promise<Thread | null> {
     const [row] = await this.db.select().from(threads).where(eq(threads.id, threadId));
