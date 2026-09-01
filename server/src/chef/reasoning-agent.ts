@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { createTool } from '@mastra/core/tools';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { prepareBriefing, type BriefingInput } from './briefing.js';
 import { ReasoningOutputSchema, type ReasoningOutput } from './types.js';
@@ -12,11 +13,11 @@ import type { SaveResult, TurnContext } from './tools/types.js';
 // (~6s/call vs 30-120s). See NOTE on run().
 const REASONING_MODEL = 'deepseek/deepseek-v4-flash';
 const DEEPSEEK_URL = 'https://api.deepseek.com';
-// An onboarding turn needs at most create_household + a couple saves + the final answer. Cap the
+// An onboarding turn needs at most create_household + a couple saves + the submit call. Cap the
 // tool-loop tight — with thinking ON, every extra step is another expensive reasoning call.
-const MAX_STEPS = 4;
-// The tool-loop intermittently ends on a tool call with no final structured object (res.object
-// undefined); we retry the whole call rather than a second tool-free phase.
+const MAX_STEPS = 5;
+// The model occasionally finishes without calling submit_reply_plan (no plan captured); we retry
+// the whole call rather than a second tool-free phase.
 const MAX_ATTEMPTS = 3;
 
 /**
@@ -43,10 +44,10 @@ export class ScriptedReasoner implements Reasoner {
 
 /**
  * The live reasoning agent: a Mastra `Agent` on DeepSeek `-flash` (thinking on) with the active objective's tools
- * (self-contained classes bound to this turn), running the native tool-loop plus `structuredOutput`
- * for `{replyPlan, slotUpdates}` in ONE call. The tools write during the loop; afterward we reconcile
- * the model's slot declarations against what actually landed. jsonPromptInjection because DeepSeek
- * rejects the json_schema response_format.
+ * (self-contained classes bound to this turn), running the native tool-loop plus a `submit_reply_plan`
+ * tool for `{replyPlan, slotUpdates}` in ONE call. The tools write during the loop; afterward we reconcile
+ * the model's slot declarations against what actually landed. The plan returns via the registered submit
+ * tool (a native tool schema) rather than a jsonPromptInjection structured output.
  *
  * NOTE (chef-reasoning, revisit): thinking is left ON (DeepSeek's default) because thinking-OFF
  * degraded decision quality (it conflated household members). The cost is (a) latency — reasoning
@@ -77,27 +78,40 @@ export class MastraReasoner implements Reasoner {
       // Rebuild tools each attempt so canRun re-evaluates against ctx a prior attempt may have mutated
       // (e.g. create_household set householdId → it drops out, save_* become legal).
       const tools = buildTools(ctx, def.tools);
+      // Capture the plan through a registered submit tool rather than structuredOutput: the model ends
+      // the tool loop with an explicit final call (more reliable than parsing a trailing structured
+      // object) and it drops the jsonPromptInjection hack for a native tool schema. The holder captures
+      // the model's final call; stopWhen ends the loop the moment the plan is submitted.
+      const submitted: { plan: ReasoningOutput | null } = { plan: null };
+      const submitTool = createTool({
+        id: 'submit_reply_plan',
+        description: 'Finish the turn: submit the reply plan (what to say, in order) and the slot updates. Call this exactly once, last.',
+        inputSchema: ReasoningOutputSchema,
+        execute: async (input) => {
+          submitted.plan = input as ReasoningOutput;
+          return { submitted: true };
+        },
+      });
       const agent = new Agent({
         id: 'chef-reasoning',
         name: 'chef-reasoning',
-        instructions: 'You are the reasoning half of a private chef. Call tools to persist what the household tells you, then return the reply plan and slot updates. Emit no prose.',
+        instructions:
+          'You are the reasoning half of a private chef. Call tools to persist what the household tells you, ' +
+          'then call submit_reply_plan exactly once with the reply plan and slot updates to finish. Emit no prose.',
         model,
-        tools: Object.fromEntries(tools.map((t) => [t.id, t.asMastraTool()])),
+        tools: { ...Object.fromEntries(tools.map((t) => [t.id, t.asMastraTool()])), submit_reply_plan: submitTool },
       });
-      let object: unknown;
       try {
-        const res = await agent.generate(briefing, {
-          structuredOutput: { schema: ReasoningOutputSchema, jsonPromptInjection: true },
-          stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= MAX_STEPS,
+        await agent.generate(briefing, {
+          stopWhen: ({ steps }: { steps: unknown[] }) => !!submitted.plan || steps.length >= MAX_STEPS,
         });
-        object = (res as { object: unknown }).object;
       } catch (err) {
         console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS} threw:`, (err as Error)?.message);
       }
       allSaved.push(...tools.flatMap((t) => t.saved));
-      const parsed = ReasoningOutputSchema.safeParse(object);
+      const parsed = ReasoningOutputSchema.safeParse(submitted.plan);
       if (parsed.success) plan = parsed.data;
-      else console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS}: object ${object ? 'malformed' : 'undefined'}${attempt + 1 < MAX_ATTEMPTS ? ', retrying' : ''}`);
+      else console.warn(`[chef] reasoning attempt ${attempt + 1}/${MAX_ATTEMPTS}: plan ${submitted.plan ? 'malformed' : 'not submitted'}${attempt + 1 < MAX_ATTEMPTS ? ', retrying' : ''}`);
     }
     if (!plan) {
       console.warn('[chef] reasoning: all attempts failed; returning an empty plan.');
