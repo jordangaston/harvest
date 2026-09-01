@@ -347,6 +347,34 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     const { body } = await getDeck(token);
     expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dessert]);
   });
+
+  it("food-moderation Test Case 8: a red-meat recipe ranks below a comparable non-red-meat one when moderated", async () => {
+    const { token, userId } = await mintUser(["eat_healthier"]);
+    // Two otherwise-identical recipes; one carries food_category=red_meat.
+    const red = await seedRecipe(userId, { title: "Beef Bowl", nrfScore: 60 });
+    const veg = await seedRecipe(userId, { title: "Veggie Bowl", nrfScore: 60 });
+    await db.insert(recipeCategories).values({ recipeId: red, facet: "food_category", value: "red_meat" });
+
+    // Materialize a preferences row, then set a negative moderation on red_meat.
+    await app.request("/v1/preferences", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        skill_level: "intermediate", weekly_budget_cents: null, time_budget_minutes: null,
+        weekly_meals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
+        food_prefs: [{ facet: "food_category", value: "red_meat", target: -0.6 }],
+        allergens: [], diets: [], owned_equipment: [], grocery_stores: [],
+        household_adults: 2, household_kids: 0, eats_leftovers: true,
+      }),
+    });
+
+    const { body } = await getDeck(token);
+    const order = body.recipes.map((x: any) => x.recipe.id);
+    // Both still appear (no exclusion); the moderated red-meat recipe sinks below its twin.
+    expect(order).toContain(red);
+    expect(order).toContain(veg);
+    expect(order.indexOf(veg)).toBeLessThan(order.indexOf(red));
+  });
 });
 
 /** Sets the user's planned weekly meal counts (drives the default deck meal-type filter). */
