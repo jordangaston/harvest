@@ -179,9 +179,9 @@ export const threads = sqliteTable('threads', {
   // in the turn's commit txn so a redelivered doorbell can't re-fire (mirrors sent_at).
   greetedAt: integer('greeted_at', { mode: 'timestamp' }),
   celebratedAt: integer('celebrated_at', { mode: 'timestamp' }),
-  // One-time lifecycle flags (WI-4C): `renamed_at` stamped once the chat is renamed to
-  // "Meal Planning" after household creation (no-op/unstamped on a DM); `carded_at` once
-  // Chef's contact card is sent after the onboarding fireworks. Same redelivery gate.
+  // One-time lifecycle flags (WI-4C): `renamed_at` stamped once the household exists (the rename
+  // fires on a group, no-ops on a DM — but stamped either way so it never retries); `carded_at`
+  // once Chef's contact card is sent after the onboarding fireworks. Same redelivery gate.
   renamedAt: integer('renamed_at', { mode: 'timestamp' }),
   cardedAt: integer('carded_at', { mode: 'timestamp' }),
   createdAt: createdAt(),
