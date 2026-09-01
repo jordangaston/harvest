@@ -38,7 +38,7 @@ beforeEach(async () => {
 });
 afterEach(() => cleanup());
 
-async function seedThreadWithInbound(): Promise<{ threadId: string; inboundId: string }> {
+async function seedThreadWithInbound(): Promise<{ threadId: string; inboundId: string; inboundGuid: string }> {
   const { privateKey, publicKey } = AuthService.create().generateKeyPair();
   const owner = await UserRepository.create(db).insert({ phone: '+15555590001', jwtPrivateKey: privateKey, jwtPublicKey: publicKey });
   const hh = HouseholdRepository.create(db);
@@ -51,7 +51,7 @@ async function seedThreadWithInbound(): Promise<{ threadId: string; inboundId: s
   const guid = randomUUID();
   await ThreadRepository.create(db).insertInboundMessage({ threadId, senderUserId: owner.id, type: 'text', body: 'a recipe idea?', messageGuid: guid });
   const [row] = await db.select().from(threadMessages).where(eq(threadMessages.messageGuid, guid));
-  return { threadId, inboundId: row.id };
+  return { threadId, inboundId: row.id, inboundGuid: guid };
 }
 
 describe('consumer dispatches a richlink event (AC1)', () => {
@@ -82,5 +82,32 @@ describe('consumer dispatches a richlink event (AC1)', () => {
     expect(link).toBeDefined();
     expect(outbound.every((r) => r.sentAt !== null)).toBe(true);
     expect(outbound.every((r) => r.externalId !== null)).toBe(true);
+  });
+});
+
+// WI-4A AC1: the consumer persists a tapback as a type='reaction' row (glyph + target) and dispatches
+// it via sendReaction — never as text, and the sent_at gate marks it sent.
+describe('consumer dispatches a tapback event (WI-4A AC1)', () => {
+  it('persists a reaction row (glyph + target) and calls sendReaction, not send', async () => {
+    const { threadId, inboundId, inboundGuid } = await seedThreadWithInbound();
+    const chef: Chef = {
+      respond: async (): Promise<ChefReply> => ({
+        chatEvents: [{ kind: 'tapback', target: inboundGuid, emoji: 'love' }],
+        slotUpdates: [],
+        cursorTo: inboundId,
+        objectiveId: '',
+      }),
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    // Dispatched as a reaction (glyph + the inbound's external_id), not a text send.
+    expect(sender.reactionCalls).toEqual([{ chatGuid: `g-${threadId}`, target: inboundGuid, emoji: '❤️' }]);
+    expect(sender.calls).toHaveLength(0);
+
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, 'outbound'));
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({ type: 'reaction', reactionEmoji: '❤️', targetMessageGuid: inboundGuid, body: null });
+    expect(outbound[0]!.sentAt).not.toBeNull(); // the sent_at idempotency gate is respected
   });
 });

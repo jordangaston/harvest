@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { ScriptedResponder, MastraResponder, selectResponseAgent } from '../src/chef/response-agent.js';
-import type { ReplyPlan } from '../src/chef/types.js';
+import { CHEF_TAPBACK_KINDS, type ReplyPlan } from '../src/chef/types.js';
 
 const responder = new ScriptedResponder();
 
@@ -20,10 +20,10 @@ describe('ScriptedResponder.render (deterministic, no network)', () => {
     ]);
   });
 
-  it('AC-2: an acknowledge intent addressing a message renders a tapback', async () => {
+  it('AC-2: an acknowledge intent addressing a message renders an allowed-kind tapback (never like)', async () => {
     const plan: ReplyPlan = { intents: [{ kind: 'acknowledge', note: 'got it' }], must_say: [], address: 'guid-1' };
     const events = await responder.render(plan, []);
-    expect(events).toEqual([{ kind: 'tapback', target: 'guid-1', emoji: 'like' }]);
+    expect(events).toEqual([{ kind: 'tapback', target: 'guid-1', emoji: 'love' }]);
   });
 
   it('AC-3: every must_say surfaces as a text event', async () => {
@@ -39,6 +39,28 @@ describe('ScriptedResponder.render (deterministic, no network)', () => {
     const b = await responder.render(planB, []);
     expect(a).toEqual([{ kind: 'text', text: 'A' }]);
     expect(b).toEqual([{ kind: 'text', text: 'B' }]);
+  });
+});
+
+// WI-4A AC3: MastraResponder grounds a tapback on a REAL trigger id, of an allowed kind, never
+// like/dislike. The tapback path returns before any model call, so these run offline (no key).
+describe('MastraResponder tapback emission (WI-4A, grounded, no network)', () => {
+  const responder = MastraResponder.create('test-key-no-network');
+
+  it('AC3: an addressed acknowledge plan reacts on the real trigger id with an allowed kind', async () => {
+    const plan: ReplyPlan = { intents: [{ kind: 'acknowledge', note: 'got it' }], must_say: [], address: 'model-said-X' };
+    const events = await responder.render(plan, ['sounds good'], 'spc-msg-REAL');
+
+    // Grounded on the trigger id, NOT the model's address string; kind is allowed (never like/dislike).
+    expect(events).toEqual([{ kind: 'tapback', target: 'spc-msg-REAL', emoji: 'love' }]);
+    const tapback = events[0]!;
+    if (tapback.kind === 'tapback') expect(CHEF_TAPBACK_KINDS as readonly string[]).toContain(tapback.emoji);
+  });
+
+  it('AC3: the never-thumbs-up rule is structural — the allowed set excludes like and dislike', () => {
+    expect(CHEF_TAPBACK_KINDS).not.toContain('like');
+    expect(CHEF_TAPBACK_KINDS).not.toContain('dislike');
+    expect([...CHEF_TAPBACK_KINDS].sort()).toEqual(['emphasize', 'laugh', 'love']);
   });
 });
 

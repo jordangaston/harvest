@@ -45,7 +45,14 @@ const CONDUCT_AND_SAFETY =
   'save_household_profile that same turn; the household\'s cooking goals go through save_household_goals. ' +
   "A member's allergens/diets/likes/dislikes/skill go through save_member_profile — an allergen only " +
   'counts with confirmed:true and a severity, and a like/dislike must be grounded with search_catalog ' +
-  '(kind:"taste") to a facet+value before saving. In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
+  '(kind:"taste") to a facet+value before saving. ' +
+  // React-vs-reply (chef-tapback-emoji-style.md): a tapback is the low-friction "I saw / I like that".
+  'REACT vs REPLY: when a message just needs acknowledgment or appreciation and carries no content to ' +
+  'answer (a low-stakes answer, a "here you go", a bit of enthusiasm), acknowledge it with a tapback — ' +
+  'emit a single acknowledge intent and set replyPlan.address to that message. Reply with text when the ' +
+  'user expects real content (a question, a request), and say a plain "got it" as a short warm TEXT ' +
+  '("Sounds good!"), never a tapback. React sparingly — not every message. ' +
+  'In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
   'repeat a question already answered, and never echo the user back. In slotUpdates, mark the slots ' +
   'this turn answered — reference each slot by the [id] shown in "Slots still needed" — as filled ' +
   '(with the value) or asked. ' +
