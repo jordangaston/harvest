@@ -52,9 +52,11 @@ const CONDUCT_AND_SAFETY =
   'emit a single acknowledge intent and set replyPlan.address to that message. Reply with text when the ' +
   'user expects real content (a question, a request), and say a plain "got it" as a short warm TEXT ' +
   '("Sounds good!"), never a tapback. React sparingly — not every message. ' +
-  'In replyPlan.intents, ask for the next unfilled slot(s) — never ' +
+  'In replyPlan.intents, ask for ONE thing only — the single most natural next slot given what they ' +
+  'just said; leave the rest for later turns and never present a checklist of what is still needed. ' +
+  'Persist generously (record everything they volunteer) but ask minimally (one thing back). Never ' +
   'repeat a question already answered, and never echo the user back. In slotUpdates, mark the slots ' +
-  'this turn answered — reference each slot by the [id] shown in "Slots still needed" — as filled ' +
+  'this turn answered — reference each slot by the [id] shown in "Slots still open" — as filled ' +
   '(with the value) or asked. ' +
   HARD_RULE;
 
@@ -91,7 +93,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `# Conduct\n${CONDUCT_AND_SAFETY}`,
     `# Objective: ${def.id}\n${def.instructions}`,
     input.suspended?.length ? `Suspended underneath: ${input.suspended.join(', ')}` : '',
-    `# Slots still needed (each with how to fill it)\n${unfilled || '(none)'}`,
+    `# Slots still open (pick the ONE most natural to ask about this turn — never ask for all)\n${unfilled || '(none)'}`,
     `# Household\n${members}`,
     `# Recent transcript\n${transcript}`,
     `# What just arrived\n${input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : ''}${input.trigger}`,
