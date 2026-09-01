@@ -121,16 +121,24 @@ export class ThreadRepository {
     return (await this.loadPendingInbound(threadId, cursor)).length > 0;
   }
 
-  /** Inserts one outbound text row with `sent_at` NULL (the unsent send gate). `targetGuid`, when
-   *  present, records the parent this row is a threaded reply to (symmetry with inbound). */
+  /** Inserts one outbound row with `sent_at` NULL (the unsent send gate). Defaults to a `text` row;
+   *  a `reaction` row carries `reactionEmoji` (the glyph) and `targetGuid` (the message reacted to).
+   *  `targetGuid`, on a text row, records the parent it threads a reply to (symmetry with inbound). */
   async insertOutbound(
-    input: { threadId: string; body: string; messageGuid: string; targetGuid?: string | null },
+    input: {
+      threadId: string;
+      body: string | null;
+      messageGuid: string;
+      type?: 'text' | 'reaction';
+      reactionEmoji?: string | null;
+      targetGuid?: string | null;
+    },
     tx: Executor = this.db,
   ): Promise<void> {
-    const { targetGuid, ...rest } = input;
+    const { targetGuid, type, reactionEmoji, ...rest } = input;
     await tx
       .insert(threadMessages)
-      .values({ ...rest, direction: 'outbound', type: 'text', targetMessageGuid: targetGuid });
+      .values({ ...rest, direction: 'outbound', type: type ?? 'text', reactionEmoji, targetMessageGuid: targetGuid });
   }
 
   /** Advances the cursor to the newest processed inbound id and bumps updated_at. */

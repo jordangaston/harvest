@@ -6,6 +6,7 @@ import { selectChef, ObjectiveRepository, type Chef } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
 import type { ThreadMessage } from '../models/thread-message.js';
+import { TAPBACK_GLYPHS } from '../chef/types.js';
 
 /**
  * Drains a thread's pending inbound and answers it. The consumer owns its collaborators — the
@@ -66,11 +67,16 @@ export class Consumer {
 
           await this.db.transaction(async (tx) => {
             for (const event of reply.chatEvents) {
-              // A richlink persists as a `[richlink:<url>]` body marker (no enum value); the send
-              // half unwraps it and dispatches via sendLink. Other kinds (tapback) aren't sent yet.
-              const body =
-                event.kind === 'text' ? event.text : event.kind === 'richlink' ? `[richlink:${event.url}]` : null;
-              if (body === null) continue;
+              // A tapback persists as a `type='reaction'` row (glyph + the target's external_id); a
+              // richlink as a `[richlink:<url>]` body marker (no enum value) the send half unwraps.
+              if (event.kind === 'tapback') {
+                await this.threads.insertOutbound(
+                  { threadId, body: null, messageGuid: randomUUID(), type: 'reaction', reactionEmoji: TAPBACK_GLYPHS[event.emoji], targetGuid: event.target },
+                  tx,
+                );
+                continue;
+              }
+              const body = event.kind === 'text' ? event.text : `[richlink:${event.url}]`;
               await this.threads.insertOutbound({ threadId, body, messageGuid: randomUUID() }, tx);
             }
             await this.objectives.applySlotUpdates(reply.slotUpdates, tx);
@@ -92,11 +98,12 @@ export class Consumer {
   }
 
   /**
-   * Sends the unsent outbound rows in row order, preserving both text batching and richlink
+   * Sends the unsent outbound rows in row order, preserving text batching, richlink, and reaction
    * ordering. Contiguous text rows accumulate into one ordered `send` batch (so iMessage can't
-   * reorder the bubbles); a richlink row (a `[richlink:<url>]` body marker) first flushes any
-   * pending text batch, then sends the link via `sendLink` — keeping the overall sequence intact.
-   * Every row gets its `external_id` captured from the send's returned platform ids.
+   * reorder the bubbles); a richlink row (a `[richlink:<url>]` body marker) or a `type='reaction'`
+   * row first flushes any pending text batch, then dispatches via `sendLink` / `sendReaction` —
+   * keeping the overall sequence intact. Every row gets marked sent (the `sent_at` idempotency gate);
+   * text/richlink rows also capture the send's returned `external_id` (a reaction returns none).
    */
   private async dispatch(chatGuid: string, unsent: ThreadMessage[]): Promise<void> {
     let batch: ThreadMessage[] = [];
@@ -108,6 +115,12 @@ export class Consumer {
     };
 
     for (const row of unsent) {
+      if (row.type === 'reaction') {
+        await flush(); // text before this reaction must land first
+        await this.sender.sendReaction(chatGuid, row.targetMessageGuid!, row.reactionEmoji!);
+        await this.markRowsSent([row], []); // no external_id — a reaction isn't a targetable message
+        continue;
+      }
       const link = /^\[richlink:(.+)\]$/.exec(row.body ?? '');
       if (!link) {
         batch.push(row);
