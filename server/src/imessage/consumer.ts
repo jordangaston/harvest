@@ -59,6 +59,12 @@ export class Consumer {
       // once fired so the multi-turn drain loop fires each at most once.
       let greetPending = thread.greetedAt === null;
       let celebratePending = thread.celebratedAt === null;
+      // One-time lifecycle gates (WI-4C), same substrate: rename the chat to "Meal Planning" the
+      // turn the household first exists (group chats only — a DM no-ops); send Chef's contact card
+      // the turn onboarding completes (after the fireworks). Seeded null ⇒ pending, flipped once
+      // fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
+      let renamePending = thread.renamedAt === null;
+      let cardPending = thread.cardedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
@@ -75,6 +81,11 @@ export class Consumer {
           // post-update completion, then honoured by the send half after the commit.
           const greetNow = greetPending;
           let celebrateNow = false;
+          // A household created this turn is why we rename: re-read the thread after respond (the
+          // create_household tool linked it inside respond's own txn), gate on renamed_at + a set id.
+          const householdNow = (await this.threads.findById(threadId))?.householdId ?? null;
+          const renameNow = renamePending && householdNow !== null;
+          let cardNow = false;
 
           await this.db.transaction(async (tx) => {
             for (const event of reply.chatEvents) {
@@ -103,14 +114,25 @@ export class Consumer {
             if (greetNow) await this.threads.markGreeted(threadId, now, tx);
             celebrateNow = completedNow && celebratePending;
             if (celebrateNow) await this.threads.markCelebrated(threadId, now, tx);
+            // Rename once the household exists; stamp even for a DM (which no-ops on send) so it
+            // never retries. Card co-fires with the fireworks, after them, once.
+            if (renameNow) await this.threads.markRenamed(threadId, now, tx);
+            cardNow = celebrateNow && cardPending;
+            if (cardNow) await this.threads.markCarded(threadId, now, tx);
           });
 
           greetPending = greetPending && !greetNow; // fired once; don't confetti a later turn
           celebratePending = celebratePending && !celebrateNow; // fired once; don't re-fireworks a later completion
+          renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
+          cardPending = cardPending && !cardNow; // fired once; don't re-send the card
           const unsent = await this.threads.loadUnsentOutbound(threadId);
           await this.dispatch(thread.chatGuid, unsent, greetNow);
+          // Rename the chat to "Meal Planning" once the household exists (group only; DM no-ops).
+          if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
           // Fireworks the moment onboarding completes — a short extra bubble, not a normal reply.
           if (celebrateNow) await this.sender.sendEffect(thread.chatGuid, 'Your first menu is on its way! 🎆', 'fireworks');
+          // Chef's contact card follows the fireworks so the user can save Chef.
+          if (cardNow) await this.sender.sendContactCard(thread.chatGuid);
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining

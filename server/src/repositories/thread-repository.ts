@@ -193,6 +193,17 @@ export class ThreadRepository {
     await tx.update(threads).set({ celebratedAt: at }).where(eq(threads.id, threadId));
   }
 
+  /** Stamps `renamed_at` — the one-time chat-rename gate (WI-4C), set once the household exists
+   *  (stamped whether the group rename fired or a DM skipped it, so it never retries). */
+  async markRenamed(threadId: string, at: Date, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ renamedAt: at }).where(eq(threads.id, threadId));
+  }
+
+  /** Stamps `carded_at` — the one-time contact-card gate (WI-4C), set in the turn's commit txn. */
+  async markCarded(threadId: string, at: Date, tx: Executor = this.db): Promise<void> {
+    await tx.update(threads).set({ cardedAt: at }).where(eq(threads.id, threadId));
+  }
+
   /** Loads a thread by id (the doorbell payload), parsed into the domain model, or null. */
   async findById(threadId: string): Promise<Thread | null> {
     const [row] = await this.db.select().from(threads).where(eq(threads.id, threadId));

@@ -12,6 +12,9 @@ export const ThreadSchema = z.object({
   // One-time screen-effect flags (WI-4B): null until the effect has fired.
   greetedAt: z.date().nullable(),
   celebratedAt: z.date().nullable(),
+  // One-time lifecycle flags (WI-4C): null until the chat rename / contact card has fired.
+  renamedAt: z.date().nullable(),
+  cardedAt: z.date().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
