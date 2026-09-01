@@ -5,7 +5,7 @@ import { AuthService, type Tokens } from "./auth-service.js";
 import { OtpService } from "./otp-service.js";
 import { normalizeE164 } from "../util/phone.js";
 import { toPublicUser, type User, type Onboarding } from "../models/user.js";
-import { InvalidOtpError, RefreshInvalidError } from "../errors.js";
+import { InvalidOtpError, RefreshInvalidError, WebLinkInvalidError } from "../errors.js";
 
 /** Create an account for an already-verified phone (verification happens
  * separately at POST /v1/otps/verify). */
@@ -19,6 +19,7 @@ export interface CreateUserRequest {
 export interface SignInRequest {
   otp?: { phone_number: string; code: string };
   refresh_token?: string;
+  web_link?: string;
 }
 
 /** A resolved user plus a freshly minted session. */
@@ -82,14 +83,16 @@ export class UserService {
   }
 
   /**
-   * Signs in a user by refresh token, else by verified OTP.
+   * Signs in a user by web-link token, else refresh token, else verified OTP.
    *
-   * @param req - Exactly one of `refresh_token` or `otp`; refresh takes precedence.
+   * @param req - Exactly one of `web_link`, `refresh_token`, or `otp`.
    * @returns The resolved user and a fresh session.
+   * @throws {WebLinkInvalidError} If the web-link token doesn't resolve to a user.
    * @throws {RefreshInvalidError} If the refresh token doesn't resolve to a user.
    * @throws {InvalidOtpError} If the OTP code is wrong.
    */
   async signIn(req: SignInRequest): Promise<Resolution> {
+    if (req.web_link) return this.resolveByWebLink(req.web_link);
     if (req.refresh_token) return this.resolveByRefreshToken(req.refresh_token);
     return this.signInByOtp(req.otp!);
   }
@@ -144,6 +147,19 @@ export class UserService {
   }
 
   /**
+   * Resolves a web-link token to its user and issues a normal session.
+   *
+   * @param token - The weblink token from the iMessage link fragment.
+   * @returns The user and a fresh session.
+   * @throws {WebLinkInvalidError} If the token is invalid, expired, revoked, or wrong type.
+   */
+  private async resolveByWebLink(token: string): Promise<Resolution> {
+    const user = await this.userForToken(token, "weblink");
+    if (!user) throw new WebLinkInvalidError();
+    return this.session(user, false);
+  }
+
+  /**
    * Loads the user a token names (via its unverified sub), then verifies the
    * token's signature, type, and nonce against that user's key. The single
    * place a token is resolved to its owner.
@@ -153,13 +169,14 @@ export class UserService {
    * @returns The owning user, or null on any failure (unknown user, bad
    *   signature, wrong type, or stale nonce).
    */
-  private async userForToken(token: string, type: "access" | "refresh"): Promise<User | null> {
+  private async userForToken(token: string, type: "access" | "refresh" | "weblink"): Promise<User | null> {
     const sub = this.authService.decodeSub(token);
     const user = sub && (await this.repo.findById(sub));
     if (!user) return null;
     try {
       const { nonce } = this.authService.verify(token, user.jwtPublicKey, type);
-      const current = type === "access" ? user.accessTokenNonce : user.refreshTokenNonce;
+      const current =
+        type === "access" ? user.accessTokenNonce : type === "refresh" ? user.refreshTokenNonce : user.webLinkNonce;
       return nonce === current ? user : null;
     } catch {
       return null;
