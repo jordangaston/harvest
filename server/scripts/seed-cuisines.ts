@@ -6,7 +6,7 @@ import { cuisines } from '../src/schema.js';
 import { CUISINES } from '../src/categorize/cuisines.js';
 
 /**
- * Seeds the `cuisines` table from the authored `seed/cuisines.json` (via the shared
+ * Seeds the `cuisines` table from the authored `cuisines-data.ts` (via the shared
  * CUISINES module, so VOCAB and this table never drift). Idempotent: upserts by slug,
  * so a re-run refreshes labels/parents without duplicating rows. Rows are inserted in
  * file order (parents before children) so the `parent_slug` self-FK holds.

@@ -3,7 +3,7 @@ import { CUISINE_SLUGS } from './cuisines.js';
 /**
  * VOCAB — the controlled vocabulary for the taste signal (WI-TS-2). Three allow-
  * lists, one per facet; every categorizer output must be a member. `cuisine` is derived
- * from the authored hierarchy in `seed/cuisines.json` (the single source of truth, also
+ * from the authored hierarchy in `cuisines-data.ts` (the single source of truth, also
  * seeded into the `cuisines` table) — meal/dish/primary stay code constants here.
  */
 export const VOCAB = {
