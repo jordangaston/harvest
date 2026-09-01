@@ -71,7 +71,7 @@ export class RealChef implements Chef {
       if (!turn) return null;
 
       const reasoning = await this.reasoner.run(turn.briefing, turn.turnCtx);
-      const chatEvents = await this.responder.render(reasoning.replyPlan, turn.transcriptWindow);
+      const chatEvents = await this.responder.render(reasoning.replyPlan, turn.transcriptWindow, turn.triggerExternalId);
 
       // Interruption barrier: a message that landed while we reasoned discards this render and
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
@@ -124,7 +124,7 @@ export class RealChef implements Chef {
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
     };
     const slotIds = new Set(active.slots.map((s) => s.id));
-    return { briefing, turnCtx, transcriptWindow, cursorTo: pending[pending.length - 1]!.id, slotIds, objectiveId: active.objective.id };
+    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, slotIds, objectiveId: active.objective.id };
   }
 
   /** Maps the reasoning component's id-addressed slot declarations to store updates, dropping any id
