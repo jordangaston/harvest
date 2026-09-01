@@ -2,11 +2,11 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { codeCandidates, coerce } from './catalog.js';
 import { resolveEquipment } from './equipment-grounding.js';
-import { ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type AffinityFacet } from '../../schema.js';
+import { ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, SENTIMENTS, type AffinityFacet } from '../../schema.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
 import { TasteOptionsService, type TasteOptions } from '../../services/taste-options-service.js';
 import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
-import type { PreferencesUpdate, UserPreferences } from '../../models/user-preferences.js';
+import type { FoodPrefUpdate, PreferencesUpdate, UserPreferences } from '../../models/user-preferences.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 // The picker exposes three affinity facets; a like/dislike names one and a value we ground to the
@@ -27,6 +27,13 @@ const inputSchema = z.object({
       diets: z.array(z.object({ dietId: z.string(), strictness: z.string().nullish() })).nullish(),
       likes: z.array(affinitySelection).nullish(),
       dislikes: z.array(affinitySelection).nullish(),
+      // Degreed food-class moderation ("trying to limit red meat"). `value` is a food class the
+      // model grounds via search_catalog(food_category); `target` is the intent (−1 less … +1 more)
+      // mapped from the NL degree ("trying to limit"≈−0.5, "cut way back"≈−0.9); optional `sentiment`
+      // when the member states taste ("I love steak") and `reason` when they give a why.
+      moderation: z
+        .array(z.object({ value: z.string(), target: z.number().min(-1).max(1), sentiment: z.enum(SENTIMENTS).nullish(), reason: z.string().nullish() }))
+        .nullish(),
       skill_level: z.enum(DIFFICULTY_BANDS).nullish(),
       owned_equipment: z.array(z.string()).nullish(),
     })
@@ -39,22 +46,12 @@ type Selection = { facet: AffinityFacet; value: string };
 const isSeverity = (s: unknown): s is (typeof ALLERGEN_SEVERITIES)[number] => ALLERGEN_SEVERITIES.includes(s as never);
 const isStrictness = (s: unknown): s is (typeof DIET_STRICTNESS)[number] => DIET_STRICTNESS.includes(s as never);
 
-/** Splits resolved foodPrefs back into the like/dislike selection arrays `savePreferences` rebuilds from. */
-function foodPrefsToLikesDislikes(prefs: UserPreferences): { likes: Selection[]; dislikes: Selection[] } {
-  const likes = prefs.foodPrefs.filter((f) => f.sentiment === 'like').map((f) => ({ facet: f.facet, value: f.value }));
-  const dislikes = prefs.foodPrefs.filter((f) => f.sentiment === 'dislike').map((f) => ({ facet: f.facet, value: f.value }));
-  return { likes, dislikes };
-}
-
-/** Union two selection lists, de-duped on (facet, value). */
-function mergeSelections(a: Selection[], b: Selection[]): Selection[] {
-  const seen = new Set<string>();
-  return [...a, ...b].filter((s) => {
-    const key = `${s.facet}:${s.value}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+/** Union food-pref rows de-duped on (facet, value) — the last write for a key wins so a fresh
+ *  patch overrides the member's stored axes for that food class. */
+function mergeFoodPrefs(existing: FoodPrefUpdate[], incoming: FoodPrefUpdate[]): FoodPrefUpdate[] {
+  const byKey = new Map<string, FoodPrefUpdate>();
+  for (const p of [...existing, ...incoming]) byKey.set(`${p.facet}:${p.value}`, p);
+  return [...byKey.values()];
 }
 
 /**
@@ -95,6 +92,10 @@ export class SaveMemberProfileTool implements ChefTool {
         'carries a strictness of "strict" or "flexible". likes/dislikes are { facet: ' +
         '"cuisine"|"dish_type"|"ingredient", value } — pass the plain food word (e.g. "Thai" -> cuisine, ' +
         '"grilled chicken" -> ingredient); ingredient values are resolved against the food catalog for you. ' +
+        'For a soft "eat more/less of a food class" (e.g. "trying to limit red meat"), use moderation: ' +
+        '{ value: a food class like "red meat", target: -1..+1 (less..more; "trying to limit"~-0.5, ' +
+        '"cut way back"~-0.9), sentiment?: like|dislike if they state taste, reason?: the why }. This is ' +
+        'NOT a dislike — a member can like a food and still want less of it. ' +
         'skill_level is beginner|intermediate|advanced. Unmatched values are rejected. ' +
         "member_user_id is the member's id from the Household list.",
       inputSchema,
@@ -144,12 +145,18 @@ export class SaveMemberProfileTool implements ChefTool {
       }
     }
 
-    // Food prefs ground per facet against the taste catalog; savePreferences rebuilds the like set
-    // from what we pass, so merge new selections onto the member's existing ones.
-    const currentFood = foodPrefsToLikesDislikes(current);
+    // Food prefs ground per facet against the taste catalog; savePreferences upserts each element,
+    // so merge new taste selections + moderations onto the member's existing unified foodPrefs.
     const opts = (patch.likes?.length || patch.dislikes?.length) ? await this.taste.options() : null;
-    const likes = mergeSelections(currentFood.likes, opts ? await this.ground(patch.likes ?? [], opts, saved, 'likes', rejected) : []);
-    const dislikes = mergeSelections(currentFood.dislikes, opts ? await this.ground(patch.dislikes ?? [], opts, saved, 'dislikes', rejected) : []);
+    const tasteLikes = opts ? await this.ground(patch.likes ?? [], opts, saved, 'likes', rejected) : [];
+    const tasteDislikes = opts ? await this.ground(patch.dislikes ?? [], opts, saved, 'dislikes', rejected) : [];
+    const moderations = this.groundModeration(patch.moderation ?? [], saved, rejected);
+    const incoming: FoodPrefUpdate[] = [
+      ...tasteLikes.map((s) => ({ facet: s.facet, value: s.value, sentiment: 'like' as const })),
+      ...tasteDislikes.map((s) => ({ facet: s.facet, value: s.value, sentiment: 'dislike' as const })),
+      ...moderations,
+    ];
+    const foodPrefs = mergeFoodPrefs(current.foodPrefs, incoming);
 
     const skillLevel = patch.skill_level ?? current.skillLevel;
     if (patch.skill_level) saved.skill_level = patch.skill_level;
@@ -160,8 +167,7 @@ export class SaveMemberProfileTool implements ChefTool {
       timeBudgetMinutes: current.timeBudgetMinutes,
       timeByMeal: current.timeByMeal,
       weeklyMeals: current.weeklyMeals,
-      likes,
-      dislikes,
+      foodPrefs,
       allergens,
       diets,
       ownedEquipment,
@@ -173,6 +179,20 @@ export class SaveMemberProfileTool implements ChefTool {
     const result: SaveResult = { saved, rejected };
     this.saved.push(result);
     return result;
+  }
+
+  /** Grounds each moderation onto a food-class id (the same catalog matcher, floor 0.6) and emits
+   *  a `food_category` foodPref carrying the intent target (+ optional taste/reason). An unmatched
+   *  food class is rejected with nearest matches, like every other catalog write. */
+  private groundModeration(raw: NonNullable<Input['patch']['moderation']>, saved: Record<string, unknown>, rejected: SaveResult['rejected']): FoodPrefUpdate[] {
+    const out: FoodPrefUpdate[] = [];
+    for (const m of raw) {
+      const { value, closest } = coerce(m.value, codeCandidates('food_category'));
+      if (!value) { rejected.push({ input: m.value, reason: 'no catalog match', closest }); continue; }
+      out.push({ facet: 'food_category', value, target: m.target, sentiment: m.sentiment ?? null, reason: m.reason ?? null });
+      saved.moderation = (saved.moderation as string[] | undefined ?? []).concat(value);
+    }
+    return out;
   }
 
   /** Grounds each {facet,value} to a catalog id, recording the landed display label under `savedKey`
