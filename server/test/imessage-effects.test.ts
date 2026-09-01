@@ -42,6 +42,9 @@ async function seedThreadWithInbound(): Promise<{ threadId: string; inboundId: s
 async function addInbound(threadId: string, ownerUserId: string): Promise<string> {
   const guid = randomUUID();
   await ThreadRepository.create(db).insertInboundMessage({ threadId, senderUserId: ownerUserId, type: 'text', body: 'next', messageGuid: guid });
+  // created_at is second-resolution, so a same-second insert would order by random UUID and could
+  // land *before* the cursor; stamp it a second later so it deterministically sorts past the cursor.
+  await db.update(threadMessages).set({ createdAt: new Date(Date.now() + 1000) }).where(eq(threadMessages.messageGuid, guid));
   const [row] = await db.select().from(threadMessages).where(eq(threadMessages.messageGuid, guid));
   return row!.id;
 }

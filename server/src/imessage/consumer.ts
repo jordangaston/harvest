@@ -58,6 +58,7 @@ export class Consumer {
       // redelivered doorbell — a fresh handle() that reloads the thread — can't re-fire; flipped
       // once fired so the multi-turn drain loop fires each at most once.
       let greetPending = thread.greetedAt === null;
+      let celebratePending = thread.celebratedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
@@ -100,11 +101,12 @@ export class Consumer {
             // exactly once even if the process dies before the send (redelivery reloads a set flag).
             const now = new Date();
             if (greetNow) await this.threads.markGreeted(threadId, now, tx);
-            celebrateNow = completedNow && thread.celebratedAt === null;
+            celebrateNow = completedNow && celebratePending;
             if (celebrateNow) await this.threads.markCelebrated(threadId, now, tx);
           });
 
           greetPending = greetPending && !greetNow; // fired once; don't confetti a later turn
+          celebratePending = celebratePending && !celebrateNow; // fired once; don't re-fireworks a later completion
           const unsent = await this.threads.loadUnsentOutbound(threadId);
           await this.dispatch(thread.chatGuid, unsent, greetNow);
           // Fireworks the moment onboarding completes — a short extra bubble, not a normal reply.
