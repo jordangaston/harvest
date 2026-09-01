@@ -1,0 +1,55 @@
+@import "tailwindcss";
+/* Scope class detection to the one page that uses these styles, so the built asset's content
+   hash is deterministic (auto-detection would scan all of server/, incl. tests + .output, and
+   churn the hash on unrelated edits). @source is a Tailwind build directive, not authored CSS. */
+@source "../src/recipe-page.tsx";
+
+/* Single golden-hour theme (the recipe card is intentionally one theme, no dark counterpart). */
+@plugin "daisyui" {
+  themes: false;
+  include: card, badge, list, link;
+}
+@plugin "daisyui/theme" {
+  name: "harvest";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  /* Harvest golden-hour ramp mapped to daisyUI semantics: base-100 = card (lightest),
+     base-200 = cream canvas, base-300 = sand border, base-content = ink. */
+  --color-base-100: #fbf6ec;
+  --color-base-200: #f1e6d2;
+  --color-base-300: #e7d8be;
+  --color-base-content: #2e2419;
+  --color-primary: #a85e2b;
+  --color-primary-content: #fbf6ec;
+  --color-secondary: #5c6350;
+  --color-secondary-content: #f1e6d2;
+  --color-accent: #c79a3e;
+  --color-accent-content: #2e2419;
+  --color-neutral: #6e5b48;
+  --color-neutral-content: #f1e6d2;
+  --color-info: #5c6350;
+  --color-info-content: #f1e6d2;
+  --color-success: #4e7a3f;
+  --color-success-content: #fbf6ec;
+  --color-warning: #8c5d18;
+  --color-warning-content: #fbf6ec;
+  --color-error: #b23a2e;
+  --color-error-content: #fbf6ec;
+
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+/* Brand type: Lora wordmark/headings, Karla body (loaded via the page's Google Fonts link). */
+@theme {
+  --font-sans: "Karla", system-ui, -apple-system, sans-serif;
+  --font-serif: "Lora", Georgia, serif;
+}

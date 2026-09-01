@@ -39,9 +39,9 @@ describe('renderRecipePage', () => {
     expect(html).toContain('Miso &lt;b&gt;Salmon&lt;/b&gt;');
   });
 
-  it('no image → the empty hero placeholder, no <img>', () => {
+  it('no image → the emoji placeholder, no <img>', () => {
     const html = renderRecipePage(recipe({ image_url: undefined }));
-    expect(html).toContain('hero empty');
+    expect(html).toContain('🍽️');
     expect(html).not.toContain('<img');
   });
 });
