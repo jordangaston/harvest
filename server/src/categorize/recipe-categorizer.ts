@@ -72,6 +72,8 @@ export class RecipeCategorizer {
         mealType: valid('mealType', analysis.mealType),
         dishType,
         primaryIngredient: valid('primaryIngredient', primaryIngredient),
+        // Food classes are classified by the diet step (name-first), which merges them in later.
+        foodCategory: [],
       },
       stepTechniques: analysis.stepTechniques,
       mealPrepFit: analysis.mealPrepFit ?? heuristicMealPrepFit(dishType, servings),

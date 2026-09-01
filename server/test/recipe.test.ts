@@ -110,6 +110,7 @@ describe("GET /v1/recipes/:id", () => {
         fit: { vegan: "incompatible", keto: "compatible", pescatarian: "unknown" },
         blockers: { vegan: { kind: "ingredient", value: "bacon", class: "red_meat" } },
         coverageComplete: true,
+        foodClasses: ["red_meat"],
       },
     };
     const recipeId = await repo.persist(withDiets, owner.userId);
