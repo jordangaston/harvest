@@ -46,7 +46,9 @@ async function seedThreadWithInbound(): Promise<{ threadId: string; inboundId: s
   await hh.addMember({ householdId: household.id, userId: owner.id });
 
   const threadId = randomUUID();
-  await db.insert(threads).values({ id: threadId, chatGuid: `g-${threadId}`, ownerUserId: owner.id, householdId: household.id });
+  // greeted_at set: these cases exercise richlink/tapback dispatch, not the WI-4B confetti greeting
+  // (which would otherwise ship the first bubble of this fresh thread via sendEffect).
+  await db.insert(threads).values({ id: threadId, chatGuid: `g-${threadId}`, ownerUserId: owner.id, householdId: household.id, greetedAt: new Date() });
 
   const guid = randomUUID();
   await ThreadRepository.create(db).insertInboundMessage({ threadId, senderUserId: owner.id, type: 'text', body: 'a recipe idea?', messageGuid: guid });

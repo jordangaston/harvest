@@ -147,6 +147,8 @@ describe("iMessage substrate", () => {
     const sender = new StubSpectrumSender();
     const chef = new StubChef(db);
     const lock = new StubThreadLock();
+    // greeted_at set: this case tests the reply-send mechanics, not the WI-4B confetti greeting.
+    await db.update(threads).set({ greetedAt: new Date() }).where(eq(threads.id, thread.id));
     await new Consumer(db, sender, chef, lock).handle({ threadId: thread.id });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
@@ -267,6 +269,8 @@ describe("iMessage substrate", () => {
 
     const [thread] = await db.select().from(threads).where(eq(threads.chatGuid, "chat-r3"));
     const sender = new StubSpectrumSender();
+    // greeted_at set: this case tests answering-after-a-reaction, not the WI-4B confetti greeting.
+    await db.update(threads).set({ greetedAt: new Date() }).where(eq(threads.id, thread.id));
     await new Consumer(db, sender, new StubChef(db), new StubThreadLock()).handle({ threadId: thread.id });
 
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
@@ -380,6 +384,9 @@ describe("iMessage substrate", () => {
 
   async function postAndGetThread(mGuid: string, chatGuid: string, handle: string, text: string) {
     expect((await post(signedDelivery(mGuid, chatGuid, handle, text))).status).toBe(200);
+    // greeted_at set: these substrate cases test dispatch mechanics, not the WI-4B confetti greeting
+    // (which would otherwise ship the fresh thread's first bubble through sendEffect, not send).
+    await db.update(threads).set({ greetedAt: new Date() }).where(eq(threads.chatGuid, chatGuid));
     return db.select().from(threads).where(eq(threads.chatGuid, chatGuid));
   }
 });

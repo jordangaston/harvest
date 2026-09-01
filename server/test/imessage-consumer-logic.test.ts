@@ -79,7 +79,9 @@ async function seedThread(slotKeys: string[] = []): Promise<{ threadId: string; 
 
   const threadId = randomUUID();
   const chatGuid = `g-${threadId}`;
-  await db.insert(threads).values({ id: threadId, chatGuid, ownerUserId: owner.id, householdId: household.id });
+  // greeted_at set: these cases test the commit/dispatch mechanics, not the WI-4B confetti greeting
+  // (which would otherwise route the fresh thread's first bubble through sendEffect).
+  await db.insert(threads).values({ id: threadId, chatGuid, ownerUserId: owner.id, householdId: household.id, greetedAt: new Date() });
 
   if (slotKeys.length)
     await ObjectiveRepository.create(db).pushObjective({
