@@ -28,6 +28,9 @@ class CaptureSender implements Sender {
     this.bubbles.push(...bodies);
     return bodies.map((_, i) => `ext-${i}`);
   }
+  async sendReply(chatGuid: string, _target: string, bodies: string[]): Promise<string[]> {
+    return this.send(chatGuid, bodies);
+  }
   async markRead(): Promise<void> {}
   async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {
     return fn();

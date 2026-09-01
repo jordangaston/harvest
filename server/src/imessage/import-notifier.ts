@@ -55,7 +55,7 @@ export class ImportNotifier {
     if (!link || link.notifiedAt) return;
 
     const body = outcome === 'ready' ? await this.saveAndCompose(jobId) : FAILURE_MESSAGE;
-    await this.send(link.threadId, body);
+    await this.send(link.threadId, body, link.targetExternalId);
     await this.imports.markNotified(jobId, new Date());
   }
 
@@ -73,17 +73,23 @@ export class ImportNotifier {
     return `Saved "${title}" to your Liked cookbook.`;
   }
 
-  /** Direct-sends one message to the thread (mirrors the consumer's send: insert → send → stamp). */
-  private async send(threadId: string, body: string): Promise<void> {
+  /**
+   * Direct-sends one message to the thread (mirrors the consumer's send: insert → send → stamp).
+   * When `threadParentId` is set, the confirmation goes out as a threaded reply to that message and
+   * the parent is recorded on the outbound row (symmetry with inbound); else it's a plain send.
+   */
+  private async send(threadId: string, body: string, threadParentId?: string | null): Promise<void> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return;
 
     const messageGuid = randomUUID();
-    await this.threads.insertOutbound({ threadId, body, messageGuid });
+    await this.threads.insertOutbound({ threadId, body, messageGuid, targetGuid: threadParentId });
     const [row] = (await this.threads.loadUnsentOutbound(threadId)).filter((r) => r.messageGuid === messageGuid);
     if (!row) return;
 
-    const [id] = await this.sender.send(thread.chatGuid, [body]);
+    const [id] = threadParentId
+      ? await this.sender.sendReply(thread.chatGuid, threadParentId, [body])
+      : await this.sender.send(thread.chatGuid, [body]);
     await this.threads.markSent(row.id, new Date());
     if (id) await this.threads.setExternalId(row.id, id);
   }
