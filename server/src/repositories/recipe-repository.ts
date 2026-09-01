@@ -31,6 +31,7 @@ const FACET_BY_KEY = {
   mealType: 'meal_type',
   dishType: 'dish_type',
   primaryIngredient: 'primary_ingredient',
+  foodCategory: 'food_category',
 } as const;
 
 /** What the parse provider hands the repository to persist. */
@@ -167,8 +168,8 @@ export class RecipeRepository {
       .where(eq(recipeCategories.recipeId, recipeId))
       .orderBy(recipeCategories.facet, recipeCategories.value);
     const categories = emptyCategories();
-    const BUCKET: Partial<Record<typeof rows[number]['facet'], string[]>> = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient };
-    for (const { facet, value } of rows) BUCKET[facet]?.push(value);
+    const BUCKET = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient, food_category: categories.foodCategory };
+    for (const { facet, value } of rows) BUCKET[facet].push(value);
     return categories;
   }
 
@@ -496,7 +497,7 @@ export class RecipeRepository {
           nrfScore: nrf,
           totalMinutes: recipe.totalMinutes,
           mealTypes: mealTypes.get(recipe.id) ?? [],
-          categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [] },
+          categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },
           baseIngredientIds: baseIngredients.get(recipe.id) ?? [],
           allergens: {
             contains: allergensContains,
@@ -540,10 +541,10 @@ export class RecipeRepository {
       .select({ recipeId: recipeCategories.recipeId, facet: recipeCategories.facet, value: recipeCategories.value })
       .from(recipeCategories)
       .where(inArray(recipeCategories.recipeId, recipeIds));
-    const BUCKET = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient' } as const;
+    const BUCKET = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient', food_category: 'foodCategory' } as const;
     for (const { recipeId, facet, value } of rows) {
       if (!(facet in BUCKET)) continue; // ignore meal_type — not an affinity facet
-      const cats = map.get(recipeId) ?? { cuisine: [], dishType: [], primaryIngredient: [] };
+      const cats = map.get(recipeId) ?? { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] };
       cats[BUCKET[facet as keyof typeof BUCKET]].push(value);
       map.set(recipeId, cats);
     }

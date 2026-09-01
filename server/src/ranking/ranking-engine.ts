@@ -6,7 +6,7 @@ import {
   CostScorer, DifficultyScorer, NutritionScorer, AffinityScorer, TimeScorer, PopularityScorer, MealPrepScorer,
 } from './scorers.js';
 import {
-  PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT, PENALTY_MISSING_EQUIPMENT,
+  PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT, PENALTY_MISSING_EQUIPMENT, MODERATION_PENALTY_MAX,
 } from './constants.js';
 
 /** Pure filter-then-rank engine: hard filters drop recipes, a weighted average of soft signals ranks survivors. */
@@ -61,6 +61,11 @@ export class RankingEngine {
       if (verdict === 'unknown') total += PENALTY_UNKNOWN_VERDICT;
     }
     if (prefs.equipmentReviewed && this.missingRecommendedEquipment(recipe, prefs)) total += PENALTY_MISSING_EQUIPMENT;
+    // Food-class moderation ("eat less of X"): a negative intent target on a food class the recipe
+    // carries sinks it, scaled by intent magnitude. Positive target is inert this milestone (less-only).
+    for (const p of prefs.foodPrefs)
+      if (p.facet === 'food_category' && p.target != null && p.target < 0 && recipe.categories.foodCategory.includes(p.value))
+        total += MODERATION_PENALTY_MAX * -p.target;
     return total;
   }
 

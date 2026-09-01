@@ -19,7 +19,7 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     nrfScore: 50,
     totalMinutes: 30,
     mealTypes: [],
-    categories: { cuisine: [], dishType: [], primaryIngredient: [] },
+    categories: { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },
     baseIngredientIds: [],
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
@@ -53,6 +53,15 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
 }
 
 const round1 = (x: number) => Math.round(x * 100 * 10) / 10;
+
+/** A food pref with axis defaults (sentiment/target/reason null unless given). */
+function fp(p: { facet: UserPreferences['foodPrefs'][number]['facet']; value: string; sentiment?: 'like' | 'dislike'; target?: number; reason?: string }): UserPreferences['foodPrefs'][number] {
+  return { facet: p.facet, value: p.value, sentiment: p.sentiment ?? null, target: p.target ?? null, reason: p.reason ?? null };
+}
+/** A RankableRecipe categories bucket with foodCategory defaulting to []. */
+function cats(o: Partial<RankableRecipe['categories']> = {}): RankableRecipe['categories'] {
+  return { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [], ...o };
+}
 
 describe('scorer normalization (Test Case 1)', () => {
   const p = preferences();
@@ -132,9 +141,9 @@ describe('scorer normalization (Test Case 1)', () => {
 
   it('affinity: all-liked → 1, all-neutral → 0.5, all-disliked → 0, no categories → null', () => {
     const aff = new AffinityScorer();
-    const liked = preferences({ foodPrefs: [{ facet: 'cuisine', value: 'italian', sentiment: 'like' }] });
-    const disliked = preferences({ foodPrefs: [{ facet: 'cuisine', value: 'italian', sentiment: 'dislike' }] });
-    const italian = rankableRecipe({ categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] } });
+    const liked = preferences({ foodPrefs: [fp({ facet: 'cuisine', value: 'italian', sentiment: 'like' })] });
+    const disliked = preferences({ foodPrefs: [fp({ facet: 'cuisine', value: 'italian', sentiment: 'dislike' })] });
+    const italian = rankableRecipe({ categories: cats({ cuisine: ['italian'] }) });
     expect(aff.score(italian, liked)).toBe(1);
     expect(aff.score(italian, p)).toBe(0.5);
     expect(aff.score(italian, disliked)).toBe(0);
@@ -146,14 +155,14 @@ describe('scorer normalization (Test Case 1)', () => {
   it('affinity ingredient facet: liked → 1, disliked → 0, no overlap → 0.5 within the four-facet mean', () => {
     const aff = new AffinityScorer();
     const okra = 'okra-uuid';
-    const recipe = rankableRecipe({ categories: { cuisine: [], dishType: [], primaryIngredient: [] }, baseIngredientIds: [okra] });
-    const liked = preferences({ foodPrefs: [{ facet: 'ingredient', value: okra, sentiment: 'like' }] });
-    const disliked = preferences({ foodPrefs: [{ facet: 'ingredient', value: okra, sentiment: 'dislike' }] });
+    const recipe = rankableRecipe({ categories: cats(), baseIngredientIds: [okra] });
+    const liked = preferences({ foodPrefs: [fp({ facet: 'ingredient', value: okra, sentiment: 'like' })] });
+    const disliked = preferences({ foodPrefs: [fp({ facet: 'ingredient', value: okra, sentiment: 'dislike' })] });
     expect(aff.score(recipe, liked)).toBe(1); // only facet present → mean 1 → 0.5+0.5
     expect(aff.score(recipe, disliked)).toBe(0);
     expect(aff.score(recipe, p)).toBe(0.5); // no matching pref → neutral
     // No overlap between a picked id and the recipe's ids → neutral 0.5.
-    const other = preferences({ foodPrefs: [{ facet: 'ingredient', value: 'spinach-uuid', sentiment: 'dislike' }] });
+    const other = preferences({ foodPrefs: [fp({ facet: 'ingredient', value: 'spinach-uuid', sentiment: 'dislike' })] });
     expect(aff.score(recipe, other)).toBe(0.5);
     // Empty baseIngredientIds → the ingredient facet contributes nothing (here: null overall).
     expect(aff.score(rankableRecipe({ baseIngredientIds: [] }), disliked)).toBeNull();
@@ -248,7 +257,7 @@ describe('missing-equipment soft penalty (WI-EQ-3)', () => {
   const recipe = (equipment: RankableRecipe['equipment']) =>
     rankableRecipe({
       costPerServingCents: 400, difficultyBand: 'intermediate', nrfScore: 57, totalMinutes: 30,
-      categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] },
+      categories: cats({ cuisine: ['italian'] }),
       equipment, equipmentComplete: true,
     });
   const airFryer: RankableRecipe['equipment'] = [{ equipment: 'air_fryer', essentiality: 'recommended' }];
@@ -270,11 +279,64 @@ describe('missing-equipment soft penalty (WI-EQ-3)', () => {
   });
 });
 
+describe('food-moderation down-weight (Test Case 5, 6 — AC 5/6/7)', () => {
+  const engine = RankingEngine.create();
+  // average = (cost 1 + difficulty 1 + nutrition 0.5 + time 1)/4 = 0.875 with affinity dropped
+  // (no matching pref → null) UNLESS a food_category like is present. Build a recipe whose only
+  // categorical signal is its food class, so affinity is null and the base score is stable.
+  const redMeat = () => rankableRecipe({
+    costPerServingCents: 400, difficultyBand: 'intermediate', nrfScore: 57, totalMinutes: 30,
+    categories: cats({ foodCategory: ['red_meat'] }),
+  });
+  const chicken = () => rankableRecipe({
+    id: 'chicken', costPerServingCents: 400, difficultyBand: 'intermediate', nrfScore: 57, totalMinutes: 30,
+    categories: cats({ foodCategory: ['poultry'] }),
+  });
+  const limitRedMeat = preferences({ weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 0, time: 1, popularity: 0, mealPrep: 0 }, foodPrefs: [fp({ facet: 'food_category', value: 'red_meat', target: -0.6 })] });
+  const noPref = preferences({ weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 0, time: 1, popularity: 0, mealPrep: 0 } });
+
+  it('Test Case 5: red-meat recipe drops by MODERATION_PENALTY_MAX*0.6, non-red-meat unchanged, none excluded, +target inert', () => {
+    const withPref = engine.rank([redMeat(), chicken()], limitRedMeat);
+    const without = engine.rank([redMeat(), chicken()], noPref);
+    const score = (r: typeof withPref, id: string) => r.find((x) => x.recipeId === id)!.score;
+
+    // Red-meat recipe sinks by exactly 0.3*0.6 = 0.18; nothing is filtered out (still 2 recipes).
+    expect(withPref.length).toBe(2);
+    expect(score(without, 'r1') - score(withPref, 'r1')).toBeCloseTo(0.3 * 0.6, 6);
+    // The non-red-meat (poultry) recipe is untouched.
+    expect(score(withPref, 'chicken')).toBeCloseTo(score(without, 'chicken'), 6);
+
+    // A positive target on a food class the recipes don't carry changes nothing (less-only milestone).
+    const positive = preferences({ weights: limitRedMeat.weights, foodPrefs: [fp({ facet: 'food_category', value: 'seafood', target: 0.8 })] });
+    expect(engine.rank([redMeat()], positive)[0].score).toBeCloseTo(score(without, 'r1'), 6);
+  });
+
+  it('Test Case 6: a food_category like raises affinity while the moderation penalty still applies; pure-intent adds no affinity', () => {
+    const aff = new AffinityScorer();
+    const recipe = redMeat();
+    // sentiment=like on the food class → affinity treats red meat as liked (contributes 1, not a dislike).
+    const likedAndLimited = preferences({ foodPrefs: [fp({ facet: 'food_category', value: 'red_meat', sentiment: 'like', target: -0.6 })] });
+    // The affinity scorer only reads the three category facets + ingredient; food_category isn't one of
+    // those buckets, so affinity is null here — but crucially the like is NOT read as a dislike.
+    const disliked = preferences({ foodPrefs: [fp({ facet: 'cuisine', value: 'italian', sentiment: 'dislike' })] });
+    const italian = rankableRecipe({ categories: cats({ cuisine: ['italian'] }) });
+    expect(aff.score(italian, disliked)).toBe(0); // sanity: a real dislike scores 0
+    // The moderation penalty still subtracts for the liked-but-limited red-meat recipe.
+    const withLike = engine.rank([recipe], likedAndLimited)[0];
+    const plain = engine.rank([recipe], preferences())[0];
+    expect(plain.score - withLike.score).toBeCloseTo(0.3 * 0.6, 6);
+
+    // A pure-intent row (sentiment null) contributes nothing to affinity.
+    const pureIntent = preferences({ foodPrefs: [fp({ facet: 'food_category', value: 'red_meat', target: -0.6 })] });
+    expect(aff.score(rankableRecipe({ categories: cats({ cuisine: ['italian'] }) }), pureIntent)).toBe(0.5); // neutral, no signal
+  });
+});
+
 describe('equipment worked example (WI-EQ-3)', () => {
   const engine = RankingEngine.create();
   const base = {
     costPerServingCents: 400, difficultyBand: 'intermediate' as const, nrfScore: 57, totalMinutes: 30,
-    categories: { cuisine: [], dishType: [], primaryIngredient: [] }, equipmentComplete: true,
+    categories: cats(), equipmentComplete: true,
   };
   const A = rankableRecipe({ id: 'A', ...base, equipment: [{ equipment: 'sous_vide', essentiality: 'required' }] });
   const B = rankableRecipe({ id: 'B', ...base, equipment: [{ equipment: 'air_fryer', essentiality: 'recommended' }] });
@@ -308,7 +370,7 @@ describe('combination (Test Case 4)', () => {
     const recipe = rankableRecipe({
       nrfScore: null,
       costPerServingCents: 400, difficultyBand: 'intermediate', totalMinutes: 30,
-      categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] },
+      categories: cats({ cuisine: ['italian'] }),
     });
     const [ranked] = engine.rank([recipe], preferences());
     expect(ranked.breakdown).not.toHaveProperty('nutrition');
@@ -331,7 +393,7 @@ describe('soft penalties stack and floor (Test Case 5)', () => {
   it('subtracts mild-allergen and flexible-incompatible penalties', () => {
     const recipe = rankableRecipe({
       costPerServingCents: 400, difficultyBand: 'intermediate', nrfScore: 57, totalMinutes: 30,
-      categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] },
+      categories: cats({ cuisine: ['italian'] }),
       allergens: { contains: ['peanut'], mayContain: [], complete: true },
       dietFit: { vegan: 'incompatible' },
     });
@@ -347,12 +409,12 @@ describe('soft penalties stack and floor (Test Case 5)', () => {
   it('floors at 0, never negative', () => {
     const recipe = rankableRecipe({
       costPerServingCents: 800, difficultyBand: 'advanced', nrfScore: 0, totalMinutes: 60,
-      categories: { cuisine: ['italian'], dishType: [], primaryIngredient: [] },
+      categories: cats({ cuisine: ['italian'] }),
       allergens: { contains: ['peanut'], mayContain: [], complete: true },
     });
     const prefs = preferences({
       skillLevel: 'beginner',
-      foodPrefs: [{ facet: 'cuisine', value: 'italian', sentiment: 'dislike' }],
+      foodPrefs: [fp({ facet: 'cuisine', value: 'italian', sentiment: 'dislike' })],
       allergens: [{ allergen: 'peanut', severity: 'mild' }],
     });
     const [ranked] = engine.rank([recipe], prefs);
@@ -367,7 +429,7 @@ describe('tie-break ordering (Test Case 6)', () => {
     // Both score 1.0: perfect cost. One also has difficulty (higher coverage).
     const base = {
       costPerServingCents: 200, nrfScore: null, totalMinutes: null,
-      categories: { cuisine: [], dishType: [], primaryIngredient: [] } as RankableRecipe['categories'],
+      categories: cats(),
     };
     const lowCoverage = rankableRecipe({ id: 'a', difficultyBand: null, ...base });
     const highCoverage = rankableRecipe({ id: 'b', difficultyBand: 'intermediate', ...base });
@@ -399,27 +461,27 @@ describe('worked-example regression (Test Case 7)', () => {
     allergens: [{ allergen: 'peanut', severity: 'severe' }],
     diets: [],
     foodPrefs: [
-      { facet: 'cuisine', value: 'italian', sentiment: 'like' },
-      { facet: 'primary_ingredient', value: 'chicken', sentiment: 'like' },
-      { facet: 'primary_ingredient', value: 'liver', sentiment: 'dislike' },
+      fp({ facet: 'cuisine', value: 'italian', sentiment: 'like' }),
+      fp({ facet: 'primary_ingredient', value: 'chicken', sentiment: 'like' }),
+      fp({ facet: 'primary_ingredient', value: 'liver', sentiment: 'dislike' }),
     ],
   });
 
   const r1 = rankableRecipe({
     id: 'R1', createdAt: new Date('2026-01-01'),
     costPerServingCents: 350, difficultyBand: 'intermediate', nrfScore: 45, totalMinutes: 25,
-    categories: { cuisine: ['italian'], dishType: ['pan-fry'], primaryIngredient: ['chicken'] },
+    categories: cats({ cuisine: ['italian'], dishType: ['pan-fry'], primaryIngredient: ['chicken'] }),
   });
   const r2 = rankableRecipe({
     id: 'R2', createdAt: new Date('2026-01-02'),
     costPerServingCents: 500, difficultyBand: 'advanced', nrfScore: 30, totalMinutes: 40,
-    categories: { cuisine: ['thai'], dishType: [], primaryIngredient: ['shrimp'] },
+    categories: cats({ cuisine: ['thai'], primaryIngredient: ['shrimp'] }),
     allergens: { contains: ['peanut'], mayContain: [], complete: true },
   });
   const r3 = rankableRecipe({
     id: 'R3', createdAt: new Date('2026-01-03'),
     costPerServingCents: 250, difficultyBand: 'beginner', nrfScore: 70, totalMinutes: 45,
-    categories: { cuisine: ['italian'], dishType: ['soup'], primaryIngredient: ['beans'] },
+    categories: cats({ cuisine: ['italian'], dishType: ['soup'], primaryIngredient: ['beans'] }),
   });
 
   it('filters R2, orders [R1, R3], scores 81.7 and 71.2', () => {
