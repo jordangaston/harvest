@@ -28,9 +28,10 @@ export interface Sender {
    *  `threadParentId` when given, falling back to an un-threaded send if the parent can't resolve.
    *  @returns the sent message's platform id(s). */
   sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
-  /** Send `url` as a live iMessage app card (`app(url, {live:true})`) — a native, tappable balloon
-   *  that renders the page inline for recipients with the Spectrum app, degrading to a caption/link
-   *  otherwise (docs/spikes/photon-app-recipe-card.md). Threads to `threadParentId` when given.
+  /** Send `url` as an iMessage app card (`app(url, {live:false})`) — a native balloon showing the
+   *  page's title/image that taps through to open the recipe, NOT the live Spectrum mini-app
+   *  (which only launches inside the Spectrum extension and is unreliable on macOS —
+   *  docs/spikes/photon-app-recipe-card.md). Threads to `threadParentId` when given.
    *  @returns the sent message's platform id(s). */
   sendRecipeCard(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
   /** React to `targetPlatformId` with a native tapback (`emoji` is the glyph). No-op if the target
@@ -142,16 +143,17 @@ export class SpectrumSender implements Sender {
   }
 
   /**
-   * Sends `url` as a live app card — `app(url, {live:true})`, threaded to `threadParentId` via
-   * `reply(...)` when it resolves (mirrors {@link sendLink}). Delivered natively regardless; the
-   * live mini-app UI only draws for recipients with the Spectrum app installed.
+   * Sends `url` as a static app card — `app(url, {live:false})`, threaded to `threadParentId` via
+   * `reply(...)` when it resolves (mirrors {@link sendLink}). Static (not `live`) so tapping opens
+   * the recipe page directly; the live mini-app only renders inside the Spectrum extension and is
+   * unreliable on macOS, so we don't use it (see docs/spikes/photon-app-recipe-card.md).
    *
    * @returns the sent message's platform id(s), via {@link normalizeSentIds}.
    */
   async sendRecipeCard(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
     const space = await this.im.space.get(chatGuid);
     const target = threadParentId ? await space.getMessage(threadParentId) : undefined;
-    const card = app(url, { live: true });
+    const card = app(url, { live: false });
     const content = target ? reply(card, target) : card;
     const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(content);
     return normalizeSentIds(sent);
