@@ -31,6 +31,10 @@ class CaptureSender implements Sender {
   async sendReply(chatGuid: string, _target: string, bodies: string[]): Promise<string[]> {
     return this.send(chatGuid, bodies);
   }
+  async sendLink(_chatGuid: string, url: string): Promise<string[]> {
+    this.bubbles.push(`[richlink:${url}]`);
+    return ['ext-0'];
+  }
   async markRead(): Promise<void> {}
   async responding<T>(_chatGuid: string, fn: () => Promise<T>): Promise<T> {
     return fn();

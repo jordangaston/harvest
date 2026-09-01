@@ -56,6 +56,7 @@ export const TAPBACK_EMOJIS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 
  */
 export type ChatEvent =
   | { kind: 'text'; text: string }
-  | { kind: 'tapback'; target: string; emoji: (typeof TAPBACK_EMOJIS)[number] };
+  | { kind: 'tapback'; target: string; emoji: (typeof TAPBACK_EMOJIS)[number] }
+  | { kind: 'richlink'; url: string };
 
 export type ChatEvents = ChatEvent[];

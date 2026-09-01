@@ -1,4 +1,4 @@
-import { Spectrum, reply, text } from '@spectrum-ts/core';
+import { Spectrum, reply, richlink, text } from '@spectrum-ts/core';
 import type { SpectrumInstance } from '@spectrum-ts/core';
 import { imessage } from '@spectrum-ts/imessage';
 
@@ -17,6 +17,10 @@ export interface Sender {
    *  normal (un-threaded) send if the target message can't be resolved, so it still delivers.
    *  @returns the sent messages' platform ids, in send order (one per bubble). */
   sendReply(chatGuid: string, targetPlatformId: string, bodies: string[]): Promise<string[]>;
+  /** Send a URL as a rich link (iMessage unfurls it into a native preview card). Threads it to
+   *  `threadParentId` when given, falling back to an un-threaded send if the parent can't resolve.
+   *  @returns the sent message's platform id(s). */
+  sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]>;
   /** Send read receipts for the given inbound message guids (fire-and-forget). */
   markRead(chatGuid: string, messageGuids: string[]): Promise<void>;
   /** Run `fn` with the typing indicator shown, cleared when it settles (even on throw). */
@@ -86,6 +90,22 @@ export class SpectrumSender implements Sender {
     return normalizeSentIds(sent);
   }
 
+  /**
+   * Sends `url` as a rich link — Spectrum carries only the URL and iMessage unfurls it into a
+   * native preview card (presentation is OG-driven, no SDK knob). Threads it to `threadParentId`
+   * via `space.getMessage` + `reply(richlink(url), target)`; if the parent can't be resolved,
+   * sends the link un-threaded so it still delivers (mirrors {@link sendReply}).
+   *
+   * @returns the sent message's platform id(s), via {@link normalizeSentIds}.
+   */
+  async sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
+    const space = await this.im.space.get(chatGuid);
+    const target = threadParentId ? await space.getMessage(threadParentId) : undefined;
+    const content = target ? reply(richlink(url), target) : richlink(url);
+    const sent = await (space.send as (...c: unknown[]) => Promise<unknown>)(content);
+    return normalizeSentIds(sent);
+  }
+
   // ponytail: each of send/markRead/responding resolves the space via space.get; a turn
   // does 2-3 resolves. Fine at turn frequency; fold into one resolve if it ever matters.
   async markRead(chatGuid: string, messageGuids: string[]): Promise<void> {
@@ -114,6 +134,8 @@ export class StubSpectrumSender implements Sender {
   readonly calls: { chatGuid: string; body: string }[] = [];
   /** `sendReply` calls, with the resolved target (null when the parent didn't resolve → fallback). */
   readonly replyCalls: { chatGuid: string; target: string | null; body: string }[] = [];
+  /** `sendLink` calls, with the resolved target (null when un-threaded or the parent didn't resolve). */
+  readonly linkCalls: { chatGuid: string; url: string; target: string | null }[] = [];
   readonly reads: string[] = [];
   respondingCount = 0;
 
@@ -134,6 +156,12 @@ export class StubSpectrumSender implements Sender {
     const target = this.missingTargets.has(targetPlatformId) ? null : targetPlatformId;
     for (const body of bodies) this.replyCalls.push({ chatGuid, target, body });
     return this.sendReturn ?? bodies.map((_, i) => `ext-${i}`);
+  }
+
+  async sendLink(chatGuid: string, url: string, threadParentId?: string): Promise<string[]> {
+    const target = threadParentId && !this.missingTargets.has(threadParentId) ? threadParentId : null;
+    this.linkCalls.push({ chatGuid, url, target });
+    return this.sendReturn ?? ['ext-0'];
   }
 
   async markRead(_chatGuid: string, messageGuids: string[]): Promise<void> {

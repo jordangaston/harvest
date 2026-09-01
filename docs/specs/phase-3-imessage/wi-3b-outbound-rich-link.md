@@ -82,9 +82,27 @@ Follow `server/CLAUDE.md`. Reuse the SDK `richlink` helper + the Sender/space pa
 **Steps:** `npx vitest run`; `npm run typecheck`.
 **Expected Outcomes:** green; clean.
 
+## Scope note (founder decision)
+
+**The reasoner trigger + recipe-recommendation flow is DESCOPED** per the founder. This ships the
+**rich-link SEND capability only**: `Sender.sendLink`, the `{ kind: 'richlink'; url }` ChatEvent, and
+the consumer's per-row dispatch that persists + sends it. Nothing emits a `richlink` autonomously yet
+(AC3 / the reasoner emission is a follow-up). The reasoner, ReplyPlan/intents, responder, and tools are
+untouched. Accordingly **PV2 (autonomous share) is replaced by PV1's controlled grounded send** — a
+`richlink` event driven through the send path — verified at the Phase-3 e2e level.
+
 ## Test Run
 
-_To be filled during execution._
+- `npx vitest run` (default reporter): exit 0, **0 failed** (521 passed / 522 total; 1 known
+  environment skip). JSON reporter: `numFailedTests === 0`.
+- `npm run typecheck`: clean (exit 0).
+- New offline test `test/imessage-richlink.test.ts` (never hits the network):
+  - **AC1 — consumer dispatch**: a stub chef returns `[text, richlink]`; the consumer sends the text
+    batch first, then the link via `sendLink`, persists both outbound rows (the richlink as a
+    `[richlink:<url>]` body marker), and sets `external_id` on both. Order asserted.
+  - **AC2 — sendLink unit**: the stub records the url un-threaded (`target: null`) and the resolved
+    target when a `threadParentId` is given; ids returned.
+  - AC3 (grounded reasoner emission) is descoped per the scope note above.
 
 ## Deployment Strategy
 
