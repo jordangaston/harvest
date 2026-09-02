@@ -106,6 +106,32 @@ describe('ObjectiveRepository', () => {
     void obj;
   });
 
+  it('loadActive: a pending required solo task is exclusive — only it is eligible until terminal (review #1)', async () => {
+    const threadId = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    // The explainer-ack (solo, fact-less) alongside a household elicit and a member task added later.
+    const obj = await store.pushObjective({
+      threadId,
+      definition: 'onboard',
+      tasks: [{ key: 'ack', kind: 'elicit', scope: 'household', required: true, solo: true }, et('household.goals')],
+      position: 'top',
+    });
+    // A member task instantiated after the seed (its `after` can't resolve to the ack row).
+    await db.transaction((tx) =>
+      store.instantiateMemberTasks(obj.id, [{ key: 'allergens', kind: 'elicit', fact: 'allergens', scope: 'member', memberUserId: null as unknown as string, required: true }], tx),
+    );
+
+    // Ack unasked → only the ack is eligible; the household + member tasks wait.
+    const gated = await store.loadActive(threadId);
+    expect(gated?.tasks.map((t) => t.fact ?? 'ack')).toEqual(['ack']);
+
+    // Ack terminal → the rest become eligible.
+    const ackId = gated!.tasks[0]!.id;
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: ackId, status: 'filled' }], tx));
+    const open = await store.loadActive(threadId);
+    expect(open?.tasks.map((t) => t.fact).sort()).toEqual(['allergens', 'household.goals']);
+  });
+
   it('loadActive: a required emit is eligible only when every required elicit (household + member) is terminal (review #2)', async () => {
     const threadId = await seedThread();
     const objId = await seedObjective(threadId, 'active', 1);

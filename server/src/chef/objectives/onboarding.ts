@@ -19,11 +19,11 @@ function factTypeFor(key: string): string | undefined {
 /** A household-scoped elicit task, typed from the registry so `update_tasks` can route its fill. */
 function hh(key: string, required = false, guidance?: string, extra: Partial<TaskSpec> = {}): TaskSpec {
   const fact = `household.${key}`;
-  return { key: fact, kind: 'elicit', fact, factType: factTypeFor(fact), scope: 'household', required, guidance, after: [EXPLAINER_ACK_KEY], ...extra };
+  return { key: fact, kind: 'elicit', fact, factType: factTypeFor(fact), scope: 'household', required, guidance, ...extra };
 }
 /** A member-scoped elicit task template (memberUserId resolved per member at instantiation). */
 function member(key: string, required = false, guidance?: string): TaskSpec {
-  return { key, kind: 'elicit', fact: key, factType: factTypeFor(key), scope: 'member', required, guidance, after: [EXPLAINER_ACK_KEY] };
+  return { key, kind: 'elicit', fact: key, factType: factTypeFor(key), scope: 'member', required, guidance };
 }
 
 /**
@@ -40,8 +40,8 @@ export function householdTaskSpecs(): TaskSpec[] {
     // The solo explainer-ack: fact-less, first, gating everything. Confirmed by the next inbound.
     { key: EXPLAINER_ACK_KEY, kind: 'elicit', scope: 'household', required: req, solo: true },
     // Code-filled identity tasks (SameKitchenFlow.establish, via markTaskFilled) — not model-fillable.
-    { key: 'household.same_household', kind: 'elicit', fact: 'household.same_household', scope: 'household', required: req, after: [EXPLAINER_ACK_KEY] },
-    { key: 'household.household_size', kind: 'elicit', fact: 'household.household_size', factType: 'HOUSEHOLD_SIZE', scope: 'household', required: req, after: [EXPLAINER_ACK_KEY] },
+    { key: 'household.same_household', kind: 'elicit', fact: 'household.same_household', scope: 'household', required: req },
+    { key: 'household.household_size', kind: 'elicit', fact: 'household.household_size', factType: 'HOUSEHOLD_SIZE', scope: 'household', required: req },
     // Model-filled household elicits.
     hh('goals'),
     hh('grocery_stores', req, 'Ground each store with fact_types(GROCERY_STORE, "<store>"); acknowledge and drop any it does not return.'),

@@ -74,6 +74,12 @@ export class ObjectiveRepository {
     const all = (await this.db.select().from(tasks).where(eq(tasks.objectiveId, objective.id))).map((t) => TaskSchema.parse(t));
     const terminalIds = new Set(all.filter((t) => isTerminal(t.status)).map((t) => t.id));
 
+    // ponytail: solo-exclusive rule. A pending required `solo` task (the explainer-ack) is exclusive
+    // — while it is non-terminal ONLY solo tasks are eligible, so member tasks instantiated later gate
+    // behind it without after-key resolution across instantiation calls (TaskSpec.key isn't persisted).
+    // This replaces the ineffective static `after:[EXPLAINER_ACK_KEY]` those rows can't resolve to.
+    const soloPending = all.some((t) => t.solo && t.required && !isTerminal(t.status));
+
     // ponytail: "close fires last" rule. A required `emit` (the onboarding close) is eligible only
     // when every required `elicit` currently loaded is terminal — its static `after` can't name member
     // tasks that don't exist at seed time, so gate it in code here. Generalization point for a future
@@ -83,6 +89,7 @@ export class ObjectiveRepository {
     const eligible = all.filter((t) => {
       if (isTerminal(t.status)) return false;
       if (!t.afterTaskIds.every((id) => terminalIds.has(id))) return false;
+      if (soloPending && !t.solo) return false;
       if (t.kind === 'emit' && t.required && !requiredElicitsDone) return false;
       return true;
     });
