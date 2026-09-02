@@ -8,6 +8,7 @@ import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
+import { FactTypeRegistry } from '../chef/facts/fact-types.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
@@ -122,6 +123,8 @@ export class RealChef implements Chef {
       triggerExternalId: trigger.externalId ?? null,
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
+      tasks: active.tasks,
+      factTypes: FactTypeRegistry.create(this.db),
     };
     const taskIds = new Set(active.tasks.map((t) => t.id));
     return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, taskIds, objectiveId: active.objective.id };

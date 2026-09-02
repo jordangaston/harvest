@@ -61,7 +61,7 @@ export function slugify(raw: string): string {
  * else the max shared-prefix ratio across the id, its label, and their tokens. Enough
  * to rank `krog`→`kroger` and `veggie`→`vegetarian` first without a fuzzy-match dep.
  */
-function score(inputSlug: string, cand: Candidate): number {
+export function score(inputSlug: string, cand: Candidate): number {
   const id = cand.value;
   if (inputSlug === id || ALIASES[inputSlug] === id) return 1;
   const labelSlug = slugify(cand.label);

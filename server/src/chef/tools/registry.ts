@@ -4,6 +4,10 @@ import { SaveHouseholdGoalsTool } from './save-household-goals.js';
 import { SaveMemberProfileTool } from './save-member-profile.js';
 import { SearchCatalogTool } from './search-catalog.js';
 import { ImportRecipeTool } from './import-recipe.js';
+import { ReadFactsTool } from './read-facts.js';
+import { FactTypesTool } from './fact-types.js';
+import { UpdateFactsTool } from './update-facts.js';
+import { UpdateTasksTool } from './update-tasks.js';
 import type { ChefTool, TurnContext } from './types.js';
 
 /** Every chef tool, keyed by id — a factory that binds the tool to one turn's context. */
@@ -14,6 +18,10 @@ const FACTORIES: Record<string, (ctx: TurnContext) => ChefTool> = {
   save_member_profile: SaveMemberProfileTool.create,
   search_catalog: SearchCatalogTool.create,
   import_recipe: ImportRecipeTool.create,
+  read_facts: ReadFactsTool.create,
+  fact_types: FactTypesTool.create,
+  update_facts: UpdateFactsTool.create,
+  update_tasks: UpdateTasksTool.create,
 };
 
 /**

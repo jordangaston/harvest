@@ -15,6 +15,7 @@ import { ImportRecipeTool } from '../src/chef/tools/import-recipe.js';
 import { buildTools } from '../src/chef/tools/registry.js';
 import { objectiveDefinition } from '../src/chef/objectives/index.js';
 import { onboardingObjective } from '../src/chef/objectives/onboarding.js';
+import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 
 let db: Database;
@@ -40,6 +41,8 @@ async function seedThread(triggerExternalId: string | null): Promise<{ ownerId: 
     triggerExternalId,
     householdId: null,
     members: [],
+    tasks: [],
+    factTypes: FactTypeRegistry.create(db),
   };
   return { ownerId: owner.id, threadId: thread!.id, ctx };
 }

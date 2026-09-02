@@ -11,6 +11,7 @@ import { SaveHouseholdProfileTool } from '../src/chef/tools/save-household-profi
 import { SaveHouseholdGoalsTool } from '../src/chef/tools/save-household-goals.js';
 import { SaveMemberProfileTool } from '../src/chef/tools/save-member-profile.js';
 import { SearchCatalogTool } from '../src/chef/tools/search-catalog.js';
+import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 
 let db: Database;
@@ -44,13 +45,15 @@ async function seedHousehold(): Promise<{ householdId: string; memberId: string;
     triggerExternalId: null,
     householdId: hh.id,
     members: [{ userId: ownerId }],
+    tasks: [],
+    factTypes: FactTypeRegistry.create(db),
   };
   return { householdId: hh.id, memberId: ownerId, ctx };
 }
 
 describe('chef tools — canRun (context-only legality)', () => {
   it('save_household_profile.canRun iff a household exists; search_catalog always runs', () => {
-    const withHh: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [] };
+    const withHh: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [], tasks: [], factTypes: FactTypeRegistry.create(db) };
     const noHh: TurnContext = { ...withHh, householdId: null };
     expect(SaveHouseholdProfileTool.create(withHh).canRun()).toBe(true);
     expect(SaveHouseholdProfileTool.create(noHh).canRun()).toBe(false);
@@ -58,7 +61,7 @@ describe('chef tools — canRun (context-only legality)', () => {
   });
 
   it('save_member_profile.canRun iff the household has members', () => {
-    const withMembers: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [{ userId: 'u-sam' }] };
+    const withMembers: TurnContext = { db, threadId: 't', objectiveId: 'o', initiatorHandle: '', initiatorUserId: 'u1', triggerExternalId: null, householdId: 'h1', members: [{ userId: 'u-sam' }], tasks: [], factTypes: FactTypeRegistry.create(db) };
     expect(SaveMemberProfileTool.create(withMembers).canRun()).toBe(true);
     expect(SaveMemberProfileTool.create({ ...withMembers, members: [] }).canRun()).toBe(false);
   });

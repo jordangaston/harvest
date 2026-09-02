@@ -1,5 +1,7 @@
 import type { Tool } from '@mastra/core/tools';
 import type { Database } from '../../db.js';
+import type { Task } from '../../models/task.js';
+import type { FactTypeRegistry } from '../facts/fact-types.js';
 
 /**
  * One turn's mutable context, shared by every tool built for that turn. A tool reads the current
@@ -21,6 +23,10 @@ export interface TurnContext {
   /** Null until the "same kitchen" flow runs; `create_household` sets it in place. */
   householdId: string | null;
   members: Array<{ userId: string; name?: string }>;
+  /** The turn's loaded, eligible non-terminal tasks — what `update_tasks` resolves task ids against. */
+  tasks: Task[];
+  /** The fact-type registry for this turn, wired once from `db` (WI-2). Reused by every fact tool. */
+  factTypes: FactTypeRegistry;
 }
 
 /**

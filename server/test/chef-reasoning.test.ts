@@ -8,6 +8,7 @@ import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
+import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
 import { ReplyPlanSchema, TaskUpdateSchema, type ReasoningOutput } from '../src/chef/types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
@@ -62,6 +63,8 @@ async function seedTurn(taskSpecs: { key: string; status: 'unasked' | 'filled' }
     triggerExternalId: null,
     householdId: household.id,
     members: [{ userId: ownerId }],
+    tasks: loaded.tasks,
+    factTypes: FactTypeRegistry.create(db),
   };
   const input: BriefingInput = {
     objective: loaded.objective,
