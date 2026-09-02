@@ -173,6 +173,31 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike", target: null, reason: null });
   });
 
+  it("upsertFoodPref adds/overwrites one row, leaving siblings and primary_ingredient untouched", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+    // A sibling authorable row and a server-owned dislike-loop row that must both survive.
+    await db.insert(userFoodPrefs).values([
+      { userId, facet: "dish_type", value: "bowls", sentiment: "like" },
+      { userId, facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" },
+    ]);
+
+    // Add a new row.
+    await repo.upsertFoodPref(userId, { facet: "food_category", value: "red_meat", target: -0.5, reason: "limiting" });
+    // Overwrite that exact (facet,value) row — flips its axes, does not duplicate.
+    await repo.upsertFoodPref(userId, { facet: "food_category", value: "red_meat", target: 0.5 });
+
+    const rows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
+    const redMeat = rows.filter((r) => r.facet === "food_category" && r.value === "red_meat");
+    expect(redMeat).toHaveLength(1);
+    expect(redMeat[0]).toMatchObject({ target: 0.5, sentiment: null, reason: null });
+    expect(rows).toContainEqual(expect.objectContaining({ facet: "dish_type", value: "bowls", sentiment: "like" }));
+    expect(rows).toContainEqual(expect.objectContaining({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" }));
+
+    // The server-owned facet is rejected.
+    await expect(repo.upsertFoodPref(userId, { facet: "primary_ingredient", value: "liver", sentiment: "dislike" })).rejects.toThrow();
+  });
+
   it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);

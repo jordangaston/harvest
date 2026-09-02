@@ -123,7 +123,7 @@ describe('onboarding definition', () => {
     const byKey = new Map([...householdTaskSpecs(), ...memberTaskSpecs('m')].map((s) => [s.key, s.guidance]));
     expect(byKey.get('allergens')).toMatch(/severity|no_allergens/i);
     expect(byKey.get('diets')).toMatch(/strict|flexible/i);
-    expect(byKey.get('likes')).toMatch(/broad|drill/i);
+    expect(byKey.get('food_preferences')).toMatch(/broad|drill/i);
     // The definition carries no separate one-off guidance list.
     expect((onboardingObjective as unknown as Record<string, unknown>).guidance).toBeUndefined();
   });
@@ -205,7 +205,7 @@ describe('same-kitchen identity flow', () => {
 
     const rows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, priya.id));
     expect(rows.every((r) => r.scope === 'member')).toBe(true);
-    expect(rows.map((r) => r.fact).sort()).toEqual(['name', 'allergens', 'diets', 'likes', 'dislikes', 'skill_level'].sort());
+    expect(rows.map((r) => r.fact).sort()).toEqual(['name', 'allergens', 'diets', 'food_preferences', 'skill_level'].sort());
     expect(rows.filter((r) => r.required).map((r) => r.fact).sort()).toEqual(['allergens', 'name']);
   });
 

@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
-import { PreferenceRepository } from '../src/repositories/preference-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
 import { userAllergens, userDiets, householdPreferences, tasteIngredients, userFoodPrefs, userPreferences, users, fdcFoods } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
@@ -50,7 +49,7 @@ const type = (reg: FactTypeRegistry, name: string) => reg.get(name)!;
 describe('FactRegistry', () => {
   it('covers every onboarding fact with the right scope, and marks household_size derived', () => {
     const keys = FactRegistry.list().map((d) => d.key);
-    for (const k of ['household.grocery_stores', 'household.goals', 'household.household_size', 'name', 'allergens', 'diets', 'likes', 'dislikes', 'skill_level'])
+    for (const k of ['household.grocery_stores', 'household.goals', 'household.household_size', 'name', 'allergens', 'diets', 'food_preferences', 'skill_level'])
       expect(keys).toContain(k);
     expect(FactRegistry.get('household.household_size')!.access).toBe('derived');
     expect(FactRegistry.get('name')!.scope).toBe('member');
@@ -138,36 +137,38 @@ describe('member read-merge does not wipe siblings', () => {
     expect(diet.dietId).toBe('vegan');
   });
 
-  it('a chef taste write preserves an existing food_category moderation row and its target/reason', async () => {
-    // savePreferences full-replaces the caller-authored food-pref facets, so mergeMemberFact must
-    // carry every existing foodPref (incl. target/reason) back through — a TASTE_LIKE write must not
-    // wipe a pre-existing moderation row. Mirrors preference-write.test.ts's removal-semantics guard.
+  it('a food_category moderation write lands via upsertFoodPref (negative target, null sentiment)', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    // Materialize the preferences row (getPreferences returns cold-start [] until one exists), with a
-    // food_category moderation carrying both axes — the row a settings/app write would author.
-    const prefRepo = PreferenceRepository.create(db);
-    const base = await prefRepo.getPreferences(memberId);
-    await prefRepo.savePreferences(memberId, {
-      skillLevel: base.skillLevel,
-      weeklyBudgetCents: base.weeklyBudgetCents,
-      timeBudgetMinutes: base.timeBudgetMinutes,
-      timeByMeal: base.timeByMeal,
-      weeklyMeals: base.weeklyMeals,
-      foodPrefs: [{ facet: 'food_category', value: 'red_meat', sentiment: 'like', target: -0.5, reason: 'trying to limit' }],
-      allergens: base.allergens,
-      diets: base.diets,
-      ownedEquipment: base.ownedEquipment,
-      groceryStores: base.groceryStores,
-      household: base.household,
-      eatsLeftovers: base.eatsLeftovers,
-    });
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'food_category', value: 'red_meat', target: -0.5 }, db);
+    expect(res.ok).toBe(true);
+    const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', sentiment: null, target: -0.5 }));
+  });
 
-    const res = await writeFact(type(reg, 'TASTE_LIKE'), member, { facet: 'cuisine', value: 'thai' }, db);
+  it('a chef food-pref write does not wipe an existing allergen/diet', async () => {
+    const { member, memberId, reg } = await seedHousehold();
+    await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
+    await writeFact(type(reg, 'DIET'), member, { value: 'vegan', strictness: 'strict' }, db);
+
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'cuisine', value: 'thai', sentiment: 'like' }, db);
     expect(res.ok).toBe(true);
 
+    expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
+    expect(await db.select().from(userDiets).where(eq(userDiets.userId, memberId))).toHaveLength(1);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', sentiment: 'like', target: -0.5, reason: 'trying to limit' }));
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'like' }));
+  });
+
+  it('an allergen write (mergeMemberFact) preserves an upsert-written food pref', async () => {
+    // mergeMemberFact carries the current foodPrefs through savePreferences, so an allergen write
+    // must not wipe a food pref the chef upserted earlier via the targeted path.
+    const { member, memberId, reg } = await seedHousehold();
+    await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'food_category', value: 'red_meat', target: -0.5, reason: 'trying to limit' }, db);
+    await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
+
+    const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', target: -0.5, reason: 'trying to limit' }));
+    expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
   });
 });
 
@@ -213,16 +214,16 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
     await db.insert(tasteIngredients).values([{ id: 'ti-fish', label: 'Fish', section: 'Meat & Seafood', foodGroup: 10 }]);
     await db.update(fdcFoods).set({ baseIngredientId: 'ti-fish' }).where(eq(fdcFoods.fdcId, SALMON_FDC_ID));
 
-    const res = await writeFact(type(reg, 'TASTE_LIKE'), member, { facet: 'ingredient', value: 'salmon' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'ingredient', value: 'salmon', sentiment: 'like' }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-fish', sentiment: 'like' }));
   });
 
-  it('a taste value that fails grounding rejects instructively instead of throwing (review #4)', async () => {
+  it('a food-pref value that fails grounding rejects instructively instead of throwing (review #4)', async () => {
     const { member, reg } = await seedHousehold();
-    // TasteType.persist throws on a grounding miss; writeFact must convert it to { ok: false }.
-    const res = await writeFact(type(reg, 'TASTE_LIKE'), member, { facet: 'ingredient', value: 'zzzznope' }, db);
+    // FoodPreferenceType.persist throws on a grounding miss; writeFact must convert it to { ok: false }.
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'ingredient', value: 'zzzznope', sentiment: 'like' }, db);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/no catalog match/i);
   });

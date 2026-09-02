@@ -359,8 +359,13 @@ Emit delivery is code-verified against the transcript on the next signal (Q-02).
 
 ## `FactType` = static metadata + dynamic provider
 **Framework:** Direct criterion. Enum/scalar types are flat-file; catalog types (stores, ingredients,
-taste facets) are too large/live to enumerate statically, so the type is a class with a dynamic
-`search`/`read`. One interface hides both.
+the food-preference facets) are too large/live to enumerate statically, so the type is a class with a
+dynamic `search`/`read`. One interface hides both. Food preferences are a single faceted
+`FOOD_PREFERENCE` fact — one value over a `facet` (cuisine/dish_type/ingredient/food_category)
+carrying two orthogonal axes, `sentiment` (taste like/dislike) and `target` (intent −1..+1, so a
+food_category with a negative target is "eat less") — not an intent-named like/dislike split. Its
+writes go through the targeted `PreferenceRepository.upsertFoodPref`, not the replace-all
+`savePreferences` (which Settings still uses).
 
 ## One polymorphic `fact_types(fact_type?, query?)` tool
 **Framework:** Fermi ROI — a 2×2 of two named params is self-documenting and keeps the surface small;
@@ -387,3 +392,4 @@ were near-equal for a larger surface.
 |---|---|---|
 | 2026-09-01 | Jordan Gaston | Initial draft |
 | 2026-09-01 | Jordan Gaston | Route writes by objective-tiedness (`update_tasks`/`update_facts` over `writeFact`); `after_task_ids` array; resolve Q-02/Q-03/Q-05; destructive migration |
+| 2026-09-02 | Jordan Gaston | Collapse the `TASTE_LIKE`/`TASTE_DISLIKE` split into one faceted `FOOD_PREFERENCE` fact (sentiment + target axes); chef food-pref writes go through the targeted `upsertFoodPref` |
