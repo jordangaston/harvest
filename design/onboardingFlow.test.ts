@@ -36,7 +36,7 @@ test("draft holds the LATEST answer after a back-nav edit; flush builds each pay
   assert.deepEqual(userCalls[0], { goals: ["eat_healthier", "kid_friendly"], cook_days_count: 3 });
   assert.equal(prefCalls[0].weekly_budget_cents, 8000, "carries the CHANGED budget, not 20000");
   assert.deepEqual(prefCalls[0].grocery_stores, ["walmart"]);
-  assert.deepEqual(prefCalls[0].likes, [{ facet: "cuisine", value: "Thai" }]);
+  assert.deepEqual(prefCalls[0].food_prefs, [{ facet: "cuisine", value: "Thai", sentiment: "like" }]);
 });
 
 test("no payload is built with the collected answers until completion (nothing writes mid-flow)", () => {

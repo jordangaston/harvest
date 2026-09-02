@@ -18,6 +18,7 @@
     "dev": "NITRO_PRESET=vercel nitro dev",
     "build": "npm run build:styles && nitro build",
     "backfill:fdc": "tsx scripts/backfill-fdc-matches.ts",
+    "backfill:food-category": "tsx scripts/backfill-food-category.ts",
     "build:taste": "tsx scripts/build-taste-space.ts",
     "eval:affinity": "tsx scripts/eval-affinity.ts",
     "demo:affinity": "tsx scripts/demo-affinity.ts",

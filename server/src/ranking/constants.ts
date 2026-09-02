@@ -39,6 +39,12 @@ export const PENALTY_MILD_ALLERGEN = 0.15;
 export const PENALTY_FLEXIBLE_INCOMPATIBLE = 0.2;
 export const PENALTY_UNKNOWN_VERDICT = 0.05;
 
+/** Max moderation down-weight, at full intent (`target = -1`); scales linearly by `-target`,
+ *  so a `target = -0.6` red-meat pref subtracts `0.3 * 0.6 = 0.18` from a red-meat recipe.
+ *  ponytail: stopgap tuning knob — validate against the live corpus (does a `target=-0.6`
+ *  visibly reorder the deck?) and adjust; no code change, just re-rank. */
+export const MODERATION_PENALTY_MAX = 0.3;
+
 /** Equipment signal (WI-EQ-3): a flat, once-per-recipe penalty when a reviewed user lacks any
  * `recommended` (substitutable) gear the recipe suggests. Flat, not per-item, to avoid burying a
  * recipe that merely names two gadgets. Tunable. */

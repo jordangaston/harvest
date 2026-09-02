@@ -12,6 +12,7 @@ import { toPublicRecipe } from "../src/models/recipe.js";
 import type { ExtractedRecipeData } from "../src/parse/extractor.js";
 import type { ImportInput } from "../src/import-domain.js";
 import { RecipeCategorizer } from "../src/categorize/recipe-categorizer.js";
+import { DietClassifier } from "../src/diet/diet-classifier.js";
 import { RuleTagger } from "../src/categorize/rule-tagger.js";
 import { StubRecipeAnalyzer, type RecipeAnalyzer } from "../src/categorize/taste-classifier.js";
 import { FoodMatcher } from "../src/nutrition/food-matcher.js";
@@ -86,7 +87,7 @@ async function seedJob() {
 
 describe("toRecipeInput categories passthrough", () => {
   it("carries attached categories into RecipeInput", () => {
-    const cats = { cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"] };
+    const cats = { cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] };
     const ri = toRecipeInput({ ...BASE, categories: cats }, input());
     expect(ri.categories).toEqual(cats);
   });
@@ -115,6 +116,31 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
     const publicRecipe = toPublicRecipe(detail!);
     expect(publicRecipe.categories.primary_ingredient).toContain("seafood");
     expect(publicRecipe.categories.dish_type).toContain("bowl");
+  });
+
+  it("food-moderation (AC 1): a beef recipe gets a red_meat food_category row AND its cuisine/dishType survive", async () => {
+    const { userId, jobId } = await seedJob();
+    const beef: ExtractedRecipeData = {
+      title: "Beef Chili",
+      servings: "4",
+      confidence: 1,
+      ingredients: [{ name: "ground beef", amount: "1", unit: "pound", quantityText: "1 lb ground beef" }],
+      steps: ["Cook."],
+    };
+    // Categorize first (LLM-stubbed cuisine/dishType), then merge the diet step's food classes —
+    // the same order the workflow runs, so cuisine/dishType must not be clobbered.
+    const taste: RecipeAnalyzer = {
+      analyze: async () => ({ cuisine: ["american"], mealType: ["dinner"], dishType: ["stew"], stepTechniques: [], mealPrepFit: null }),
+    };
+    const categorized = await attach(offlineCategorizer(taste), beef);
+    const diets = (await DietClassifier.create(db).classify(categorized.ingredients, 4))!;
+    const merged: ExtractedRecipeData = { ...categorized, diets, categories: { ...categorized.categories!, foodCategory: diets.foodClasses } };
+    const [recipeId] = await persistAndReady(db, [merged], input({ jobId, userId }));
+
+    const detail = await RecipeRepository.create(db).findById(recipeId);
+    expect(detail!.categories.foodCategory).toContain("red_meat");
+    expect(detail!.categories.cuisine).toContain("american");
+    expect(detail!.categories.dishType).toContain("stew");
   });
 
   it("is best-effort: a throwing categorizer still persists the recipe with zero facet rows", async () => {

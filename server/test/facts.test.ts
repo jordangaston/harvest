@@ -137,6 +137,38 @@ describe('member read-merge does not wipe siblings', () => {
     const [diet] = await db.select().from(userDiets).where(eq(userDiets.userId, memberId));
     expect(diet.dietId).toBe('vegan');
   });
+
+  it('a chef taste write preserves an existing food_category moderation row and its target/reason', async () => {
+    // savePreferences full-replaces the caller-authored food-pref facets, so mergeMemberFact must
+    // carry every existing foodPref (incl. target/reason) back through — a TASTE_LIKE write must not
+    // wipe a pre-existing moderation row. Mirrors preference-write.test.ts's removal-semantics guard.
+    const { member, memberId, reg } = await seedHousehold();
+    // Materialize the preferences row (getPreferences returns cold-start [] until one exists), with a
+    // food_category moderation carrying both axes — the row a settings/app write would author.
+    const prefRepo = PreferenceRepository.create(db);
+    const base = await prefRepo.getPreferences(memberId);
+    await prefRepo.savePreferences(memberId, {
+      skillLevel: base.skillLevel,
+      weeklyBudgetCents: base.weeklyBudgetCents,
+      timeBudgetMinutes: base.timeBudgetMinutes,
+      timeByMeal: base.timeByMeal,
+      weeklyMeals: base.weeklyMeals,
+      foodPrefs: [{ facet: 'food_category', value: 'red_meat', sentiment: 'like', target: -0.5, reason: 'trying to limit' }],
+      allergens: base.allergens,
+      diets: base.diets,
+      ownedEquipment: base.ownedEquipment,
+      groceryStores: base.groceryStores,
+      household: base.household,
+      eatsLeftovers: base.eatsLeftovers,
+    });
+
+    const res = await writeFact(type(reg, 'TASTE_LIKE'), member, { facet: 'cuisine', value: 'thai' }, db);
+    expect(res.ok).toBe(true);
+
+    const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', sentiment: 'like', target: -0.5, reason: 'trying to limit' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'like' }));
+  });
 });
 
 describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () => {

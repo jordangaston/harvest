@@ -24,6 +24,27 @@ import { MEAL_FILTERS } from "./mealFilters";
  * Its building blocks (Chip, Segmented, Slider, …) and option corpora live in
  * components/onboarding/primitives.tsx so onboarding and Settings share one source of truth.
  */
+// The food classes the "eat more/less" control offers, and their labels (server food-class ids).
+// A curated shortlist of the 12 server FOOD_CLASSES — red meat leads (the founder's first ask).
+const MODERATION_CLASSES: { value: string; label: string }[] = [
+  { value: "red_meat", label: "Red meat" },
+  { value: "poultry", label: "Poultry" },
+  { value: "seafood", label: "Seafood" },
+  { value: "dairy", label: "Dairy" },
+  { value: "sweets", label: "Sweets" },
+];
+// Five degreed stops → intent target. `bg-brand` active styling comes from Segmented itself.
+const MODERATION_STOPS: { label: string; value: number }[] = [
+  { label: "−−", value: -0.9 },
+  { label: "−", value: -0.5 },
+  { label: "0", value: 0 },
+  { label: "+", value: 0.5 },
+  { label: "++", value: 0.9 },
+];
+/** The nearest stop for a stored target (so a chef-set −0.6 lands on the "−" segment). */
+const stopFor = (target: number): number =>
+  MODERATION_STOPS.reduce((best, s) => (Math.abs(s.value - target) < Math.abs(best - target) ? s.value : best), 0);
+
 export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_PREFERENCES, onSave, mealFilter }: { onClose: () => void; embedded?: boolean; initial?: Preferences; onSave?: (p: Preferences) => void; mealFilter?: { selected: string[]; onToggle: (label: string) => void } }) {
   const [p, setP] = React.useState<Preferences>(initial);
   const [cuisineSearch, setCuisineSearch] = React.useState(false);
@@ -71,6 +92,16 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
       return { ...s, [key]: has ? s[key].filter((t) => t.value !== value) : [...s[key], { facet, value }] };
     });
   };
+  // Set a food class's degreed moderation target; target 0 clears it (the map drops zero-targets).
+  const setModeration = (value: string, target: number) => {
+    setP((s) => {
+      const prev = s.moderation.find((m) => m.value === value)?.target ?? 0;
+      track(`moderation.${value}`, prev, target, "soft");
+      const without = s.moderation.filter((m) => m.value !== value);
+      return { ...s, moderation: target === 0 ? without : [...without, { value, target }] };
+    });
+  };
+  const moderationTarget = (value: string) => stopFor(p.moderation.find((m) => m.value === value)?.target ?? 0);
 
   const body = (
     <>
@@ -187,6 +218,18 @@ export function SettingsContent({ onClose, embedded = false, initial = DEFAULT_P
                     {ingredientChips.map((i) => <Chip key={i} label={tasteLabel(i)} active={dislikeValues.includes(i)} onToggle={() => toggleTaste("dislikes", i, "ingredient")} />)}
                     <MoreChip onPress={() => setIngredientSearch(true)} />
                   </View>
+                </Card>
+
+                <Card>
+                  <Text className="text-sm font-bold text-ink">Eat more / less of…</Text>
+                  <VStack space={10} style={{ marginTop: 8 }}>
+                    {MODERATION_CLASSES.map((c) => (
+                      <View key={c.value}>
+                        <Text className="text-xs font-bold text-muted" style={{ marginBottom: 4 }}>{c.label}</Text>
+                        <Segmented label={`How much ${c.label.toLowerCase()}`} value={moderationTarget(c.value)} onChange={(v) => setModeration(c.value, v as number)} options={MODERATION_STOPS} />
+                      </View>
+                    ))}
+                  </VStack>
                 </Card>
               </VStack>
 

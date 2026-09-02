@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
@@ -55,5 +56,30 @@ describe("drizzle migrator", () => {
 
     const tracked = await client.execute("SELECT COUNT(*) AS n FROM __drizzle_migrations");
     expect(Number(tracked.rows[0].n)).toBe(2);
+  });
+});
+
+describe("food-moderation migration is additive (AC 10 / Test Case 9)", () => {
+  const DRIZZLE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
+
+  it("a legacy-shaped user_food_prefs row (sentiment only) survives with target/reason null", async () => {
+    const fresh = createClient({ url: `file:${join(dir, "real.db")}` });
+    try {
+      await migrate(drizzle(fresh), { migrationsFolder: DRIZZLE_DIR });
+      // Seed a pre-feature food-pref row that carries only a sentiment (no target/reason) — the shape
+      // every existing prod row has. The relaxed-nullable schema must accept and preserve it. FK
+      // enforcement off so we don't need a full users row (the survival property is on user_food_prefs).
+      await fresh.execute("PRAGMA foreign_keys=OFF");
+      await fresh.execute({
+        sql: "INSERT INTO user_food_prefs (user_id, facet, value, sentiment) VALUES (?,?,?,?)",
+        args: ["u-legacy", "cuisine", "thai", "like"],
+      });
+      const [row] = (await fresh.execute("SELECT sentiment, target, reason FROM user_food_prefs")).rows;
+      expect(row.sentiment).toBe("like");
+      expect(row.target).toBeNull();
+      expect(row.reason).toBeNull();
+    } finally {
+      fresh.close();
+    }
   });
 });

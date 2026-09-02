@@ -35,6 +35,13 @@ export class RefreshInvalidError extends AppError {
   }
 }
 
+export class WebLinkInvalidError extends AppError {
+  /** 401 EXPIRED_LINK — the web-link token is unknown, revoked, expired, or wrong type. */
+  constructor() {
+    super('EXPIRED_LINK', 401, 'web link is invalid or expired');
+  }
+}
+
 export class OtpRequestFailedError extends AppError {
   /** 502 OTP_REQUEST_FAILED — the upstream OTP provider could not send the code. */
   constructor() {

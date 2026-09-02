@@ -76,7 +76,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(prefs.budgetCentsPerServing).toBe(400);
     expect(prefs.skillLevel).toBe("intermediate");
     expect(prefs.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
-    expect(prefs.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like" });
+    expect(prefs.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
   });
 
   it("cold-starts from goals when no preferences row exists", async () => {
@@ -127,8 +127,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     timeBudgetMinutes: 45,
     timeByMeal: null,
     weeklyMeals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
-    likes: [],
-    dislikes: [],
+    foodPrefs: [],
     allergens: [{ allergen: "peanut" as const, severity: "severe" as const }],
     diets: [{ dietId: "pescatarian", strictness: "flexible" as const }],
     ownedEquipment: ["blender" as const, "slow_cooker" as const],
@@ -137,18 +136,21 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     eatsLeftovers: true,
   };
 
-  it("savePreferences upserts the editable subset, preserves weights, and rebuilds food-prefs over all facets", async () => {
+  it("savePreferences upserts the editable subset, preserves weights, and upserts the unified food-prefs", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
     // Pre-existing server-owned state the settings save must NOT clobber: a dislike-tuned weight,
-    // and a dislike-loop dislike on a value the picker doesn't touch.
+    // and a dislike-loop dislike on a value the picker doesn't resend.
     await repo.bumpWeight(userId, "cost");
     await db.insert(userFoodPrefs).values({ userId, facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
 
     const saved = await repo.savePreferences(userId, {
       ...baseSave,
-      likes: [{ facet: "cuisine", value: "italian" }, { facet: "dish_type", value: "bowls" }],
-      dislikes: [{ facet: "primary_ingredient", value: "liver" }],
+      foodPrefs: [
+        { facet: "cuisine", value: "italian", sentiment: "like" },
+        { facet: "dish_type", value: "bowls", sentiment: "like" },
+        { facet: "primary_ingredient", value: "liver", sentiment: "dislike" },
+      ],
     });
 
     // Editable subset round-trips.
@@ -163,12 +165,12 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     // Weights (dislike-tuned) survive the save.
     expect(saved.weights.cost).toBe(2);
 
-    // The picker's likes/dislikes are persisted across all facets…
-    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like" });
-    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "bowls", sentiment: "like" });
-    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
-    // …and a dislike-loop dislike on an untouched value survives.
-    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
+    // The unified food-prefs are persisted across all facets (each axis carried)…
+    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "bowls", sentiment: "like", target: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+    // …and a dislike-loop dislike on an un-resent value survives (upsert, not wholesale replace).
+    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike", target: null, reason: null });
   });
 
   it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {

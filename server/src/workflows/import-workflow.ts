@@ -10,6 +10,7 @@ import { ImportNotifier } from "../imessage/import-notifier.js";
 import { importErrorCode, type ImportInput } from "../import-domain.js";
 import { extractMedia, transcribe, readFrame, describePhoto, readSlideRecipe } from "./media-steps.js";
 import type { ExtractedRecipeData } from "../parse/extractor.js";
+import { emptyCategories, type RecipeCategories } from "../models/recipe.js";
 import { NutritionEstimator } from "../nutrition/nutrition-estimator.js";
 import { AllergenDetector } from "../allergen/allergen-detector.js";
 import type { RecipeAllergens } from "../allergen/allergen.js";
@@ -452,7 +453,11 @@ async function classifyOneDiet(
       `[step] diet job=${input.jobId} title=${recipe.title} ` +
         `fit=${dietFitSummary(diets)} complete=${diets?.coverageComplete ?? "n/a"}`,
     );
-    return diets ? { ...recipe, diets } : recipe;
+    if (!diets) return recipe;
+    // Persist the recipe's food classes as `food_category` facets — merge onto the categorizer's
+    // categories (it runs first) without clobbering its cuisine/dishType/mealType.
+    const categories: RecipeCategories = { ...(recipe.categories ?? emptyCategories()), foodCategory: diets.foodClasses };
+    return { ...recipe, diets, categories };
   } catch (err) {
     console.log(`[step] diet job=${input.jobId} title=${recipe.title} outcome=error err=${String(err)}`);
     return recipe;

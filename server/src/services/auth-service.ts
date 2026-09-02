@@ -4,13 +4,14 @@ import type { User } from "../models/user.js";
 
 const ACCESS_TTL: SignOptions["expiresIn"] = "15m";
 const REFRESH_TTL: SignOptions["expiresIn"] = "30d";
+const WEBLINK_TTL: SignOptions["expiresIn"] = "30d";
 
 export interface Tokens {
   access_token: { jwt: string; expires_at: number };
   refresh_token: { jwt: string; expires_at: number };
 }
 
-type TokenType = "access" | "refresh";
+type TokenType = "access" | "refresh" | "weblink";
 
 // Owns sessions: a per-user ECDSA keypair signs ES256 access/refresh tokens.
 // A `nonce` in each token, checked against the user row, allows revocation.
@@ -44,6 +45,19 @@ export class AuthService {
       access_token: this.sign(user, "access", ACCESS_TTL),
       refresh_token: this.sign(user, "refresh", REFRESH_TTL),
     };
+  }
+
+  /**
+   * Mints a long-lived web-link token — the credential Chef embeds in an iMessage
+   * link so a known user lands signed in on the web. Signed with the user's key,
+   * revocable by bumping `webLinkNonce`.
+   *
+   * @param user - The user to mint the link for; supplies the signing key and nonce.
+   * @param ttl - Expiry (defaults to 30 days); tests override to mint an expired token.
+   * @returns The signed JWT and its expiry (unix seconds).
+   */
+  mintWebLink(user: User, ttl: SignOptions["expiresIn"] = WEBLINK_TTL): { jwt: string; expires_at: number } {
+    return this.sign(user, "weblink", ttl);
   }
 
   /**
@@ -87,7 +101,8 @@ export class AuthService {
    * @returns The signed JWT and its expiry (unix seconds).
    */
   private sign(user: User, type: TokenType, ttl: SignOptions["expiresIn"]): { jwt: string; expires_at: number } {
-    const nonce = type === "access" ? user.accessTokenNonce : user.refreshTokenNonce;
+    const nonce =
+      type === "access" ? user.accessTokenNonce : type === "refresh" ? user.refreshTokenNonce : user.webLinkNonce;
     const token = jwt.sign({ sub: user.id, type, nonce }, user.jwtPrivateKey, {
       algorithm: "ES256",
       expiresIn: ttl,

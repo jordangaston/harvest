@@ -116,3 +116,19 @@ describe('Test Case: withheld', () => {
     expect(await classifier.classify([], 4)).toBeNull();
   });
 });
+
+describe('food-moderation Test Case 1: DietClassifier surfaces the food-class union (AC 1)', () => {
+  it('exposes deduped non-null foodClasses; red_meat present for beef, absent otherwise, [] when all-unrecognized', async () => {
+    const beef = (await classifier.classify(ings('1 lb ground beef', '1 onion', '1 tbsp olive oil'), 2))!;
+    expect(beef.foodClasses).toContain('red_meat');
+    // A vegetable and/or a fat/oil are also classified, and the set is deduped.
+    expect(beef.foodClasses.some((c) => c === 'vegetable' || c === 'fat_oil')).toBe(true);
+    expect(new Set(beef.foodClasses).size).toBe(beef.foodClasses.length);
+
+    const beefFree = (await classifier.classify(ings('2 cups spinach', '1 cup rice'), 2))!;
+    expect(beefFree.foodClasses).not.toContain('red_meat');
+
+    const unknown = (await classifier.classify(ings('3 sprigs zzzq unknownherb', '1 dash qqxx mystery'), 2))!;
+    expect(unknown.foodClasses).toEqual([]);
+  });
+});

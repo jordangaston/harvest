@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "53f0ca2f-6ea8-426b-a370-3515a67bd626",
-  "prevId": "0d63b828-1f6e-4430-917d-8d06392651f2",
+  "id": "3961860c-ba9e-43ab-81f5-e7d900728afa",
+  "prevId": "53f0ca2f-6ea8-426b-a370-3515a67bd626",
   "tables": {
     "cookbook_recipes": {
       "name": "cookbook_recipes",
@@ -2743,7 +2743,21 @@
           "name": "sentiment",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target": {
+          "name": "target",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

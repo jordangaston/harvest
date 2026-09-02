@@ -70,7 +70,8 @@ export class AffinityScorer implements SignalScorer {
   }
 
   private facetSentiment(facet: string, values: string[], prefs: UserPreferences): number {
-    const prefs_ = prefs.foodPrefs.filter((f) => f.facet === facet && values.includes(f.value));
+    // Skip pure-intent rows (sentiment == null): a "eat less red meat" carries no taste.
+    const prefs_ = prefs.foodPrefs.filter((f) => f.sentiment != null && f.facet === facet && values.includes(f.value));
     if (prefs_.some((f) => f.sentiment === 'like')) return 1;
     if (prefs_.some((f) => f.sentiment === 'dislike')) return -1;
     return 0;

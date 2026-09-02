@@ -229,8 +229,22 @@
     {
       "idx": 32,
       "version": "6",
-      "when": 1788240000000,
-      "tag": "0032_objective_v2_tasks",
+      "when": 1788290053903,
+      "tag": "0032_shallow_havok",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1788302880614,
+      "tag": "0033_organic_onslaught",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1788305214000,
+      "tag": "0034_objective_v2_tasks",
       "breakpoints": true
     }
   ]

@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `web_link_nonce` integer DEFAULT 0 NOT NULL;

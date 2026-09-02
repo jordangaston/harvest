@@ -10,6 +10,7 @@ import {
   GOALS,
   users,
   householdMembers,
+  type AffinityFacet,
 } from '../../schema.js';
 import { HouseholdPreferenceRepository } from '../../repositories/household-preference-repository.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
@@ -20,7 +21,7 @@ import { WeeklyMealsSchema, TimeByMealSchema } from '../../models/user-preferenc
 import { coerce, codeCandidates, labelFor, parseBudgetCents, type Candidate } from '../tools/catalog.js';
 import { resolveEquipment } from '../tools/equipment-grounding.js';
 import type { FactType, Flavor, Subject, Tx, TypeDoc, ValidateResult, ValuePage } from './fact-type.js';
-import { mergeMemberFact, mergeSelections, type Selection } from './member-persist.js';
+import { mergeMemberFact } from './member-persist.js';
 
 /** A member subject's user id, or throws for a household subject (a member type mis-routed). */
 function memberId(subject: Subject): string {
@@ -447,6 +448,8 @@ class DietType implements FactType {
 
 /** The raw taste value: an affinity facet and a value the tuned matcher grounds. */
 type TasteValue = { facet?: string; value?: string };
+/** A grounded taste selection: the resolved catalog id under its affinity facet. */
+type Selection = { facet: AffinityFacet; value: string };
 const FOOD_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
 const isFoodFacet = (f: unknown): f is (typeof FOOD_FACETS)[number] => FOOD_FACETS.includes(f as never);
 
@@ -488,10 +491,15 @@ class TasteType implements FactType {
   async persist(subject: Subject, value: unknown): Promise<void> {
     const sel = await this.ground(this.normalize(value) as { facet: (typeof FOOD_FACETS)[number]; value: string });
     if (!sel) throw new Error(`${this.name}: no catalog match for "${(value as TasteValue).value}"`);
+    // Carry every existing foodPref through (savePreferences full-replaces the caller-authored
+    // facets), unioning the new taste selection in. De-dupe on (facet,value,sentiment) so a re-write
+    // is idempotent without touching a same-value row under another sentiment or a moderation target.
     await mergeMemberFact(this.prefs, memberId(subject), (current) => {
-      const food = current.foodPrefs.filter((f) => f.sentiment === this.sentiment).map((f) => ({ facet: f.facet, value: f.value }));
-      const merged = mergeSelections(food, [sel]);
-      return this.sentiment === 'like' ? { likes: merged } : { dislikes: merged };
+      const exists = current.foodPrefs.some((f) => f.facet === sel.facet && f.value === sel.value && f.sentiment === this.sentiment);
+      const foodPrefs = exists
+        ? current.foodPrefs
+        : [...current.foodPrefs, { facet: sel.facet, value: sel.value, sentiment: this.sentiment, target: null, reason: null }];
+      return { foodPrefs };
     });
   }
   async read(subject: Subject): Promise<unknown> {

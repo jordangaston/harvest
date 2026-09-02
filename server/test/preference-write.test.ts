@@ -64,7 +64,72 @@ describe("PreferenceRepository write-path (WI-RANK-4)", () => {
     await repo.addDislike(userId, "cuisine", "thai"); // insert
 
     const rows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
-    expect(rows).toContainEqual({ userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike" });
-    expect(rows).toContainEqual({ userId, facet: "cuisine", value: "thai", sentiment: "dislike" });
+    expect(rows).toContainEqual({ userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+    expect(rows).toContainEqual({ userId, facet: "cuisine", value: "thai", sentiment: "dislike", target: null, reason: null });
+  });
+
+  it("savePreferences removes an un-selected like but keeps a dislike-loop primary_ingredient dislike", async () => {
+    const repo = PreferenceRepository.create(db);
+    const base = {
+      skillLevel: "beginner" as const, weeklyBudgetCents: null, timeBudgetMinutes: null, timeByMeal: null,
+      weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
+      allergens: [], diets: [], ownedEquipment: [], groceryStores: [],
+      household: { adults: 2, kids: 0 }, eatsLeftovers: true,
+    };
+    const userId = await makeUser();
+
+    // Two liked cuisines via settings, plus a dislike written by the swipe loop (primary_ingredient).
+    await repo.savePreferences(userId, {
+      ...base,
+      foodPrefs: [
+        { facet: "cuisine", value: "thai", sentiment: "like" },
+        { facet: "cuisine", value: "italian", sentiment: "like" },
+      ],
+    });
+    await repo.addDislike(userId, "primary_ingredient", "liver");
+
+    // Re-save with `italian` un-selected — the picker resends only what remains.
+    const saved = await repo.savePreferences(userId, {
+      ...base,
+      foodPrefs: [{ facet: "cuisine", value: "thai", sentiment: "like" }],
+    });
+
+    const cuisines = saved.foodPrefs.filter((f) => f.facet === "cuisine").map((f) => f.value);
+    expect(cuisines).toContain("thai");
+    expect(cuisines).not.toContain("italian"); // un-selecting a like removes it (no lingering row)
+    // the loop-authored dislike survives the settings write
+    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+  });
+
+  it("Test Case 4: round-trips both axes + reason, a pure-intent row, and rejects a neither-axis element", async () => {
+    const repo = PreferenceRepository.create(db);
+    const base = {
+      skillLevel: "advanced" as const, weeklyBudgetCents: null, timeBudgetMinutes: null, timeByMeal: null,
+      weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
+      allergens: [], diets: [], ownedEquipment: [], groceryStores: [],
+      household: { adults: 2, kids: 0 }, eatsLeftovers: true,
+    };
+
+    // Both axes + reason (the steak case).
+    const u1 = await makeUser();
+    const saved1 = await repo.savePreferences(u1, {
+      ...base,
+      foodPrefs: [{ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" }],
+    });
+    expect(saved1.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" });
+
+    // Pure intent — no sentiment.
+    const u2 = await makeUser();
+    const saved2 = await repo.savePreferences(u2, {
+      ...base,
+      foodPrefs: [{ facet: "food_category", value: "red_meat", target: -0.9 }],
+    });
+    expect(saved2.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: null, target: -0.9, reason: null });
+
+    // Neither axis → rejected at the repo boundary.
+    const u3 = await makeUser();
+    await expect(
+      repo.savePreferences(u3, { ...base, foodPrefs: [{ facet: "food_category", value: "red_meat" }] }),
+    ).rejects.toThrow();
   });
 });

@@ -46,7 +46,7 @@ const detail = (over: Partial<RecipeDetail> = {}): RecipeDetail => ({
   recipe: baseRecipe(),
   ingredients: [],
   steps: [],
-  categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] },
+  categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] },
   diets: [],
   difficulty: null,
   stepDifficulties: [],

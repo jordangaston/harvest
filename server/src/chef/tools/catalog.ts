@@ -1,5 +1,6 @@
 import { GROCERY_STORES, MAJOR_ALLERGENS, EQUIPMENT_TYPES } from '../../schema.js';
 import { DIET_RULES } from '../../diet/diet-rules.js';
+import { FOOD_CLASSES } from '../../diet/food-class-map.js';
 
 /** A grounded catalog candidate: the canonical id and a display label. */
 export interface Candidate {
@@ -35,8 +36,8 @@ const ALIASES: Record<string, string> = {
   veg: 'vegetarian',
 };
 
-/** The five catalog kinds `fact_types` grounds against. */
-export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen';
+/** The catalog kinds `fact_types` grounds against. */
+export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen' | 'food_category';
 
 /** The code-tuple catalogs (taste is DB-backed, handled by the tool). */
 const CODE_CATALOG: Record<Exclude<CatalogKind, 'taste'>, readonly string[]> = {
@@ -44,6 +45,7 @@ const CODE_CATALOG: Record<Exclude<CatalogKind, 'taste'>, readonly string[]> = {
   equipment: EQUIPMENT_TYPES,
   diet: DIET_RULES.map((r) => r.id),
   allergen: MAJOR_ALLERGENS,
+  food_category: FOOD_CLASSES,
 };
 
 /** The candidate list for a code-backed kind, ids with derived labels. */
