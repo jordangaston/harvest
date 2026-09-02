@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
-import { users, threads, objectives, slots } from '../src/schema.js';
+import { users, threads, objectives, tasks } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
@@ -34,21 +34,24 @@ async function seedObjective(threadId: string, status: 'active' | 'suspended' | 
   return o!.id;
 }
 
+/** An elicit household task spec (fact = key). */
+const et = (key: string, required = true, extra: Partial<{ solo: boolean; after: string[] }> = {}) => ({ key, kind: 'elicit' as const, fact: key, scope: 'household' as const, required, ...extra });
+
 describe('ObjectiveRepository', () => {
-  it('loadActive returns the active objective + only its unfilled slots, else null (AC-1)', async () => {
+  it('loadActive returns the active objective + only its non-terminal tasks, else null (AC-1)', async () => {
     const threadId = await seedThread();
     const objId = await seedObjective(threadId, 'active', 1);
-    await db.insert(slots).values([
-      { objectiveId: objId, key: 'a', scope: 'household', required: true, status: 'unasked' },
-      { objectiveId: objId, key: 'b', scope: 'household', required: true, status: 'asked' },
-      { objectiveId: objId, key: 'c', scope: 'household', required: true, status: 'filled', value: 'x' },
-      { objectiveId: objId, key: 'd', scope: 'household', required: true, status: 'defaulted' },
+    await db.insert(tasks).values([
+      { objectiveId: objId, kind: 'elicit', fact: 'a', scope: 'household', required: true, status: 'unasked' },
+      { objectiveId: objId, kind: 'elicit', fact: 'b', scope: 'household', required: true, status: 'asked' },
+      { objectiveId: objId, kind: 'elicit', fact: 'c', scope: 'household', required: true, status: 'filled' },
+      { objectiveId: objId, kind: 'elicit', fact: 'd', scope: 'household', required: true, status: 'defaulted' },
     ]);
     const store = ObjectiveRepository.create(db);
 
     const loaded = await store.loadActive(threadId);
     expect(loaded?.objective.id).toBe(objId);
-    expect(loaded?.slots.map((s) => s.key).sort()).toEqual(['a', 'b', 'd']);
+    expect(loaded?.tasks.map((t) => t.fact).sort()).toEqual(['a', 'b']);
 
     const empty = await store.loadActive(await seedThread());
     expect(empty).toBeNull();
@@ -59,62 +62,69 @@ describe('ObjectiveRepository', () => {
     const priorActive = await seedObjective(threadId, 'active', 1);
     const store = ObjectiveRepository.create(db);
 
-    const top = await store.pushObjective({ threadId, definition: 'digression', slots: [], position: 'top' });
+    const top = await store.pushObjective({ threadId, definition: 'digression', tasks: [], position: 'top' });
     expect(top.status).toBe('active');
     expect(top.stackPosition).toBe(2);
     const [prior] = await db.select().from(objectives).where(eq(objectives.id, priorActive));
     expect(prior!.status).toBe('suspended');
 
-    const bottom = await store.pushObjective({ threadId, definition: 'background', slots: [], position: 'bottom' });
+    const bottom = await store.pushObjective({ threadId, definition: 'background', tasks: [], position: 'bottom' });
     expect(bottom.status).toBe('suspended');
     expect(bottom.stackPosition).toBe(0);
     const [stillActive] = await db.select().from(objectives).where(eq(objectives.id, top.id));
     expect(stillActive!.status).toBe('active');
 
-    const fresh = await store.pushObjective({ threadId: await seedThread(), definition: 'first', slots: [], position: 'bottom' });
+    const fresh = await store.pushObjective({ threadId: await seedThread(), definition: 'first', tasks: [], position: 'bottom' });
     expect(fresh.status).toBe('active');
   });
 
-  it('applySlotUpdates enforces filled-requires-value (AC-3)', async () => {
+  it('pushObjective resolves `after` keys to inserted row ids (TC-2)', async () => {
     const threadId = await seedThread();
-    const objId = await seedObjective(threadId, 'active', 1);
-    const [s1, s2] = await db
-      .insert(slots)
-      .values([
-        { objectiveId: objId, key: 'a', scope: 'household', required: true, status: 'asked', value: null },
-        { objectiveId: objId, key: 'b', scope: 'household', required: true, status: 'asked', value: null },
-      ])
-      .returning({ id: slots.id });
     const store = ObjectiveRepository.create(db);
 
-    await expect(
-      db.transaction((tx) => store.applySlotUpdates([{ slotId: s1!.id, status: 'filled' }], tx)),
-    ).rejects.toThrow();
-    const [unchanged] = await db.select().from(slots).where(eq(slots.id, s1!.id));
-    expect(unchanged!.status).toBe('asked');
-
-    await db.transaction((tx) => store.applySlotUpdates([{ slotId: s1!.id, status: 'filled', value: ['gluten'] }], tx));
-    const [filled] = await db.select().from(slots).where(eq(slots.id, s1!.id));
-    expect(filled!.status).toBe('filled');
-    expect(filled!.value).toEqual(['gluten']);
-
-    await db.transaction((tx) => store.applySlotUpdates([{ slotId: s2!.id, status: 'defaulted' }], tx));
-    const [defaulted] = await db.select().from(slots).where(eq(slots.id, s2!.id));
-    expect(defaulted!.status).toBe('defaulted');
+    const obj = await store.pushObjective({ threadId, definition: 'onboard', tasks: [et('a'), et('b', true, { after: ['a'] })], position: 'top' });
+    expect(obj.stackPosition).toBe(0);
+    const rows = await db.select().from(tasks).where(eq(tasks.objectiveId, obj.id));
+    const a = rows.find((r) => r.fact === 'a')!;
+    const b = rows.find((r) => r.fact === 'b')!;
+    expect(b.afterTaskIds).toEqual([a.id]);
+    expect(a.afterTaskIds).toEqual([]);
   });
 
-  it('applySlotUpdates fills from a value already stored on the row', async () => {
+  it('loadActive hides a gated task until its `after` is terminal (TC-3)', async () => {
+    const threadId = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    const obj = await store.pushObjective({ threadId, definition: 'onboard', tasks: [et('a'), et('b', true, { after: ['a'] })], position: 'top' });
+
+    const first = await store.loadActive(threadId);
+    expect(first?.tasks.map((t) => t.fact)).toEqual(['a']);
+
+    const aId = first!.tasks[0]!.id;
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: aId, status: 'filled' }], tx));
+    const second = await store.loadActive(threadId);
+    expect(second?.tasks.map((t) => t.fact)).toEqual(['b']);
+    void obj;
+  });
+
+  it('applyTaskUpdates transitions status by id (no value guard)', async () => {
     const threadId = await seedThread();
     const objId = await seedObjective(threadId, 'active', 1);
-    const [s] = await db
-      .insert(slots)
-      .values([{ objectiveId: objId, key: 'a', scope: 'household', required: true, status: 'asked', value: 'stored' }])
-      .returning({ id: slots.id });
+    const [t1, t2] = await db
+      .insert(tasks)
+      .values([
+        { objectiveId: objId, kind: 'elicit', fact: 'a', scope: 'household', required: true, status: 'asked' },
+        { objectiveId: objId, kind: 'elicit', fact: 'b', scope: 'household', required: true, status: 'asked' },
+      ])
+      .returning({ id: tasks.id });
     const store = ObjectiveRepository.create(db);
 
-    await db.transaction((tx) => store.applySlotUpdates([{ slotId: s!.id, status: 'filled' }], tx));
-    const [filled] = await db.select().from(slots).where(eq(slots.id, s!.id));
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: t1!.id, status: 'filled' }], tx));
+    const [filled] = await db.select().from(tasks).where(eq(tasks.id, t1!.id));
     expect(filled!.status).toBe('filled');
+
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: t2!.id, status: 'defaulted' }], tx));
+    const [defaulted] = await db.select().from(tasks).where(eq(tasks.id, t2!.id));
+    expect(defaulted!.status).toBe('defaulted');
   });
 
   it('completeAndPop completes + activates the next, else empties the stack (AC-4)', async () => {
@@ -135,20 +145,60 @@ describe('ObjectiveRepository', () => {
     expect(none).toBeNull();
   });
 
-  it('isComplete counts only required non-terminal slots (AC-5)', async () => {
+  it('isComplete counts required non-terminal tasks across kinds, then completeAndPop pops (TC-4)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedObjective(threadId, 'active', 1);
+    const [, emit] = await db
+      .insert(tasks)
+      .values([
+        { objectiveId: objId, kind: 'elicit', fact: 'a', scope: 'household', required: true, status: 'filled' },
+        { objectiveId: objId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'asked' },
+      ])
+      .returning({ id: tasks.id });
+    const store = ObjectiveRepository.create(db);
+
+    expect(await store.isComplete(objId)).toBe(false);
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: emit!.id, status: 'filled' }], tx));
+    expect(await store.isComplete(objId)).toBe(true);
+
+    const none = await db.transaction((tx) => store.completeAndPop(objId, tx));
+    expect(none).toBeNull();
+    const [done] = await db.select().from(objectives).where(eq(objectives.id, objId));
+    expect(done!.status).toBe('complete');
+  });
+
+  it('isComplete counts only required non-terminal tasks (AC-5)', async () => {
     const threadId = await seedThread();
     const done = await seedObjective(threadId, 'active', 1);
-    await db.insert(slots).values([
-      { objectiveId: done, key: 'r1', scope: 'household', required: true, status: 'filled', value: 'x' },
-      { objectiveId: done, key: 'r2', scope: 'household', required: true, status: 'defaulted' },
-      { objectiveId: done, key: 'opt', scope: 'household', required: false, status: 'unasked' },
+    await db.insert(tasks).values([
+      { objectiveId: done, kind: 'elicit', fact: 'r1', scope: 'household', required: true, status: 'filled' },
+      { objectiveId: done, kind: 'elicit', fact: 'r2', scope: 'household', required: true, status: 'defaulted' },
+      { objectiveId: done, kind: 'elicit', fact: 'opt', scope: 'household', required: false, status: 'unasked' },
     ]);
     const open = await seedObjective(threadId, 'suspended', 2);
-    await db.insert(slots).values([{ objectiveId: open, key: 'r1', scope: 'household', required: true, status: 'asked' }]);
+    await db.insert(tasks).values([{ objectiveId: open, kind: 'elicit', fact: 'r1', scope: 'household', required: true, status: 'asked' }]);
     const store = ObjectiveRepository.create(db);
 
     expect(await store.isComplete(done)).toBe(true);
     expect(await store.isComplete(open)).toBe(false);
+  });
+
+  it('instantiateMemberTasks is idempotent on (objective, fact, member) (TC-5)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedObjective(threadId, 'active', 1);
+    const memberId = await seedUser('+15559990000', 'Mia');
+    const store = ObjectiveRepository.create(db);
+    const specs = [
+      { key: 'allergens', kind: 'elicit' as const, fact: 'allergens', scope: 'member' as const, memberUserId: memberId, required: true },
+      { key: 'diets', kind: 'elicit' as const, fact: 'diets', scope: 'member' as const, memberUserId: memberId, required: false },
+    ];
+
+    await db.transaction((tx) => store.instantiateMemberTasks(objId, specs, tx));
+    await db.transaction((tx) => store.instantiateMemberTasks(objId, specs, tx));
+
+    const rows = await db.select().from(tasks).where(and(eq(tasks.objectiveId, objId), eq(tasks.memberUserId, memberId)));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.fact).sort()).toEqual(['allergens', 'diets']);
   });
 });
 

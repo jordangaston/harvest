@@ -9,7 +9,7 @@ import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { threads, threadMessages, objectives, slots } from '../src/schema.js';
+import { threads, threadMessages, objectives, tasks } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { type Database } from '../src/db.js';
 
@@ -58,7 +58,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        slotUpdates: [],
+        taskUpdates: [],
         cursorTo: cursor,
         objectiveId: '',
       }),
@@ -83,7 +83,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        slotUpdates: [],
+        taskUpdates: [],
         cursorTo: inboundId,
         objectiveId: '',
       }),
@@ -110,13 +110,13 @@ describe('contact card on onboarding-complete (WI-4C AC3)', () => {
 
     const objectiveId = randomUUID();
     await db.insert(objectives).values({ id: objectiveId, threadId, definition: 'onboarding', status: 'active', stackPosition: 0 });
-    const slotId = randomUUID();
-    await db.insert(slots).values({ id: slotId, objectiveId, key: 'k', scope: 'household', required: true, status: 'unasked' });
+    const taskId = randomUUID();
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'elicit', fact: 'k', scope: 'household', required: true, status: 'unasked' });
 
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        slotUpdates: [{ slotId, status: 'filled', value: 'done' }],
+        taskUpdates: [{ taskId, status: 'filled' }],
         cursorTo: inboundId,
         objectiveId,
       }),
@@ -132,7 +132,7 @@ describe('contact card on onboarding-complete (WI-4C AC3)', () => {
     const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(thread!.cardedAt).not.toBeNull();
 
-    // Redeliver: slot terminal, carded_at set → no re-send.
+    // Redeliver: task terminal, carded_at set → no re-send.
     await consumer.handle({ threadId });
     expect(sender.contactCardCalls).toHaveLength(1);
   });

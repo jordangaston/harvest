@@ -9,7 +9,7 @@ import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
 import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
-import { ReplyPlanSchema, SlotUpdateSchema, type ReasoningOutput } from '../src/chef/types.js';
+import { ReplyPlanSchema, TaskUpdateSchema, type ReasoningOutput } from '../src/chef/types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import { randomUUID } from 'node:crypto';
 
@@ -29,8 +29,8 @@ async function makeUser(): Promise<string> {
   return user.id;
 }
 
-/** Seeds a thread + household + one member + an active onboarding objective with the given slot statuses. */
-async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }[]): Promise<{ input: BriefingInput; ctx: TurnContext; memberId: string; householdId: string }> {
+/** Seeds a thread + household + one member + an active onboarding objective with the given task statuses. */
+async function seedTurn(taskSpecs: { key: string; status: 'unasked' | 'filled' }[]): Promise<{ input: BriefingInput; ctx: TurnContext; memberId: string; householdId: string }> {
   const ownerId = await makeUser();
   const hh = HouseholdRepository.create(db);
   const household = await hh.createHousehold({ ownerUserId: ownerId });
@@ -43,13 +43,13 @@ async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }
   await store.pushObjective({
     threadId,
     definition: 'onboarding',
-    slots: slotSpecs.map((s) => ({ key: s.key, scope: 'household' as const, required: true })),
+    tasks: taskSpecs.map((s) => ({ key: s.key, kind: 'elicit' as const, fact: s.key, scope: 'household' as const, required: true })),
     position: 'top',
   });
   const active = (await store.loadActive(threadId))!;
-  for (const spec of slotSpecs.filter((s) => s.status === 'filled')) {
-    const slot = active.slots.find((s) => s.key === spec.key)!;
-    await db.transaction((tx) => store.applySlotUpdates([{ slotId: slot.id, status: 'filled', value: 'x' }], tx));
+  for (const spec of taskSpecs.filter((s) => s.status === 'filled')) {
+    const task = active.tasks.find((t) => t.fact === spec.key)!;
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: task.id, status: 'filled' }], tx));
   }
   const loaded = (await store.loadActive(threadId))!;
 
@@ -65,7 +65,7 @@ async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }
   };
   const input: BriefingInput = {
     objective: loaded.objective,
-    slots: loaded.slots,
+    tasks: loaded.tasks,
     members: [{ userId: ownerId, name: 'Sam', handle: '+15555580000' }],
     transcript: [{ role: 'household', text: 'we shop at kroger' }],
     trigger: 'we shop at kroger',
@@ -74,7 +74,7 @@ async function seedTurn(slotSpecs: { key: string; status: 'unasked' | 'filled' }
 }
 
 describe('prepareBriefing (pure prompt assembly)', () => {
-  it('references only the unfilled slots (AC-5)', async () => {
+  it('references only the unfilled tasks (AC-5)', async () => {
     const { input } = await seedTurn([
       { key: 'household.cook_days_count', status: 'unasked' },
       { key: 'household.grocery_stores', status: 'unasked' },
@@ -114,11 +114,11 @@ describe('ScriptedReasoner (pure plan replay, no network)', () => {
     const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
     const plan: ReasoningOutput = {
       replyPlan: { intents: [{ kind: 'confirm', fact: '5 cook days' }], must_say: [] },
-      slotUpdates: [{ id: 'slot-abc', status: 'filled', value: '5' }],
+      taskUpdates: [{ id: 'slot-abc', status: 'filled', value: '5' }],
     };
     const out = await new ScriptedReasoner(plan).run(input, {} as TurnContext);
     expect(() => ReplyPlanSchema.parse(out.replyPlan)).not.toThrow();
-    expect(() => SlotUpdateSchema.array().parse(out.slotUpdates)).not.toThrow();
+    expect(() => TaskUpdateSchema.array().parse(out.taskUpdates)).not.toThrow();
     expect(out).not.toHaveProperty('prose');
   });
 });
