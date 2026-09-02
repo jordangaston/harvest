@@ -73,7 +73,19 @@ export class ObjectiveRepository {
 
     const all = (await this.db.select().from(tasks).where(eq(tasks.objectiveId, objective.id))).map((t) => TaskSchema.parse(t));
     const terminalIds = new Set(all.filter((t) => isTerminal(t.status)).map((t) => t.id));
-    const eligible = all.filter((t) => !isTerminal(t.status) && t.afterTaskIds.every((id) => terminalIds.has(id)));
+
+    // ponytail: "close fires last" rule. A required `emit` (the onboarding close) is eligible only
+    // when every required `elicit` currently loaded is terminal — its static `after` can't name member
+    // tasks that don't exist at seed time, so gate it in code here. Generalization point for a future
+    // multi-emit objective: order emits among themselves via `after` and keep this last-elicit gate.
+    const requiredElicitsDone = all.every((t) => !(t.kind === 'elicit' && t.required) || isTerminal(t.status));
+
+    const eligible = all.filter((t) => {
+      if (isTerminal(t.status)) return false;
+      if (!t.afterTaskIds.every((id) => terminalIds.has(id))) return false;
+      if (t.kind === 'emit' && t.required && !requiredElicitsDone) return false;
+      return true;
+    });
     return { objective, tasks: eligible };
   }
 

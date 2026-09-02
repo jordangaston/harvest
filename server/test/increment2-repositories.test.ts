@@ -106,6 +106,30 @@ describe('ObjectiveRepository', () => {
     void obj;
   });
 
+  it('loadActive: a required emit is eligible only when every required elicit (household + member) is terminal (review #2)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedObjective(threadId, 'active', 1);
+    const store = ObjectiveRepository.create(db);
+    const [hhElicit, memberElicit, emit] = await db
+      .insert(tasks)
+      .values([
+        { objectiveId: objId, kind: 'elicit', fact: 'household.goals', scope: 'household', required: true, status: 'filled' },
+        { objectiveId: objId, kind: 'elicit', fact: 'allergens', scope: 'member', memberUserId: null, required: true, status: 'unasked' },
+        { objectiveId: objId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' },
+      ])
+      .returning({ id: tasks.id });
+    void hhElicit;
+
+    // A required member allergen is still unasked → the close emit is NOT eligible.
+    const gated = await store.loadActive(threadId);
+    expect(gated?.tasks.some((t) => t.id === emit!.id)).toBe(false);
+
+    // Fill the member elicit → the close emit becomes eligible.
+    await db.transaction((tx) => store.applyTaskUpdates([{ taskId: memberElicit!.id, status: 'filled' }], tx));
+    const open = await store.loadActive(threadId);
+    expect(open?.tasks.some((t) => t.id === emit!.id)).toBe(true);
+  });
+
   it('applyTaskUpdates transitions status by id (no value guard)', async () => {
     const threadId = await seedThread();
     const objId = await seedObjective(threadId, 'active', 1);
