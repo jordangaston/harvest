@@ -22,28 +22,28 @@ export const ReplyPlanSchema = z.object({
 
 export type ReplyPlan = z.infer<typeof ReplyPlanSchema>;
 
-const SLOT_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
+const TASK_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
 
 /**
- * The reasoning component's *declaration* that a slot changed, addressed by the slot's row `id`
+ * The reasoning component's *declaration* that a task changed, addressed by the task's row `id`
  * (its uuid PK, shown to the model in the briefing). Using the PK — not the semantic key — is what
- * lets two members' same-named slots (both `allergens`) be told apart. Applied under the code-enforced
- * invariant (a value-bearing slot becomes `filled` only if a write landed).
+ * lets two members' same-named tasks (both `allergens`) be told apart. (Value still carried for now;
+ * WI-3 removes it once writes route through `writeFact`.)
  */
-export const SlotUpdateSchema = z.object({
+export const TaskUpdateSchema = z.object({
   id: z.string(),
-  status: z.enum(SLOT_STATUSES),
-  /** The captured answer. For catalog-backed slots the reasoner overwrites this with the value a
-   *  command actually persisted; for free-text/scalar slots the model's value is used as-is. */
+  status: z.enum(TASK_STATUSES),
+  /** The captured answer. For catalog-backed tasks the reasoner overwrites this with the value a
+   *  command actually persisted; for free-text/scalar tasks the model's value is used as-is. */
   value: z.unknown().optional(),
 });
 
-export type SlotUpdate = z.infer<typeof SlotUpdateSchema>;
+export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
 
-/** The reasoning agent's structured output — the reply plan + slot declarations (tools run in the loop). */
+/** The reasoning agent's structured output — the reply plan + task declarations (tools run in the loop). */
 export const ReasoningOutputSchema = z.object({
   replyPlan: ReplyPlanSchema,
-  slotUpdates: z.array(SlotUpdateSchema).default([]),
+  taskUpdates: z.array(TaskUpdateSchema).default([]),
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;

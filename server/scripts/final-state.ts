@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { eq } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
-import { threads, objectives, slots, households, users } from '../src/schema.js';
+import { threads, objectives, tasks, households, users } from '../src/schema.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
 import { PreferenceRepository } from '../src/repositories/preference-repository.js';
@@ -20,7 +20,7 @@ for (const m of members) {
   console.log(`\n${u.name}: allergens=${JSON.stringify(p.allergens)} diets=${JSON.stringify(p.diets)} skill=${p.skillLevel} goals=${JSON.stringify(u.goals)}`);
   console.log(`  foodPrefs=${JSON.stringify(p.foodPrefs)}`);
 }
-const s = await db.select().from(slots).where(eq(slots.objectiveId, o.id));
-console.log('\nslots filled:', s.filter(x=>x.status==='filled').length, '/', s.length);
-console.log('unfilled:', s.filter(x=>x.status!=='filled').map(x=>`${x.key}${x.memberUserId?'(m)':''}`).join(', ') || 'none');
+const s = await db.select().from(tasks).where(eq(tasks.objectiveId, o.id));
+console.log('\ntasks filled:', s.filter(x=>x.status==='filled').length, '/', s.length);
+console.log('unfilled:', s.filter(x=>x.status!=='filled').map(x=>`${x.fact}${x.memberUserId?'(m)':''}`).join(', ') || 'none');
 process.exit(0);

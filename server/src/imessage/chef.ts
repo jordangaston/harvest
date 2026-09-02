@@ -1,5 +1,5 @@
 import type { Database } from '../db.js';
-import { ObjectiveRepository, type SlotUpdate } from '../chef/objective-repository.js';
+import { ObjectiveRepository, type TaskUpdate } from '../chef/objective-repository.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectReasoningAgent, type Reasoner } from '../chef/reasoning-agent.js';
@@ -7,7 +7,7 @@ import { selectResponseAgent, type Responder } from '../chef/response-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
 import type { TurnContext } from '../chef/tools/types.js';
-import { onboardingObjective, householdSlotSpecs } from '../chef/objectives/onboarding.js';
+import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
@@ -17,7 +17,7 @@ const MAX_REPLY_PARENT_SNIPPET = 280;
 /** What the consumer commits and sends for one turn — the Chef's entire output. */
 export interface ChefReply {
   chatEvents: ChatEvent[];
-  slotUpdates: SlotUpdate[];
+  taskUpdates: TaskUpdate[];
   cursorTo: string;
   /** The active objective this turn ran against — the consumer pops it if it just completed. */
   objectiveId: string;
@@ -77,7 +77,7 @@ export class RealChef implements Chef {
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
       if (attempt < MAX_INTERRUPT_RESTARTS && (await this.isInterrupted(thread.id, turn.cursorTo))) continue;
 
-      return { chatEvents, slotUpdates: this.mapSlotUpdates(reasoning.slotUpdates, turn.slotIds), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
+      return { chatEvents, taskUpdates: this.mapTaskUpdates(reasoning.taskUpdates, turn.taskIds), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
     }
   }
 
@@ -89,7 +89,7 @@ export class RealChef implements Chef {
     // so the conversation is resumable from the DB alone (F-01 step 2).
     let active = await this.objectives.loadActive(threadId);
     if (!active) {
-      await this.objectives.pushObjective({ threadId, definition: onboardingObjective.id, slots: householdSlotSpecs(), position: 'top' });
+      await this.objectives.pushObjective({ threadId, definition: onboardingObjective.id, tasks: householdTaskSpecs(), position: 'top' });
       active = await this.objectives.loadActive(threadId);
     }
     if (!active) return null;
@@ -107,7 +107,7 @@ export class RealChef implements Chef {
 
     const briefing: BriefingInput = {
       objective: active.objective,
-      slots: active.slots,
+      tasks: active.tasks,
       members: briefingMembers,
       transcript: transcript.slice(-MAX_TURN_TRANSCRIPT),
       trigger: transcriptWindow.join('\n'),
@@ -123,16 +123,16 @@ export class RealChef implements Chef {
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
     };
-    const slotIds = new Set(active.slots.map((s) => s.id));
-    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, slotIds, objectiveId: active.objective.id };
+    const taskIds = new Set(active.tasks.map((t) => t.id));
+    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, taskIds, objectiveId: active.objective.id };
   }
 
-  /** Maps the reasoning component's id-addressed slot declarations to store updates, dropping any id
-   *  the model invented that isn't a slot loaded this turn. */
-  private mapSlotUpdates(updates: { id: string; status: SlotUpdate['status']; value?: unknown }[], slotIds: Set<string>): SlotUpdate[] {
+  /** Maps the reasoning component's id-addressed task declarations to store updates, dropping any id
+   *  the model invented that isn't a task loaded this turn. */
+  private mapTaskUpdates(updates: { id: string; status: TaskUpdate['status']; value?: unknown }[], taskIds: Set<string>): TaskUpdate[] {
     return updates.flatMap((u) => {
-      if (!slotIds.has(u.id)) return [];
-      return [u.value !== undefined ? { slotId: u.id, status: u.status, value: u.value } : { slotId: u.id, status: u.status }];
+      if (!taskIds.has(u.id)) return [];
+      return [{ taskId: u.id, status: u.status }];
     });
   }
 }
@@ -158,7 +158,7 @@ export class StubChef implements Chef {
     this.reasoningReached = true;
     return {
       chatEvents: [{ kind: 'text', text: "Hey! I'm your Harvest chef — what are you in the mood to cook?" }],
-      slotUpdates: [],
+      taskUpdates: [],
       cursorTo: pending[pending.length - 1]!.id,
       objectiveId: '', // the stub runs no objective — the consumer's pop is a no-op on a blank id
     };
@@ -170,7 +170,7 @@ export function selectChef(db: Database): Chef {
   return process.env.DEEPSEEK_API_KEY ? RealChef.create(db) : new StubChef(db);
 }
 
-// Re-exported through the facade so the consumer commits a ChefReply's slotUpdates atomically
+// Re-exported through the facade so the consumer commits a ChefReply's taskUpdates atomically
 // without importing the reasoning layer directly (its only agent import stays `./chef.js`).
 export { ObjectiveRepository } from '../chef/objective-repository.js';
 

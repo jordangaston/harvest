@@ -40,7 +40,7 @@ export class Consumer {
    * committed to the DB before its doorbell fires. Each iteration is one turn: mark the pending
    * messages read, then — with the typing indicator up — ask the chef for a reply; nothing pending
    * ⇒ stop. The chef loads its own context and returns what to commit; the consumer commits its
-   * `chatEvents` (outbound rows), `slotUpdates`, and cursor in ONE transaction, then sends the
+   * `chatEvents` (outbound rows), `taskUpdates`, and cursor in ONE transaction, then sends the
    * unsent rows. The `sent_at` gate makes a redelivered doorbell a no-op; the loop drains messages
    * that arrived mid-turn.
    *
@@ -101,8 +101,8 @@ export class Consumer {
               const body = event.kind === 'text' ? event.text : `[richlink:${event.url}]`;
               await this.threads.insertOutbound({ threadId, body, messageGuid: randomUUID() }, tx);
             }
-            await this.objectives.applySlotUpdates(reply.slotUpdates, tx);
-            // Completion is a computable predicate — when every required slot is terminal the
+            await this.objectives.applyTaskUpdates(reply.taskUpdates, tx);
+            // Completion is a computable predicate — when every required task is terminal the
             // objective completes and pops (the next suspended one, if any, activates).
             const completedNow =
               !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));

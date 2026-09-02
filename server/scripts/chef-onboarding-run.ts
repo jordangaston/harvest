@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
-import { users, threads, threadMessages, households, householdMembers, objectives, slots, householdPreferences } from '../src/schema.js';
+import { users, threads, threadMessages, households, householdMembers, objectives, tasks, householdPreferences } from '../src/schema.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
@@ -43,7 +43,7 @@ const SCRIPT = [
 
 /** Dev-DB slate wipe — nukes all onboarding/household state (meal-plan tables untouched). */
 async function purge(db: ReturnType<typeof dbFromEnv>): Promise<void> {
-  await db.delete(slots);
+  await db.delete(tasks);
   await db.delete(objectives);
   await db.delete(householdPreferences);
   await db.delete(householdMembers);
@@ -71,8 +71,8 @@ async function purge(db: ReturnType<typeof dbFromEnv>): Promise<void> {
     console.log(`\n🧑 ${msg}`);
     console.log(`🧑‍🍳 (${Date.now() - t0}ms):`);
     for (const b of sender.bubbles) console.log('   •', b);
-    const sl = await db.select().from(slots);
-    console.log(`   [slots ${sl.length}, filled ${sl.filter((s) => s.status === 'filled').length}]`);
+    const sl = await db.select().from(tasks);
+    console.log(`   [tasks ${sl.length}, filled ${sl.filter((s) => s.status === 'filled').length}]`);
   }
 
   console.log('\n════════ FINAL STATE ════════');
@@ -87,8 +87,8 @@ async function purge(db: ReturnType<typeof dbFromEnv>): Promise<void> {
     const [u] = await db.select().from(users).where(eq(users.id, m.userId));
     console.log(`member ${m.name ?? m.imessageHandle}: allergens=${JSON.stringify(p.allergens)} diets=${JSON.stringify(p.diets)} foodPrefs=${JSON.stringify(p.foodPrefs)} skill=${p.skillLevel} goals=${JSON.stringify(u?.goals ?? null)}`);
   }
-  const sl = await db.select().from(slots);
-  console.log('\nfilled slots:\n  ' + sl.filter((s) => s.status === 'filled').map((s) => `${s.key}=${JSON.stringify(s.value)}`).join('\n  '));
-  console.log('\nunfilled:', sl.filter((s) => s.status !== 'filled').map((s) => s.key).join(', '));
+  const sl = await db.select().from(tasks);
+  console.log('\nfilled tasks:\n  ' + sl.filter((s) => s.status === 'filled').map((s) => s.fact ?? s.kind).join('\n  '));
+  console.log('\nunfilled:', sl.filter((s) => s.status !== 'filled').map((s) => s.fact ?? s.kind).join(', '));
   process.exit(0);
 })().catch((e) => { console.error(e?.stack ?? e?.message ?? e); process.exit(1); });

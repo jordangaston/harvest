@@ -22,7 +22,7 @@ const MAX_ATTEMPTS = 3;
 /**
  * The reasoning half of the Chef. `run` drives the tool loop and returns a validated plan; the real
  * path is a Mastra agent, the test path a scripted reasoner (no network). Writes happen inside the
- * tools during the loop; `run` reconciles the model's slot declarations against what actually landed.
+ * tools during the loop; `run` reconciles the model's task declarations against what actually landed.
  */
 export interface Reasoner {
   run(input: BriefingInput, ctx: TurnContext): Promise<ReasoningOutput>;
@@ -44,8 +44,8 @@ export class ScriptedReasoner implements Reasoner {
 /**
  * The live reasoning agent: a Mastra `Agent` on DeepSeek `-flash` (thinking on) with the active objective's tools
  * (self-contained classes bound to this turn), running the native tool-loop plus `structuredOutput`
- * for `{replyPlan, slotUpdates}` in ONE call. The tools write during the loop; afterward we reconcile
- * the model's slot declarations against what actually landed. jsonPromptInjection because DeepSeek
+ * for `{replyPlan, taskUpdates}` in ONE call. The tools write during the loop; afterward we reconcile
+ * the model's task declarations against what actually landed. jsonPromptInjection because DeepSeek
  * rejects the json_schema response_format.
  *
  * NOTE (chef-reasoning, revisit): thinking is left ON (DeepSeek's default) because thinking-OFF
@@ -80,7 +80,7 @@ export class MastraReasoner implements Reasoner {
       const agent = new Agent({
         id: 'chef-reasoning',
         name: 'chef-reasoning',
-        instructions: 'You are the reasoning half of a private chef. Call tools to persist what the household tells you, then return the reply plan and slot updates. Emit no prose.',
+        instructions: 'You are the reasoning half of a private chef. Call tools to persist what the household tells you, then return the reply plan and task updates. Emit no prose.',
         model,
         tools: Object.fromEntries(tools.map((t) => [t.id, t.asMastraTool()])),
       });
@@ -101,21 +101,21 @@ export class MastraReasoner implements Reasoner {
     }
     if (!plan) {
       console.warn('[chef] reasoning: all attempts failed; returning an empty plan.');
-      plan = { replyPlan: { intents: [], must_say: [] }, slotUpdates: [] };
+      plan = { replyPlan: { intents: [], must_say: [] }, taskUpdates: [] };
     }
-    const keyById = new Map(input.slots.map((s) => [s.id, s.key]));
-    return { replyPlan: plan.replyPlan, slotUpdates: reconcileSlotUpdates(plan.slotUpdates, allSaved, keyById) };
+    const keyById = new Map(input.tasks.map((t) => [t.id, t.fact ?? '']));
+    return { replyPlan: plan.replyPlan, taskUpdates: reconcileTaskUpdates(plan.taskUpdates, allSaved, keyById) };
   }
 }
 
 /**
- * Enforces write-first on the model's slot declarations. A slot may only stay `filled` with a value:
- * for a catalog-backed slot we take the value a tool actually persisted this turn (matched by the
- * slot's bare key, e.g. `household.grocery_stores` → `grocery_stores`); otherwise the model's own
+ * Enforces write-first on the model's task declarations. A task may only stay `filled` with a value:
+ * for a catalog-backed task we take the value a tool actually persisted this turn (matched by the
+ * task's bare fact key, e.g. `household.grocery_stores` → `grocery_stores`); otherwise the model's own
  * value. A `filled` claim with no value from either source is downgraded to `asked` — the model can't
- * claim progress the database doesn't hold. Slots are addressed by row id; `keyById` resolves the key.
+ * claim progress the database doesn't hold. Tasks are addressed by row id; `keyById` resolves the key.
  */
-function reconcileSlotUpdates(updates: ReasoningOutput['slotUpdates'], saved: SaveResult[], keyById: Map<string, string>): ReasoningOutput['slotUpdates'] {
+function reconcileTaskUpdates(updates: ReasoningOutput['taskUpdates'], saved: SaveResult[], keyById: Map<string, string>): ReasoningOutput['taskUpdates'] {
   const savedBySuffix = new Map<string, unknown>();
   for (const r of saved) for (const [k, v] of Object.entries(r.saved)) savedBySuffix.set(k, v);
   return updates.map((u) => {
@@ -132,5 +132,5 @@ function reconcileSlotUpdates(updates: ReasoningOutput['slotUpdates'], saved: Sa
  */
 export function selectReasoningAgent(): Reasoner {
   if (process.env.DEEPSEEK_API_KEY) return MastraReasoner.create(process.env.DEEPSEEK_API_KEY);
-  return new ScriptedReasoner({ replyPlan: { intents: [], must_say: [] }, slotUpdates: [] });
+  return new ScriptedReasoner({ replyPlan: { intents: [], must_say: [] }, taskUpdates: [] });
 }

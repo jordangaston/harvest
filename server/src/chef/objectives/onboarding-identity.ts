@@ -3,7 +3,7 @@ import { ThreadRepository } from '../../repositories/thread-repository.js';
 import { HouseholdRepository } from '../../repositories/household-repository.js';
 import { UserRepository } from '../../repositories/user-repository.js';
 import { ObjectiveRepository } from '../objective-repository.js';
-import { memberSlotSpecs } from './onboarding.js';
+import { memberTaskSpecs } from './onboarding.js';
 
 /** A drizzle transaction client — the type each write takes inside the identity transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -71,12 +71,12 @@ export class SameKitchenFlow {
       // Only identified members (name known) get a membership + slots — both bulk-inserted, no N+1.
       const identified = withIds.filter((p) => p.name);
       await this.households.addMembers(householdId, identified.map((p) => p.userId), tx);
-      await this.objectives.instantiateMemberSlots(input.objectiveId, identified.flatMap((p) => memberSlotSpecs(p.userId)), tx);
+      await this.objectives.instantiateMemberTasks(input.objectiveId, identified.flatMap((p) => memberTaskSpecs(p.userId)), tx);
 
-      await this.objectives.markSlotFilled(input.objectiveId, 'household.same_household', true, tx);
+      await this.objectives.markTaskFilled(input.objectiveId, 'household.same_household', tx);
       // household_size is the roster count — derivable here, so fill it deterministically rather
-      // than leaving the model to volunteer a slotUpdate for a slot no tool grounds.
-      await this.objectives.markSlotFilled(input.objectiveId, 'household.household_size', input.participants.length, tx);
+      // than leaving the model to volunteer a taskUpdate for a task no tool grounds.
+      await this.objectives.markTaskFilled(input.objectiveId, 'household.household_size', tx);
       return { householdId, memberUserIds: identified.map((p) => p.userId) };
     });
   }

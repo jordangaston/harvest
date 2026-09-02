@@ -1,5 +1,5 @@
 import type { Objective } from '../models/objective.js';
-import type { Slot } from '../models/slot.js';
+import type { Task } from '../models/task.js';
 import { objectiveDefinition, type ObjectiveDefinition } from './objectives/index.js';
 
 /** One turn's transcript entry (role + text), for tone and to avoid repetition. */
@@ -22,7 +22,7 @@ export interface BriefingMember {
  */
 export interface BriefingInput {
   objective: Objective;
-  slots: Slot[];
+  tasks: Task[];
   members: BriefingMember[];
   transcript: TranscriptLine[];
   trigger: string;
@@ -58,9 +58,9 @@ const CONDUCT_AND_SAFETY =
   '(with the value) or asked. ' +
   HARD_RULE;
 
-/** The fill guidance each slot declares, keyed by slot key (household keys are already prefixed). */
+/** The fill guidance each task declares, keyed by fact key (household keys are already prefixed). */
 function guidanceByKey(def: ObjectiveDefinition): Map<string, string> {
-  return new Map(def.slots.filter((s) => s.guidance).map((s) => [s.key, s.guidance!]));
+  return new Map(def.tasks.filter((t) => t.guidance).map((t) => [t.key, t.guidance!]));
 }
 
 /**
@@ -77,11 +77,12 @@ export function prepareBriefing(input: BriefingInput): string {
   // members' same-named slots (both `allergens`) stay distinct. Member slots name whose they are.
   const nameByUser = new Map(input.members.map((m) => [m.userId, m.name]));
   const guidance = guidanceByKey(def);
-  const unfilled = input.slots
-    .map((s) => {
-      const who = s.memberUserId ? ` for ${nameByUser.get(s.memberUserId) ?? 'member'}` : '';
-      const how = guidance.get(s.key);
-      return `- [${s.id}] ${s.key}${who} (${s.status})${how ? `\n    ↳ ${how}` : ''}`;
+  const unfilled = input.tasks
+    .map((t) => {
+      const who = t.memberUserId ? ` for ${nameByUser.get(t.memberUserId) ?? 'member'}` : '';
+      const label = t.fact ?? t.kind;
+      const how = t.fact ? guidance.get(t.fact) : undefined;
+      return `- [${t.id}] ${label}${who} (${t.status})${how ? `\n    ↳ ${how}` : ''}`;
     })
     .join('\n');
   const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');

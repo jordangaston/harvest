@@ -1,39 +1,50 @@
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { objectives, slots } from '../schema.js';
+import { objectives, tasks } from '../schema.js';
 import { ObjectiveSchema, type Objective } from '../models/objective.js';
-import { SlotSchema, type Slot } from '../models/slot.js';
+import { TaskSchema, type Task } from '../models/task.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-/** The definition's slot specs, inserted at status `unasked`. */
-export interface SlotSpec {
+/**
+ * A definition's task spec, inserted at status `unasked`. `key` is a definition-local handle
+ * used only to resolve `after` → the inserted rows' ids; it is not persisted. An `elicit` task
+ * names a `fact` (+ `factType`); an `emit` leaves them unset.
+ */
+export interface TaskSpec {
   key: string;
+  kind: 'elicit' | 'emit';
+  fact?: string;
+  factType?: string;
   scope: 'household' | 'member';
   memberUserId?: string;
   required: boolean;
+  solo?: boolean;
+  /** Sibling task keys this task is gated behind — eligible only once all are terminal. */
+  after?: string[];
 }
 
 export interface PushObjectiveInput {
   threadId: string;
   definition: string;
-  slots: SlotSpec[];
+  tasks: TaskSpec[];
   position: 'top' | 'bottom';
 }
 
-/** One declared slot status change from the reasoning component. */
-export interface SlotUpdate {
-  slotId: string;
-  status: Slot['status'];
-  value?: unknown;
+/** One declared task status change from the reasoning component. */
+export interface TaskUpdate {
+  taskId: string;
+  status: Task['status'];
 }
 
+const TERMINAL = ['filled', 'defaulted'] as const;
+const isTerminal = (status: Task['status']) => (TERMINAL as readonly string[]).includes(status);
+
 /**
- * Data access for the objective stack (`objectives`) and its slot scoreboard (`slots`).
- * The turn loads the active objective + its unfilled slots, applies the reasoning
- * component's slot updates under one invariant (`applySlotUpdates`), and on completion
- * pops the objective and activates the next.
+ * Data access for the objective stack (`objectives`) and its tasks (`tasks`). The turn loads the
+ * active objective + its eligible non-terminal tasks, applies the reasoning component's task-status
+ * updates (`applyTaskUpdates`), and on completion pops the objective and activates the next.
  */
 export class ObjectiveRepository {
   constructor(private readonly db: Database) {}
@@ -44,11 +55,13 @@ export class ObjectiveRepository {
   }
 
   /**
-   * Loads the thread's `active` objective and its **unfilled** slots (`status != 'filled'`),
-   * for tight turn context. Read-only.
-   * @returns The objective + its unfilled slots, or null when no objective is active.
+   * Loads the thread's `active` objective and its **eligible, non-terminal** tasks: terminal tasks
+   * (`filled`/`defaulted`) are excluded, then a task is kept only when every id in its `afterTaskIds`
+   * references a terminal task in the loaded full set — a dangling id fails closed (task stays gated).
+   * Read-only.
+   * @returns The objective + its eligible tasks, or null when no objective is active.
    */
-  async loadActive(threadId: string): Promise<{ objective: Objective; slots: Slot[] } | null> {
+  async loadActive(threadId: string): Promise<{ objective: Objective; tasks: Task[] } | null> {
     const [row] = await this.db
       .select()
       .from(objectives)
@@ -56,18 +69,17 @@ export class ObjectiveRepository {
     if (!row) return null;
     const objective = ObjectiveSchema.parse(row);
 
-    const slotRows = await this.db
-      .select()
-      .from(slots)
-      .where(and(eq(slots.objectiveId, objective.id), ne(slots.status, 'filled')));
-    return { objective, slots: slotRows.map((s) => SlotSchema.parse(s)) };
+    const all = (await this.db.select().from(tasks).where(eq(tasks.objectiveId, objective.id))).map((t) => TaskSchema.parse(t));
+    const terminalIds = new Set(all.filter((t) => isTerminal(t.status)).map((t) => t.id));
+    const eligible = all.filter((t) => !isTerminal(t.status) && t.afterTaskIds.every((id) => terminalIds.has(id)));
+    return { objective, tasks: eligible };
   }
 
   /**
-   * Inserts an objective plus its slot rows. A `top` push runs under the turn lock:
-   * it demotes the current active first, then inserts `active` at `MAX(stack_position)+1`.
-   * A `bottom` push is the lock-free background insert — `suspended` at `MIN-1`, no demotion.
-   * An empty stack always yields an `active` objective at position 0.
+   * Inserts an objective plus its task rows. A `top` push runs under the turn lock: it demotes the
+   * current active first, then inserts `active` at `MAX(stack_position)+1`. A `bottom` push is the
+   * lock-free background insert — `suspended` at `MIN-1`, no demotion. An empty stack always yields
+   * an `active` objective at position 0. Each spec's `after` keys resolve to the inserted rows' ids.
    * @returns The inserted objective, parsed.
    */
   async pushObjective(input: PushObjectiveInput, tx?: Tx): Promise<Objective> {
@@ -97,63 +109,68 @@ export class ObjectiveRepository {
       .returning();
     const objective = ObjectiveSchema.parse(row);
 
-    if (input.slots.length)
-      await tx.insert(slots).values(
-        input.slots.map((s) => ({
-          objectiveId: objective.id,
-          key: s.key,
-          scope: s.scope,
-          memberUserId: s.memberUserId ?? null,
-          required: s.required,
-          status: 'unasked' as const,
-        })),
-      );
+    if (input.tasks.length) await this.insertTasks(objective.id, input.tasks, tx);
     return objective;
   }
 
-  /**
-   * Applies the reasoning component's slot updates within the turn's transaction. The one
-   * enforced invariant: a slot may become `filled` only with a value present — either
-   * supplied in the update or already stored on the row. A value-less fill is rejected,
-   * because the model can't claim progress the database doesn't hold.
-   * @throws If an update sets `filled` with no effective value.
-   */
-  async applySlotUpdates(updates: SlotUpdate[], tx: Tx): Promise<void> {
-    for (const update of updates) {
-      if (update.status === 'filled' && !(await this.hasValue(update, tx)))
-        throw new Error(`Cannot mark slot ${update.slotId} filled without a value`);
-      const set = 'value' in update ? { status: update.status, value: update.value } : { status: update.status };
-      await tx.update(slots).set(set).where(eq(slots.id, update.slotId));
-    }
+  /** Inserts task rows, then rewrites each row's `after_task_ids` from sibling keys → inserted ids. */
+  private async insertTasks(objectiveId: string, specs: TaskSpec[], tx: Tx): Promise<void> {
+    const inserted = await tx
+      .insert(tasks)
+      .values(specs.map((s) => this.taskRow(objectiveId, s)))
+      .returning({ id: tasks.id });
+    const idByKey = new Map(specs.map((s, i) => [s.key, inserted[i]!.id]));
+    await Promise.all(
+      specs.map((s, i) =>
+        s.after?.length
+          ? tx.update(tasks).set({ afterTaskIds: s.after.map((k) => idByKey.get(k)).filter((id): id is string => !!id) }).where(eq(tasks.id, inserted[i]!.id))
+          : Promise.resolve(),
+      ),
+    );
   }
 
-  /** True when the update carries a non-null value, or the stored row already has one. */
-  private async hasValue(update: SlotUpdate, tx: Tx): Promise<boolean> {
-    if (update.value !== undefined && update.value !== null) return true;
-    if (update.value === null) return false;
-    const [row] = await tx.select({ value: slots.value }).from(slots).where(eq(slots.id, update.slotId));
-    return row?.value !== undefined && row?.value !== null;
+  /** One task insert row from a spec (before `after` resolution). */
+  private taskRow(objectiveId: string, s: TaskSpec) {
+    return {
+      objectiveId,
+      kind: s.kind,
+      fact: s.fact ?? null,
+      factType: s.factType ?? null,
+      scope: s.scope,
+      memberUserId: s.memberUserId ?? null,
+      required: s.required,
+      status: 'unasked' as const,
+      solo: s.solo ?? false,
+    };
   }
 
   /**
-   * Instantiates member-scoped slot rows for one identified member, idempotent on the unique
-   * `(objective_id, key, member_user_id)` index — re-identifying a member is a no-op. Called by
-   * the identity flow as each membership is created (AC-6), never as an atomic batch.
+   * Applies the reasoning component's task-status updates within the turn's transaction — status
+   * only. Value validation lives in `writeFact` (WI-2); this method just transitions status by id.
    */
-  async instantiateMemberSlots(objectiveId: string, specs: SlotSpec[], tx: Tx): Promise<void> {
+  async applyTaskUpdates(updates: TaskUpdate[], tx: Tx): Promise<void> {
+    for (const update of updates) await tx.update(tasks).set({ status: update.status }).where(eq(tasks.id, update.taskId));
+  }
+
+  /**
+   * Instantiates member-scoped task rows for one identified member, idempotent on the unique
+   * `(objective_id, fact, member_user_id)` index — re-identifying a member is a no-op. Called by
+   * the identity flow as each membership is created, never as an atomic batch.
+   */
+  async instantiateMemberTasks(objectiveId: string, specs: TaskSpec[], tx: Tx): Promise<void> {
     if (!specs.length) return;
     await tx
-      .insert(slots)
-      .values(specs.map((s) => ({ objectiveId, key: s.key, scope: s.scope, memberUserId: s.memberUserId ?? null, required: s.required, status: 'unasked' as const })))
-      .onConflictDoNothing({ target: [slots.objectiveId, slots.key, slots.memberUserId] });
+      .insert(tasks)
+      .values(specs.map((s) => this.taskRow(objectiveId, s)))
+      .onConflictDoNothing({ target: [tasks.objectiveId, tasks.fact, tasks.memberUserId] });
   }
 
   /**
-   * Marks one household-scoped slot `filled` with a value, resolving it by key on the objective.
-   * Used by the identity flow to fill `household.same_household` once the household exists.
+   * Marks one household-scoped task `filled`, resolving it by fact key on the objective. Used by the
+   * identity flow to fill `household.same_household` once the household exists.
    */
-  async markSlotFilled(objectiveId: string, key: string, value: unknown, tx: Tx): Promise<void> {
-    await tx.update(slots).set({ status: 'filled', value }).where(and(eq(slots.objectiveId, objectiveId), eq(slots.key, key)));
+  async markTaskFilled(objectiveId: string, fact: string, tx: Tx): Promise<void> {
+    await tx.update(tasks).set({ status: 'filled' }).where(and(eq(tasks.objectiveId, objectiveId), eq(tasks.fact, fact)));
   }
 
   /**
@@ -179,14 +196,14 @@ export class ObjectiveRepository {
   }
 
   /**
-   * True when the objective has zero required, non-terminal slots (`filled`/`defaulted` are
-   * terminal). Optional slots never block completion. Read-only.
+   * True when the objective has zero required, non-terminal tasks (`filled`/`defaulted` are
+   * terminal), counting both kinds. Optional tasks never block completion. Read-only.
    */
   async isComplete(objectiveId: string, tx?: Tx): Promise<boolean> {
     const [row] = await (tx ?? this.db)
       .select({ open: sql<number>`count(*)` })
-      .from(slots)
-      .where(and(eq(slots.objectiveId, objectiveId), eq(slots.required, true), sql`${slots.status} not in ('filled','defaulted')`));
+      .from(tasks)
+      .where(and(eq(tasks.objectiveId, objectiveId), eq(tasks.required, true), sql`${tasks.status} not in ('filled','defaulted')`));
     return (row?.open ?? 0) === 0;
   }
 }
