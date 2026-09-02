@@ -187,6 +187,14 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-fish', sentiment: 'like' }));
   });
 
+  it('a taste value that fails grounding rejects instructively instead of throwing (review #4)', async () => {
+    const { member, reg } = await seedHousehold();
+    // TasteType.persist throws on a grounding miss; writeFact must convert it to { ok: false }.
+    const res = await writeFact(type(reg, 'TASTE_LIKE'), member, { facet: 'ingredient', value: 'zzzznope' }, db);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toMatch(/no catalog match/i);
+  });
+
   it('household goals fan out onto every member\'s users.goals', async () => {
     const { household, memberId, reg } = await seedHousehold();
     await writeFact(type(reg, 'GOAL'), household, 'eat healthier', db);

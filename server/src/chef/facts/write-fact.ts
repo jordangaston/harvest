@@ -21,6 +21,13 @@ export async function writeFact(factType: FactType, subject: Subject, value: unk
   const verdict = factType.validate(value);
   if (!verdict.ok) return verdict;
   const normalized = factType.normalize(value);
-  await factType.persist(subject, value, tx);
+  // A persist can throw on a grounding miss (TasteType: "no catalog match") or a bad domain write.
+  // The chokepoint converts that into an instructive rejection so one bad value doesn't propagate
+  // through update_tasks into agent.generate and collapse the whole turn to an empty plan.
+  try {
+    await factType.persist(subject, value, tx);
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
   return { ok: true, value: normalized };
 }
