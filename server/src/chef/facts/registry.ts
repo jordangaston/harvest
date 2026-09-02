@@ -29,8 +29,7 @@ const DEFS: FactDef[] = [
   { key: 'name', description: "A member's display name", factType: 'NAME', scope: 'member', access: 'writable' },
   { key: 'allergens', description: "A member's allergens", factType: 'ALLERGEN', scope: 'member', access: 'writable' },
   { key: 'diets', description: "A member's diets", factType: 'DIET', scope: 'member', access: 'writable' },
-  { key: 'likes', description: 'Foods a member likes', factType: 'TASTE_LIKE', scope: 'member', access: 'writable' },
-  { key: 'dislikes', description: 'Foods a member dislikes', factType: 'TASTE_DISLIKE', scope: 'member', access: 'writable' },
+  { key: 'food_preferences', description: "A member's food preferences — likes/dislikes (sentiment) and foods to eat less/more of (target), per facet", factType: 'FOOD_PREFERENCE', scope: 'member', access: 'writable' },
   { key: 'skill_level', description: "A member's cooking skill", factType: 'SKILL_LEVEL', scope: 'member', access: 'writable' },
 ];
 

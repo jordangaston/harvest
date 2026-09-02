@@ -5,11 +5,11 @@ import type { FoodPrefUpdate, PreferencesUpdate, UserPreferences } from '../../m
  * Read-merge-FULL-upsert one member fact: reads the member's whole editable subset, applies a
  * single-fact mutation, then writes the FULL `PreferencesUpdate` back through `PreferenceRepository`
  * (which owns the transaction and the incidental gates — equipmentReviewed, leftovers meal-prep
- * seed). `savePreferences` full-replaces the caller-authored food-pref facets, so `base` must carry
- * the member's whole current `foodPrefs` array verbatim — every taste like/dislike AND every
- * food_category moderation, each with its `sentiment`/`target`/`reason` — or a single-fact write
- * would wipe the siblings it didn't touch. `mutate` is handed the current prefs and returns only the
- * slice it changes; everything else is carried over unchanged.
+ * seed). Food prefs are written targeted (via `upsertFoodPref`), NOT through here — but
+ * `savePreferences` full-replaces the caller-authored food-pref facets, so an allergen/diet write
+ * routed through this helper must still carry the member's whole current `foodPrefs` array verbatim
+ * (every axis: `sentiment`/`target`/`reason`) or it would wipe the upsert-written siblings. `mutate`
+ * is handed the current prefs and returns only the slice it changes; everything else carries over.
  */
 export async function mergeMemberFact(
   repo: PreferenceRepository,

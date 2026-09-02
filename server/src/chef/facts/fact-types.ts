@@ -10,7 +10,6 @@ import {
   GOALS,
   users,
   householdMembers,
-  type AffinityFacet,
 } from '../../schema.js';
 import { HouseholdPreferenceRepository } from '../../repositories/household-preference-repository.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
@@ -444,81 +443,86 @@ class DietType implements FactType {
   }
 }
 
-// ── member: taste likes/dislikes (catalog, DB-backed grounding) ───────────
+// ── member: food preferences (catalog, faceted, DB-backed grounding) ──────
 
-/** The raw taste value: an affinity facet and a value the tuned matcher grounds. */
-type TasteValue = { facet?: string; value?: string };
-/** A grounded taste selection: the resolved catalog id under its affinity facet. */
-type Selection = { facet: AffinityFacet; value: string };
-const FOOD_FACETS = ['cuisine', 'dish_type', 'ingredient'] as const;
+/** The raw food-pref value: a facet, a value the matcher grounds, and its two orthogonal axes. */
+type FoodPrefValue = { facet?: string; value?: string; sentiment?: string; target?: number; reason?: string };
+const FOOD_FACETS = ['cuisine', 'dish_type', 'ingredient', 'food_category'] as const;
 const isFoodFacet = (f: unknown): f is (typeof FOOD_FACETS)[number] => FOOD_FACETS.includes(f as never);
+const isSentiment = (s: unknown): s is 'like' | 'dislike' => s === 'like' || s === 'dislike';
 
 /**
- * A member taste like/dislike, grounded per facet: cuisine/dish_type coerce onto the code VOCAB;
- * an ingredient runs the tuned string→FDC→base-cluster matcher (so "salmon"→Fish). `sentiment`
- * decides whether it lands as a like or a dislike; both share this type.
+ * A member food preference over a `facet`, carrying two orthogonal axes: `sentiment` (taste:
+ * like/dislike) and `target` (intent: −1 eat-less … +1 eat-more), plus a `reason`. Taste facets
+ * (cuisine/dish_type/ingredient) require `sentiment`; `food_category` requires a `target` (moderation
+ * is a food_category row with a negative target). Grounded per facet: cuisine/dish_type coerce onto
+ * the code VOCAB, ingredient runs the tuned string→FDC→base-cluster matcher ("salmon"→Fish),
+ * food_category coerces against FOOD_CLASSES. Writes land through the targeted `upsertFoodPref`.
  */
-class TasteType implements FactType {
+class FoodPreferenceType implements FactType {
+  readonly name = 'FOOD_PREFERENCE';
   readonly flavor = 'catalog' as const;
+  private readonly foodCategories = codeCandidates('food_category');
   constructor(
-    readonly name: string,
-    private readonly sentiment: 'like' | 'dislike',
     private readonly prefs: PreferenceRepository,
     private readonly taste: TasteOptionsService,
     private readonly ingredients: BaseIngredientResolver,
   ) {}
 
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: `A food a member ${this.sentiment}s: { facet: cuisine|dish_type|ingredient, value }.` };
+    return {
+      name: this.name,
+      flavor: this.flavor,
+      description:
+        'A member food preference: { facet: cuisine|dish_type|ingredient|food_category, value, ' +
+        'sentiment?: like|dislike, target?: -1..1, reason? }. A taste facet needs sentiment; ' +
+        'food_category needs a target (negative = eat less).',
+    };
   }
   async search(query: string): Promise<ValuePage> {
     const opts = await this.taste.options();
     const q = query.toLowerCase();
-    const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients];
+    const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients, ...this.foodCategories];
     return { values: all.filter((c) => c.value.includes(q) || c.label.toLowerCase().includes(q)).map((c) => ({ value: c.value, label: c.label })) };
   }
   validate(value: unknown): ValidateResult {
-    const v = (value ?? {}) as TasteValue;
-    if (!isFoodFacet(v.facet)) return { ok: false, reason: `${this.name}: facet must be cuisine, dish_type, or ingredient` };
+    const v = (value ?? {}) as FoodPrefValue;
+    if (!isFoodFacet(v.facet)) return { ok: false, reason: `${this.name}: facet must be cuisine, dish_type, ingredient, or food_category` };
     if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
+    if (v.facet === 'food_category') {
+      if (typeof v.target !== 'number' || v.target < -1 || v.target > 1) return { ok: false, reason: 'food_category requires target (-1..1)' };
+      return { ok: true };
+    }
+    if (!isSentiment(v.sentiment)) return { ok: false, reason: `${v.facet} requires sentiment like|dislike` };
     return { ok: true };
   }
   /** Grounding hits the DB, so it lives in `persist`; `normalize` just shapes the input. */
   normalize(value: unknown): unknown {
-    const v = (value ?? {}) as TasteValue;
-    return { facet: v.facet, value: v.value };
+    const v = (value ?? {}) as FoodPrefValue;
+    return { facet: v.facet, value: v.value, sentiment: v.sentiment ?? null, target: v.target ?? null, reason: v.reason ?? null };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const sel = await this.ground(this.normalize(value) as { facet: (typeof FOOD_FACETS)[number]; value: string });
-    if (!sel) throw new Error(`${this.name}: no catalog match for "${(value as TasteValue).value}"`);
-    // Carry every existing foodPref through (savePreferences full-replaces the caller-authored
-    // facets), unioning the new taste selection in. De-dupe on (facet,value,sentiment) so a re-write
-    // is idempotent without touching a same-value row under another sentiment or a moderation target.
-    await mergeMemberFact(this.prefs, memberId(subject), (current) => {
-      const exists = current.foodPrefs.some((f) => f.facet === sel.facet && f.value === sel.value && f.sentiment === this.sentiment);
-      const foodPrefs = exists
-        ? current.foodPrefs
-        : [...current.foodPrefs, { facet: sel.facet, value: sel.value, sentiment: this.sentiment, target: null, reason: null }];
-      return { foodPrefs };
-    });
+    const v = this.normalize(value) as { facet: (typeof FOOD_FACETS)[number]; value: string; sentiment: 'like' | 'dislike' | null; target: number | null; reason: string | null };
+    const grounded = await this.ground(v.facet, v.value);
+    if (!grounded) throw new Error(`${this.name}: no catalog match for "${v.value}"`);
+    await this.prefs.upsertFoodPref(memberId(subject), { facet: v.facet, value: grounded, sentiment: v.sentiment, target: v.target, reason: v.reason });
   }
   async read(subject: Subject): Promise<unknown> {
-    const prefs = await this.prefs.getPreferences(memberId(subject));
-    return prefs.foodPrefs.filter((f) => f.sentiment === this.sentiment).map((f) => ({ facet: f.facet, value: f.value }));
+    return (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
   }
 
-  /** Grounds one {facet,value} to its catalog id, reusing the tool's tuned resolution path. */
-  private async ground(sel: { facet: (typeof FOOD_FACETS)[number]; value: string }): Promise<Selection | null> {
+  /** Grounds one value to its catalog id per facet, reusing each facet's tuned resolution path. */
+  private async ground(facet: (typeof FOOD_FACETS)[number], value: string): Promise<string | null> {
+    if (facet === 'food_category') return coerce(value, this.foodCategories).value ?? null;
     const opts = await this.taste.options();
-    if (sel.facet === 'ingredient') {
-      const known = opts.ingredients.find((i) => i.value === sel.value);
-      if (known) return { facet: 'ingredient', value: known.value };
-      const base = await this.ingredients.resolve(sel.value);
-      return base ? { facet: 'ingredient', value: base.id } : null;
+    if (facet === 'ingredient') {
+      const known = opts.ingredients.find((i) => i.value === value);
+      if (known) return known.value;
+      const base = await this.ingredients.resolve(value);
+      return base ? base.id : null;
     }
-    const cands = sel.facet === 'cuisine' ? opts.cuisines : opts.dish_types;
-    const { value } = coerce(sel.value, cands);
-    return value ? { facet: sel.facet as never, value } : null;
+    const cands = facet === 'cuisine' ? opts.cuisines : opts.dish_types;
+    return coerce(value, cands).value ?? null;
   }
 }
 
@@ -546,8 +550,7 @@ export class FactTypeRegistry {
       new NameType(userRepo),
       new AllergenType(member),
       new DietType(member),
-      new TasteType('TASTE_LIKE', 'like', member, taste, ingredients),
-      new TasteType('TASTE_DISLIKE', 'dislike', member, taste, ingredients),
+      new FoodPreferenceType(member, taste, ingredients),
       new SkillLevelType(member),
     ];
     return new FactTypeRegistry(new Map(types.map((t) => [t.name, t])));

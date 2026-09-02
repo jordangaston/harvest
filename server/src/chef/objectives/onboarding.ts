@@ -76,8 +76,14 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
         'fills this task. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
     ),
     member('diets', false, 'If strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
-    member('likes', false, 'If a like is broad ("anything with chicken"), drill down (fajitas / creamy pasta / stir-fry?) and ground each value with fact_types(TASTE_LIKE, "<phrase>") before writing.'),
-    member('dislikes'),
+    member(
+      'food_preferences',
+      false,
+      'Capture the member\'s likes, dislikes, and foods to eat less of. Ground each value with ' +
+        'fact_types(FOOD_PREFERENCE, "<phrase>"), then write it: set sentiment (like/dislike) for a taste, ' +
+        'or a negative target for a food_category they want less of. If a like is broad ("anything with ' +
+        'chicken"), drill down (fajitas / creamy pasta / stir-fry?) before writing.',
+    ),
     member('skill_level'),
   ].map((t) => ({ ...t, memberUserId }));
 }
