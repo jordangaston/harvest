@@ -5,7 +5,8 @@ import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { householdPreferences, userAllergens, threads, objectives as objectivesTable } from '../src/schema.js';
+import { householdPreferences, userAllergens, threads, objectives as objectivesTable, tasks as tasksRaw } from '../src/schema.js';
+import { TaskSchema } from '../src/models/task.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository, type TaskSpec } from '../src/chef/objective-repository.js';
 import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
@@ -108,13 +109,15 @@ describe('update_tasks solo-batch rejection', () => {
       { key: 'days', kind: 'elicit', fact: 'household.cook_days_count', factType: 'COOK_DAYS_COUNT', scope: 'household', required: true },
     ];
     const objective = await objectives.pushObjective({ threadId, definition: 'onboarding', tasks: specs, position: 'top' });
-    const loaded = (await objectives.loadActive(threadId))!;
+    // loadActive now hides non-solo tasks while a solo is pending (solo-exclusive rule), so build the
+    // turn's task set from ALL rows to exercise the update_tasks solo-batch guard directly.
+    const allTasks = (await db.select().from(tasksRaw).where(eq(tasksRaw.objectiveId, objective.id))).map((r) => TaskSchema.parse(r));
     const ctx: TurnContext = {
       db, threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
-      triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: loaded.tasks, factTypes: FactTypeRegistry.create(db),
+      triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: allTasks, factTypes: FactTypeRegistry.create(db),
     };
-    const solo = loaded.tasks.find((t) => t.solo)!;
-    const other = loaded.tasks.find((t) => !t.solo)!;
+    const solo = allTasks.find((t) => t.solo)!;
+    const other = allTasks.find((t) => !t.solo)!;
 
     const res = await UpdateTasksTool.create(ctx).run([{ task_id: solo.id, value: 'trader joes' }, { task_id: other.id, value: 3 }]);
     expect(res.results.every((r) => r.status === 'rejected')).toBe(true);

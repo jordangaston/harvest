@@ -65,12 +65,17 @@ describe('onboarding definition', () => {
     expect(ack.fact).toBeNull(); // no domain fact — confirmed by the next inbound, not a tool
     expect(ack.afterTaskIds).toEqual([]); // nothing gates the ack — it runs first
 
-    // Every other elicit is gated directly after the ack; the close emit is gated after the required
-    // elicits (transitively after the ack). So no task besides the ack is eligible up front.
-    const elicits = rows.filter((r) => r.id !== ack.id && r.kind === 'elicit');
-    expect(elicits.every((r) => r.afterTaskIds.includes(ack.id))).toBe(true);
-    const emit = rows.find((r) => r.kind === 'emit')!;
-    expect(emit.afterTaskIds.length).toBeGreaterThan(0);
+    // Gating is enforced by the solo-exclusive eligibility rule, not per-task `after` edges: while the
+    // required solo ack is non-terminal, loadActive offers ONLY solo tasks, so nothing else is asked first.
+    const store = ObjectiveRepository.create(db);
+    const upFront = (await store.loadActive(threadId))!.tasks;
+    expect(upFront.some((t) => t.id === ack.id)).toBe(true);
+    expect(upFront.every((t) => t.solo)).toBe(true);
+    // Once the ack is acknowledged (terminal), the rest of the elicits open up.
+    await db.update(tasksTable).set({ status: 'filled' }).where(eq(tasksTable.id, ack.id));
+    const afterAck = (await store.loadActive(threadId))!.tasks;
+    expect(afterAck.length).toBeGreaterThan(1);
+    expect(afterAck.some((t) => t.id === ack.id)).toBe(false);
   });
 
   it('the close is a required, fact-less emit gated after every required elicit (AC-5)', async () => {
