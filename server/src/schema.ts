@@ -52,8 +52,9 @@ const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'
 export const GROCERY_SHOPPING_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 // iMessage increment-2 objective stack + slot scoreboard (D2-6).
 export const OBJECTIVE_STATUSES = ['active', 'suspended', 'complete'] as const;
-export const SLOT_SCOPES = ['household', 'member'] as const;
-export const SLOT_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
+export const TASK_KINDS = ['elicit', 'emit'] as const;
+export const TASK_SCOPES = ['household', 'member'] as const;
+export const TASK_STATUSES = ['unasked', 'asked', 'filled', 'defaulted'] as const;
 export const DIFFICULTY_BANDS = ['beginner', 'intermediate', 'advanced'] as const;
 // Meal-prep suitability band (signal #10): the ordinal fit persisted on a recipe, null
 // until scored at import. A schema tuple like DIFFICULTY_BANDS.
@@ -812,29 +813,33 @@ export const objectives = sqliteTable(
   (t) => [index('objectives_thread_idx').on(t.threadId)],
 );
 
-// The slot scoreboard — one row per slot of an objective instance. A household-scoped
-// slot has member_user_id NULL; a member-scoped one names the member. SQLite treats
-// NULL as distinct in the unique index, so household + member slots share a key across
-// scopes without colliding.
-export const slots = sqliteTable(
-  'slots',
+// An objective's tasks — one row per pursuit. An `elicit` task points at a fact (key +
+// type) and carries no value (the value lives in the fact's domain table). An `emit` task
+// delivers information (null fact/fact_type). A household-scoped task has member_user_id
+// NULL; a member-scoped one names the member. SQLite treats NULL as distinct in the unique
+// index, so household + member tasks share a fact across scopes without colliding. `after_task_ids`
+// is an ordering gate — the task is eligible only when every listed task is terminal (computed in code).
+export const tasks = sqliteTable(
+  'tasks',
   {
     id: uuidPk(),
     objectiveId: text('objective_id')
       .notNull()
       .references(() => objectives.id, { onDelete: 'cascade' }),
-    key: text('key').notNull(),
-    scope: text('scope', { enum: SLOT_SCOPES }).notNull(),
+    kind: text('kind', { enum: TASK_KINDS }).notNull(),
+    fact: text('fact'),
+    factType: text('fact_type'),
+    scope: text('scope', { enum: TASK_SCOPES }).notNull(),
     memberUserId: text('member_user_id').references(() => users.id),
     required: integer('required', { mode: 'boolean' }).notNull(),
-    status: text('status', { enum: SLOT_STATUSES }).notNull().default('unasked'),
-    value: text('value', { mode: 'json' }).$type<unknown>(),
+    status: text('status', { enum: TASK_STATUSES }).notNull().default('unasked'),
+    solo: integer('solo', { mode: 'boolean' }).notNull().default(false),
+    afterTaskIds: text('after_task_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
     followUpsSent: integer('follow_ups_sent').notNull().default(0),
-    followUpTimerId: text('follow_up_timer_id'),
   },
   (t) => [
-    uniqueIndex('slots_objective_key_member_uidx').on(t.objectiveId, t.key, t.memberUserId),
-    index('slots_objective_status_idx').on(t.objectiveId, t.status),
+    uniqueIndex('tasks_objective_fact_member_uidx').on(t.objectiveId, t.fact, t.memberUserId),
+    index('tasks_objective_status_idx').on(t.objectiveId, t.status),
   ],
 );
 
@@ -870,7 +875,7 @@ export const schema = {
   householdMembers,
   householdPreferences,
   objectives,
-  slots,
+  tasks,
 };
 export type Schema = typeof schema;
 
@@ -883,7 +888,7 @@ export type NewHousehold = typeof households.$inferInsert;
 export type NewHouseholdMember = typeof householdMembers.$inferInsert;
 export type NewHouseholdPreferences = typeof householdPreferences.$inferInsert;
 export type NewObjective = typeof objectives.$inferInsert;
-export type NewSlot = typeof slots.$inferInsert;
+export type NewTask = typeof tasks.$inferInsert;
 
 /** Source-type union, shared with the domain models. */
 export type SourceType = (typeof SOURCE_TYPES)[number];
