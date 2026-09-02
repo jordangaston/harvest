@@ -74,7 +74,8 @@ export class DietClassifier {
         fit[rule.id] = coverageComplete ? 'compatible' : 'unknown';
       }
     }
-    return { fit, blockers, coverageComplete };
+    const foodClasses = [...new Set(classified.map((c) => c.cls).filter((c): c is FoodClass => c !== null))];
+    return { fit, blockers, coverageComplete, foodClasses };
   }
 
   /** Its own match pass: name-first food-class, category fallback, recognition tier. */

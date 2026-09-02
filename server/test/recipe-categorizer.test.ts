@@ -99,7 +99,7 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
       [],
     );
     expect(categories).toEqual({
-      cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"],
+      cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [],
     });
   });
 
@@ -139,7 +139,7 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
   it("returns all-empty and never throws when nothing matches (no network via stub)", async () => {
     const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubRecipeAnalyzer());
     const { categories } = await cat.analyze("Mystery", [{ name: "water" }], []);
-    expect(categories).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [] });
+    expect(categories).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] });
   });
 
   it("degrades to empty taste facets if the classifier throws (primary survives)", async () => {

@@ -1,4 +1,5 @@
 import { DIET_VERDICTS } from '../schema.js';
+import type { FoodClass } from './food-class-map.js';
 
 /** A per-diet compatibility verdict (WI-DS-1). `unknown` is a distinct state from
  * `incompatible`: it means we could not see enough to decide, never "fits everything". */
@@ -21,4 +22,7 @@ export interface DietCompat {
   fit: Record<string, Verdict>;
   blockers: Record<string, Blocker>;
   coverageComplete: boolean;
+  /** The recipe's deduped, non-null ingredient food classes — the same name-first classification
+   *  the diet rules read, surfaced so ingest can persist them as `food_category` recipe facets. */
+  foodClasses: FoodClass[];
 }

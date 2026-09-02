@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
@@ -146,6 +146,29 @@ describe('save_member_profile.run', () => {
     expect(second.saved).toEqual(first.saved);
     expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
   });
+
+  it('food-moderation Test Case 7: writes a food_category moderation from NL — like + target<0 + reason, never a dislike (AC 8)', async () => {
+    const { memberId, ctx } = await seedHousehold();
+    // "I love a good steak but I'm cutting back on red meat for my heart" → a taste like + a
+    // negative intent (map "cutting back"≈-0.5) + a heart/health reason, grounded to red_meat.
+    const res = await SaveMemberProfileTool.create(ctx).run({
+      member_user_id: memberId,
+      patch: { moderation: [{ value: 'red meat', target: -0.5, sentiment: 'like', reason: 'for my heart' }] },
+    });
+    expect(res.saved.moderation).toContain('red_meat');
+
+    const [row] = await db.select().from(userFoodPrefs).where(and(eq(userFoodPrefs.userId, memberId), eq(userFoodPrefs.facet, 'food_category')));
+    expect(row).toMatchObject({ facet: 'food_category', value: 'red_meat', sentiment: 'like' });
+    expect(row.target).toBeLessThan(0);
+    expect(row.reason).toMatch(/heart|health/i);
+
+    // An unmatched food class is rejected with nearest matches, like every other catalog write.
+    const bad = await SaveMemberProfileTool.create(ctx).run({
+      member_user_id: memberId,
+      patch: { moderation: [{ value: 'unobtainium', target: -0.5 }] },
+    });
+    expect(bad.rejected.some((r) => r.input === 'unobtainium' && r.reason === 'no catalog match')).toBe(true);
+  });
 });
 
 describe('search_catalog.run (grounds, writes nothing)', () => {
@@ -163,6 +186,12 @@ describe('search_catalog.run (grounds, writes nothing)', () => {
 
     const taste = await tool.run({ kind: 'taste', query: '' });
     expect(taste.candidates.some((c) => c.value === 'ti-okra')).toBe(true);
+
+    // food-moderation AC 9: "red meat" grounds to red_meat top; empty query returns all 12 classes.
+    const redMeat = await tool.run({ kind: 'food_category', query: 'red meat' });
+    expect(redMeat.candidates[0].value).toBe('red_meat');
+    const allClasses = await tool.run({ kind: 'food_category', query: '' });
+    expect(allClasses.candidates).toHaveLength(12);
 
     const after = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, householdId));
     expect(after).toEqual(before);

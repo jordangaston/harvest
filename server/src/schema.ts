@@ -20,7 +20,7 @@ export const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', '
 export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
 // TS-signal: the categorization facets. `value` is a controlled-vocabulary string
 // validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
-const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient'] as const;
+const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient', 'food_category'] as const;
 // Diet-signal (WI-DS-1): the per-diet verdict. `diet_id` is a DietRule id (app-side
 // config, not a DB enum) so a new diet needs no migration — like `recipe_categories.value`.
 export const DIET_VERDICTS = ['compatible', 'incompatible', 'unknown'] as const;
@@ -65,7 +65,7 @@ export const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 // `ingredient` (added for the taste overhaul) is a base-ingredient food pref whose
 // value is a `taste_ingredients.id` (uuid) — finer than `primary_ingredient`.
-export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient'] as const;
+export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient', 'food_category'] as const;
 export const SENTIMENTS = ['like', 'dislike'] as const;
 // The FoodMatch confidence tier persisted on a matched ingredient (`FoodMatch.quality`).
 export const MATCH_QUALITIES = ['high', 'medium', 'low'] as const;
@@ -682,7 +682,11 @@ export const userFoodPrefs = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     facet: text('facet', { enum: AFFINITY_FACETS }).notNull(),
     value: text('value').notNull(),
-    sentiment: text('sentiment', { enum: SENTIMENTS }).notNull(),
+    // Two orthogonal axes on one row: sentiment = taste (nullable now — a pure "eat less"
+    // intent carries no taste), target = intent (−1 less … +1 more), reason = the "why" blurb.
+    sentiment: text('sentiment', { enum: SENTIMENTS }),
+    target: real('target'),
+    reason: text('reason'),
   },
   (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
 );

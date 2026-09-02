@@ -70,11 +70,13 @@ export interface RecipeCategories {
   mealType: string[];
   dishType: string[];
   primaryIngredient: string[];
+  /** The recipe's food classes (`red_meat`, `seafood`, …), from the DietClassifier at ingest. */
+  foodCategory: string[];
 }
 
 /** An empty facet set — the default when a recipe has no categories. */
 export function emptyCategories(): RecipeCategories {
-  return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [] };
+  return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] };
 }
 
 /** One diet's stored compatibility verdict + optional blocker (WI-DS-1). */

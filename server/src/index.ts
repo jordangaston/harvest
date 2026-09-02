@@ -226,7 +226,7 @@ app.get("/v1/taste-options", guard, async (c) => {
  * pref's value is not a known base_ingredient_id (a trust-boundary check — the value indexes ranking). */
 app.put("/v1/preferences", guard, async (c) => {
   const body = preferencesBodySchema.parse(await c.req.json());
-  await assertKnownIngredients(tasteIngredients, [...body.likes, ...body.dislikes]);
+  await assertKnownIngredients(tasteIngredients, body.food_prefs);
   const saved = await preferences.savePreferences(c.get("authUserId")!, fromPreferencesDTO(body));
   return c.json({ preferences: toPreferencesDTO(saved) });
 });

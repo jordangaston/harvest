@@ -7,7 +7,7 @@ import { resolveEquipment } from './equipment-grounding.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
 const inputSchema = z.object({
-  kind: z.enum(['taste', 'store', 'equipment', 'diet', 'allergen']),
+  kind: z.enum(['taste', 'store', 'equipment', 'diet', 'allergen', 'food_category']),
   query: z.string().default(''),
 });
 
@@ -40,7 +40,7 @@ export class SearchCatalogTool implements ChefTool {
       id: this.id,
       description:
         'Ground a value against the catalog before saving it. Returns candidate {value,label} entries ' +
-        'for the kind (taste|store|equipment|diet|allergen) ranked by match to the query; empty query ' +
+        'for the kind (taste|store|equipment|diet|allergen|food_category) ranked by match to the query; empty query ' +
         'returns the full catalog. Writes nothing.',
       inputSchema,
       execute: async (input) => this.run(input),

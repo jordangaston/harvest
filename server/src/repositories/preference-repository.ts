@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
@@ -64,7 +64,7 @@ export class PreferenceRepository {
       },
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
-      foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment })),
+      foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment, target: f.target, reason: f.reason })),
       ownedEquipment: equipment.map((e) => e.equipment),
       equipmentReviewed: prefs.equipmentReviewed,
       groceryStores: prefs.groceryStores ?? [],
@@ -161,10 +161,10 @@ export class PreferenceRepository {
   }
 
   /**
-   * Persists the user-editable preferences from the settings surface (a full upsert of the
-   * editable subset). Weights are left untouched — they're server-owned (dislike-tuned). Liked
-   * cuisines / disliked ingredients replace only the `cuisine`/`like` and `primary_ingredient`/
-   * `dislike` food-pref slices; other facets survive. Reviewing preferences sets the equipment gate.
+   * Persists the user-editable preferences from the settings surface (a full replace of the
+   * editable subset). Weights are left untouched — they're server-owned (dislike-tuned). The food-pref
+   * write replaces every caller-authored facet (taste like/dislike + food_category moderation),
+   * leaving the dislike loop's `primary_ingredient` rows intact. Reviewing preferences sets the equipment gate.
    * @returns The re-resolved preferences after the write.
    */
   async savePreferences(userId: string, input: PreferencesUpdate): Promise<UserPreferences> {
@@ -217,22 +217,19 @@ export class PreferenceRepository {
       if (input.ownedEquipment.length)
         await tx.insert(userEquipment).values(input.ownedEquipment.map((equipment) => ({ userId, equipment })));
 
-      // The picker fully owns the like set (rebuild it); for dislikes, replace only the values
-      // it re-supplies so a dislike-loop dislike on an untouched value survives (Test Case 2).
-      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'like')));
-      const dislikeValues = input.dislikes.map((d) => d.value);
-      if (dislikeValues.length)
-        await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.sentiment, 'dislike'), inArray(userFoodPrefs.value, dislikeValues)));
-
-      const foodRows = [
-        ...input.likes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'like' as const })),
-        ...input.dislikes.map((s) => ({ userId, facet: s.facet, value: s.value, sentiment: 'dislike' as const })),
-      ];
-      if (foodRows.length)
-        await tx
-          .insert(userFoodPrefs)
-          .values(foodRows)
-          .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: sql`excluded.sentiment` } });
+      // The caller owns every food-pref facet it can author — the taste facets (cuisine, dish_type,
+      // ingredient) and food_category moderation — so this is a full replace of that slice: delete the
+      // owned facets, then insert what came in. `primary_ingredient` is the dislike loop's facet, which
+      // the picker never authors, so those rows survive untouched. The chef read-merge-writes the full
+      // set it read, so its rows come back in `input` and re-land. The Zod model already rejects a
+      // neither-axis element; guard here too since the repo is a public boundary.
+      const foodRows = input.foodPrefs.map((p) => {
+        if (p.sentiment == null && p.target == null)
+          throw new Error(`food pref (${p.facet}, ${p.value}) has neither sentiment nor target`);
+        return { userId, facet: p.facet, value: p.value, sentiment: p.sentiment ?? null, target: p.target ?? null, reason: p.reason ?? null };
+      });
+      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), ne(userFoodPrefs.facet, 'primary_ingredient')));
+      if (foodRows.length) await tx.insert(userFoodPrefs).values(foodRows);
     });
     return this.getPreferences(userId);
   }
