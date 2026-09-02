@@ -58,7 +58,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: cursor,
         objectiveId: '',
       }),
@@ -83,7 +83,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: inboundId,
         objectiveId: '',
       }),
@@ -111,12 +111,12 @@ describe('contact card on onboarding-complete (WI-4C AC3)', () => {
     const objectiveId = randomUUID();
     await db.insert(objectives).values({ id: objectiveId, threadId, definition: 'onboarding', status: 'active', stackPosition: 0 });
     const taskId = randomUUID();
-    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'elicit', fact: 'k', scope: 'household', required: true, status: 'unasked' });
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' });
 
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        taskUpdates: [{ taskId, status: 'filled' }],
+        confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }],
         cursorTo: inboundId,
         objectiveId,
       }),

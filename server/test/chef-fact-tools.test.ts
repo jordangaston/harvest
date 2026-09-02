@@ -5,7 +5,7 @@ import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { householdPreferences, userAllergens, threads } from '../src/schema.js';
+import { householdPreferences, userAllergens, threads, objectives as objectivesTable } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository, type TaskSpec } from '../src/chef/objective-repository.js';
 import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
@@ -13,6 +13,7 @@ import { ReadFactsTool } from '../src/chef/tools/read-facts.js';
 import { FactTypesTool } from '../src/chef/tools/fact-types.js';
 import { UpdateFactsTool } from '../src/chef/tools/update-facts.js';
 import { UpdateTasksTool } from '../src/chef/tools/update-tasks.js';
+import { householdTaskSpecs, memberTaskSpecs } from '../src/chef/objectives/onboarding.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import type { Task } from '../src/models/task.js';
 
@@ -192,6 +193,88 @@ describe('read_facts', () => {
     expect(stores.known).toBe(true);
     expect(stores.value).toEqual(['kroger']);
     expect(budget.known).toBe(false);
+  });
+});
+
+/** Rebuilds a TurnContext against the objective's currently-eligible tasks (what a fresh turn loads). */
+async function reloadCtx(base: TurnContext): Promise<{ ctx: TurnContext; tasks: Task[] }> {
+  const loaded = (await ObjectiveRepository.create(db).loadActive(base.threadId))!;
+  return { ctx: { ...base, tasks: loaded.tasks }, tasks: loaded.tasks };
+}
+
+describe('full scripted onboarding (TC-6)', () => {
+  it('ack asked first+alone → typed elicits filled via update_tasks → close emit → objective pops', async () => {
+    const ownerId = await makeUser();
+    const repo = HouseholdRepository.create(db);
+    const hh = await repo.createHousehold({ ownerUserId: ownerId });
+    await repo.addMember({ householdId: hh.id, userId: ownerId });
+    const objectives = ObjectiveRepository.create(db);
+    const threadId = randomUUID();
+    await db.insert(threads).values({ id: threadId, chatGuid: `g-${threadId}`, ownerUserId: ownerId, householdId: hh.id });
+    const objective = await objectives.pushObjective({
+      threadId,
+      definition: 'onboarding',
+      tasks: [...householdTaskSpecs(), ...memberTaskSpecs(ownerId)],
+      position: 'top',
+    });
+    const objectiveId = objective.id;
+    const base: TurnContext = {
+      db, threadId, objectiveId, initiatorHandle: '', initiatorUserId: ownerId,
+      triggerExternalId: null, householdId: hh.id, members: [{ userId: ownerId }], tasks: [], factTypes: FactTypeRegistry.create(db),
+    };
+
+    // Turn 1: only the solo explainer-ack is eligible (everything else is gated after it).
+    let loaded = (await objectives.loadActive(threadId))!;
+    expect(loaded.tasks).toHaveLength(1);
+    expect(loaded.tasks[0]!.solo).toBe(true);
+    expect(loaded.tasks[0]!.fact).toBeNull();
+    const ackId = loaded.tasks[0]!.id;
+
+    // Consumer confirms the ack: asked on delivery, filled on the next inbound.
+    await db.transaction((tx) => objectives.applyTaskUpdates([{ taskId: ackId, status: 'asked' }], tx));
+    await db.transaction((tx) => objectives.applyTaskUpdates([{ taskId: ackId, status: 'filled' }], tx));
+
+    // Turn 2: the ack unblocks the profile elicits (+ code-filled identity tasks); the emit stays gated.
+    loaded = (await objectives.loadActive(threadId))!;
+    expect(loaded.tasks.some((t) => t.kind === 'emit')).toBe(false);
+    const byFact = new Map(loaded.tasks.map((t) => [t.fact, t]));
+
+    // Code-filled identity tasks (the SameKitchenFlow's job in production).
+    await db.transaction(async (tx) => {
+      await objectives.markTaskFilled(objectiveId, 'household.same_household', tx);
+      await objectives.markTaskFilled(objectiveId, 'household.household_size', tx);
+    });
+
+    // Fill the required typed elicits through update_tasks (grounded values).
+    const { ctx } = await reloadCtx(base);
+    const fills = [
+      { fact: 'household.grocery_stores', value: 'trader joes' },
+      { fact: 'household.weekly_meals', value: { dinner: 5 } },
+      { fact: 'household.cook_days_count', value: 5 },
+      { fact: 'name', value: 'Sam' },
+      { fact: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true } },
+    ];
+    const updateTasks = UpdateTasksTool.create(ctx);
+    for (const f of fills) {
+      const task = byFact.get(f.fact)!;
+      const res = await updateTasks.run([{ task_id: task.id, value: f.value }]);
+      expect(res.results[0]!.status).toBe('filled');
+    }
+
+    // Turn 3: every required elicit terminal → the close emit is now eligible.
+    loaded = (await objectives.loadActive(threadId))!;
+    const emit = loaded.tasks.find((t) => t.kind === 'emit')!;
+    expect(emit).toBeTruthy();
+
+    // Consumer confirms the emit at send-time, then completes + pops.
+    await db.transaction(async (tx) => {
+      await objectives.applyTaskUpdates([{ taskId: emit.id, status: 'filled' }], tx);
+      expect(await objectives.isComplete(objectiveId, tx)).toBe(true);
+      await objectives.completeAndPop(objectiveId, tx);
+    });
+
+    const [row] = await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId));
+    expect(row!.status).toBe('complete');
   });
 });
 

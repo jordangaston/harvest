@@ -59,7 +59,7 @@ describe('confetti greeting (WI-4B AC1, AC2)', () => {
           { kind: 'text', text: 'Hey there! 👋' },
           { kind: 'text', text: "I'm Chef." },
         ],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: inboundId,
         objectiveId: '',
       }),
@@ -84,7 +84,7 @@ describe('confetti greeting (WI-4B AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: cursor,
         objectiveId: '',
       }),
@@ -109,16 +109,17 @@ describe('fireworks on onboarding-complete (WI-4B AC3)', () => {
     // Mark greeted so the confetti path is out of the way — we're testing fireworks in isolation.
     await ThreadRepository.create(db).markGreeted(threadId, new Date());
 
-    // An onboarding objective with one required, unfilled task; the turn fills it → complete.
+    // An onboarding objective with one required, unfilled emit (the close); delivering it this turn
+    // confirms it at send-time → complete.
     const objectiveId = randomUUID();
     await db.insert(objectives).values({ id: objectiveId, threadId, definition: 'onboarding', status: 'active', stackPosition: 0 });
     const taskId = randomUUID();
-    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'elicit', fact: 'k', scope: 'household', required: true, status: 'unasked' });
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' });
 
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        taskUpdates: [{ taskId, status: 'filled' }],
+        confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }],
         cursorTo: inboundId,
         objectiveId,
       }),

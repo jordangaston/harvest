@@ -66,7 +66,7 @@ describe('consumer dispatches a richlink event (AC1)', () => {
           { kind: 'text', text: 'Here you go:' },
           { kind: 'richlink', url },
         ],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: inboundId,
         objectiveId: '', // no objective this turn — the consumer's pop is a no-op on a blank id
       }),
@@ -95,7 +95,7 @@ describe('consumer dispatches a tapback event (WI-4A AC1)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'tapback', target: inboundGuid, emoji: 'love' }],
-        taskUpdates: [],
+        confirmTasks: [],
         cursorTo: inboundId,
         objectiveId: '',
       }),

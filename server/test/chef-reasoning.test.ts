@@ -10,7 +10,7 @@ import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
 import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
-import { ReplyPlanSchema, TaskUpdateSchema, type ReasoningOutput } from '../src/chef/types.js';
+import { ReplyPlanSchema, type ReasoningOutput } from '../src/chef/types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import { randomUUID } from 'node:crypto';
 
@@ -113,16 +113,16 @@ describe('buildTools (per-turn legality gate)', () => {
 });
 
 describe('ScriptedReasoner (pure plan replay, no network)', () => {
-  it('returns a plan that parses; no prose field', async () => {
+  it('returns a plan that parses; no prose or taskUpdates field', async () => {
     const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
     const plan: ReasoningOutput = {
       replyPlan: { intents: [{ kind: 'confirm', fact: '5 cook days' }], must_say: [] },
-      taskUpdates: [{ id: 'slot-abc', status: 'filled', value: '5' }],
     };
     const out = await new ScriptedReasoner(plan).run(input, {} as TurnContext);
     expect(() => ReplyPlanSchema.parse(out.replyPlan)).not.toThrow();
-    expect(() => TaskUpdateSchema.array().parse(out.taskUpdates)).not.toThrow();
     expect(out).not.toHaveProperty('prose');
+    // Task fills now happen through in-loop tools; the plan no longer carries taskUpdates.
+    expect(out).not.toHaveProperty('taskUpdates');
   });
 });
 

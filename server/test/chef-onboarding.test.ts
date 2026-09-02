@@ -40,29 +40,66 @@ async function seedOnboarding(threadId: string): Promise<string> {
 }
 
 describe('onboarding definition', () => {
-  it('seeding creates one household slot row per household-scoped slot (AC-1)', async () => {
+  it('seeding creates one household task row per household-scoped spec (AC-1)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
 
     const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
-    // Every seeded slot is household-scoped, unasked, member_user_id null.
+    // Every seeded task is household-scoped, unasked, member_user_id null.
     expect(rows.every((r) => r.scope === 'household' && r.status === 'unasked' && r.memberUserId === null)).toBe(true);
-    expect(rows.map((r) => r.fact).sort()).toEqual(householdTaskSpecs().map((s) => s.key).sort());
+    // fact is null for the explainer-ack + close emit; the rest carry their fact key.
+    expect(rows.map((r) => r.fact ?? null).filter((f): f is string => !!f).sort()).toEqual(
+      householdTaskSpecs().map((s) => s.fact).filter((f): f is string => !!f).sort(),
+    );
     // No member-scoped rows until a member exists.
     expect(rows.some((r) => r.scope === 'member')).toBe(false);
   });
 
+  it('the explainer-ack is a solo, fact-less elicit asked first, gating every other task (AC-4)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedOnboarding(threadId);
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
+
+    const ack = rows.find((r) => r.solo)!;
+    expect(ack.kind).toBe('elicit');
+    expect(ack.fact).toBeNull(); // no domain fact — confirmed by the next inbound, not a tool
+    expect(ack.afterTaskIds).toEqual([]); // nothing gates the ack — it runs first
+
+    // Every other elicit is gated directly after the ack; the close emit is gated after the required
+    // elicits (transitively after the ack). So no task besides the ack is eligible up front.
+    const elicits = rows.filter((r) => r.id !== ack.id && r.kind === 'elicit');
+    expect(elicits.every((r) => r.afterTaskIds.includes(ack.id))).toBe(true);
+    const emit = rows.find((r) => r.kind === 'emit')!;
+    expect(emit.afterTaskIds.length).toBeGreaterThan(0);
+  });
+
+  it('the close is a required, fact-less emit gated after every required elicit (AC-5)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedOnboarding(threadId);
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
+
+    const emit = rows.find((r) => r.kind === 'emit')!;
+    expect(emit.fact).toBeNull();
+    expect(emit.required).toBe(true);
+    // Gated after the required household elicits (same_household, household_size, grocery_stores,
+    // weekly_meals, cook_days_count) — their row ids populate the emit's after_task_ids.
+    const requiredElicitIds = rows
+      .filter((r) => r.kind === 'elicit' && r.required && r.fact)
+      .map((r) => r.id);
+    expect(requiredElicitIds.every((id) => emit.afterTaskIds.includes(id))).toBe(true);
+  });
+
   it('the required household set is exactly the design contract (AC-2)', () => {
-    const required = onboardingObjective.tasks.filter((s) => s.scope === 'household' && s.required).map((s) => s.key).sort();
+    const required = householdTaskSpecs().filter((s) => s.scope === 'household' && s.required && s.fact).map((s) => s.fact).sort();
     expect(required).toEqual(
       ['household.same_household', 'household.grocery_stores', 'household.household_size', 'household.weekly_meals', 'household.cook_days_count'].sort(),
     );
-    const requiredMember = onboardingObjective.tasks.filter((s) => s.scope === 'member' && s.required).map((s) => s.key).sort();
+    const requiredMember = memberTaskSpecs('m').filter((s) => s.scope === 'member' && s.required).map((s) => s.key).sort();
     expect(requiredMember).toEqual(['allergens', 'name']);
   });
 
-  it('the tool set is exactly the onboarding command tools and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog', 'import_recipe']);
+  it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
+    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();
@@ -70,12 +107,19 @@ describe('onboarding definition', () => {
     expect(def.cursor).toBeUndefined();
   });
 
-  it('fill guidance is attached to the slots it governs, not a separate list', () => {
-    const byKey = new Map(onboardingObjective.tasks.map((s) => [s.key, s.guidance]));
+  it('elicit tasks carry their fact type so update_tasks can route the fill', () => {
+    const stores = householdTaskSpecs().find((s) => s.fact === 'household.grocery_stores')!;
+    expect(stores.factType).toBe('GROCERY_STORE');
+    const allergens = memberTaskSpecs('m').find((s) => s.key === 'allergens')!;
+    expect(allergens.factType).toBe('ALLERGEN');
+  });
+
+  it('fill guidance is attached to the tasks it governs, not a separate list', () => {
+    const byKey = new Map([...householdTaskSpecs(), ...memberTaskSpecs('m')].map((s) => [s.key, s.guidance]));
     expect(byKey.get('allergens')).toMatch(/severity|no_allergens/i);
     expect(byKey.get('diets')).toMatch(/strict|flexible/i);
     expect(byKey.get('likes')).toMatch(/broad|drill/i);
-    // The objective carries no separate one-off guidance list anymore.
+    // The definition carries no separate one-off guidance list.
     expect((onboardingObjective as unknown as Record<string, unknown>).guidance).toBeUndefined();
   });
 });
@@ -189,7 +233,8 @@ describe('completion + close', () => {
     // Add one identified member so member-required slots exist too.
     await SameKitchenFlow.create(db).establish({ threadId, objectiveId: objId, participants: [{ handle: '+15551110001', name: 'Priya' }] });
 
-    // Fill/​default every required slot except the member's allergens (leave it asked).
+    // Fill/​default every required task except the member's allergens (leave it asked). The close
+    // emit + explainer-ack are required too — default them here.
     const required = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.required, true)));
     for (const s of required) {
       if (s.fact === 'allergens') {

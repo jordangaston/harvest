@@ -34,7 +34,7 @@ class TwoBubbleChef {
     if (pending.length === 0) return null;
     return {
       chatEvents: [{ kind: "text" as const, text: "first" }, { kind: "text" as const, text: "second" }],
-      taskUpdates: [],
+      confirmTasks: [],
       cursorTo: pending[pending.length - 1]!.id,
       objectiveId: "",
     };

@@ -23,6 +23,8 @@ export interface TaskSpec {
   solo?: boolean;
   /** Sibling task keys this task is gated behind — eligible only once all are terminal. */
   after?: string[];
+  /** Definition-local fill guidance, surfaced in the briefing; not persisted on the task row. */
+  guidance?: string;
 }
 
 export interface PushObjectiveInput {

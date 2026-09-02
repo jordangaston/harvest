@@ -11,5 +11,5 @@ export function objectiveDefinition(definition: string): ObjectiveDefinition | u
   return DEFINITIONS[definition];
 }
 
-export type { ObjectiveDefinition, DefinitionTask } from './types.js';
-export { householdTaskSpecs, memberTaskSpecs, ONBOARDING_CLOSE } from './onboarding.js';
+export type { ObjectiveDefinition } from './types.js';
+export { householdTaskSpecs, memberTaskSpecs, ONBOARDING_CLOSE, taskGuidance } from './onboarding.js';

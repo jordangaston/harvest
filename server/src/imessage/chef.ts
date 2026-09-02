@@ -1,11 +1,12 @@
 import type { Database } from '../db.js';
-import { ObjectiveRepository, type TaskUpdate } from '../chef/objective-repository.js';
+import { ObjectiveRepository } from '../chef/objective-repository.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectReasoningAgent, type Reasoner } from '../chef/reasoning-agent.js';
 import { selectResponseAgent, type Responder } from '../chef/response-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
+import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
 import { FactTypeRegistry } from '../chef/facts/fact-types.js';
@@ -15,10 +16,20 @@ const MAX_INTERRUPT_RESTARTS = 2;
 /** Cap the replied-to parent to a snippet — a Chef menu can be long, and only the referent matters. */
 const MAX_REPLY_PARENT_SNIPPET = 280;
 
+/** One fact-less task eligible this turn that the consumer confirms at send-time: an `emit` (its
+ *  bubbles just went out) or the explainer-ack `elicit` (asked now, filled by the next inbound). The
+ *  model-filled `elicit` tasks set their own status in-loop; these are the code-confirmed ones. */
+export interface ConfirmTask {
+  taskId: string;
+  kind: Task['kind'];
+  status: Task['status'];
+}
+
 /** What the consumer commits and sends for one turn — the Chef's entire output. */
 export interface ChefReply {
   chatEvents: ChatEvent[];
-  taskUpdates: TaskUpdate[];
+  /** Fact-less tasks the consumer confirms once the turn's bubbles send (emit + explainer-ack). */
+  confirmTasks: ConfirmTask[];
   cursorTo: string;
   /** The active objective this turn ran against — the consumer pops it if it just completed. */
   objectiveId: string;
@@ -78,7 +89,7 @@ export class RealChef implements Chef {
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
       if (attempt < MAX_INTERRUPT_RESTARTS && (await this.isInterrupted(thread.id, turn.cursorTo))) continue;
 
-      return { chatEvents, taskUpdates: this.mapTaskUpdates(reasoning.taskUpdates, turn.taskIds), cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
+      return { chatEvents, confirmTasks: turn.confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
     }
   }
 
@@ -126,17 +137,11 @@ export class RealChef implements Chef {
       tasks: active.tasks,
       factTypes: FactTypeRegistry.create(this.db),
     };
-    const taskIds = new Set(active.tasks.map((t) => t.id));
-    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, taskIds, objectiveId: active.objective.id };
-  }
-
-  /** Maps the reasoning component's id-addressed task declarations to store updates, dropping any id
-   *  the model invented that isn't a task loaded this turn. */
-  private mapTaskUpdates(updates: { id: string; status: TaskUpdate['status']; value?: unknown }[], taskIds: Set<string>): TaskUpdate[] {
-    return updates.flatMap((u) => {
-      if (!taskIds.has(u.id)) return [];
-      return [{ taskId: u.id, status: u.status }];
-    });
+    // The fact-less eligible tasks the consumer confirms at send-time: every emit (delivered via the
+    // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
+    // status in-loop, so they never appear here.
+    const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
+    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
   }
 }
 
@@ -161,7 +166,7 @@ export class StubChef implements Chef {
     this.reasoningReached = true;
     return {
       chatEvents: [{ kind: 'text', text: "Hey! I'm your Harvest chef — what are you in the mood to cook?" }],
-      taskUpdates: [],
+      confirmTasks: [],
       cursorTo: pending[pending.length - 1]!.id,
       objectiveId: '', // the stub runs no objective — the consumer's pop is a no-op on a blank id
     };
@@ -173,7 +178,8 @@ export function selectChef(db: Database): Chef {
   return process.env.DEEPSEEK_API_KEY ? RealChef.create(db) : new StubChef(db);
 }
 
-// Re-exported through the facade so the consumer commits a ChefReply's taskUpdates atomically
+// Re-exported through the facade so the consumer confirms a ChefReply's fact-less tasks atomically
 // without importing the reasoning layer directly (its only agent import stays `./chef.js`).
 export { ObjectiveRepository } from '../chef/objective-repository.js';
+export type { TaskUpdate } from '../chef/objective-repository.js';
 
