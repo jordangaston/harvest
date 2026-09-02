@@ -6,6 +6,9 @@ import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPref
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
+/** A write executor: an open transaction, or the bare `db` (which opens its own). */
+type Executor = Database | Tx;
+
 /** Maps a weight signal to its `user_preferences` column (drizzle property + column). */
 const WEIGHT_COLUMN = {
   cost: 'weightCost',
@@ -127,7 +130,7 @@ export class PreferenceRepository {
   }
 
   /** Ensures a `user_preferences` row exists, materializing cold-start defaults if not. */
-  private async ensureRow(tx: Tx, userId: string): Promise<void> {
+  private async ensureRow(tx: Executor, userId: string): Promise<void> {
     const { userId: _id, ...row } = await this.coldStartRow(tx, userId);
     await tx.insert(userPreferences).values({ userId, ...row }).onConflictDoNothing();
   }
@@ -158,6 +161,28 @@ export class PreferenceRepository {
         .values({ userId, facet, value, sentiment: 'dislike' })
         .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: 'dislike' } });
     });
+  }
+
+  /**
+   * Upserts one authorable food-pref row targeted on `(userId, facet, value)` — the chef's
+   * incremental write path. Deletes any existing row at that key then inserts the new one, so a
+   * re-write flips its axes (sentiment/target/reason) without touching sibling rows or the dislike
+   * loop's server-owned `primary_ingredient` facet. Materializes cold-start preferences first.
+   * @throws If `facet` is `primary_ingredient` (server-owned — the picker authors it, not the chef).
+   */
+  async upsertFoodPref(
+    userId: string,
+    pref: { facet: AffinityFacet; value: string; sentiment?: 'like' | 'dislike' | null; target?: number | null; reason?: string | null },
+    tx?: Executor,
+  ): Promise<void> {
+    if (pref.facet === 'primary_ingredient') throw new Error('primary_ingredient is server-owned');
+    const run = async (t: Executor) => {
+      await this.ensureRow(t, userId);
+      await t.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.facet, pref.facet), eq(userFoodPrefs.value, pref.value)));
+      await t.insert(userFoodPrefs).values({ userId, facet: pref.facet, value: pref.value, sentiment: pref.sentiment ?? null, target: pref.target ?? null, reason: pref.reason ?? null });
+    };
+    if (tx) return run(tx);
+    await this.db.transaction(run);
   }
 
   /**
