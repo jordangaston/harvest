@@ -20,7 +20,6 @@ import { WeeklyMealsSchema, TimeByMealSchema } from '../../models/user-preferenc
 import { coerce, codeCandidates, labelFor, parseBudgetCents, type Candidate } from '../tools/catalog.js';
 import { resolveEquipment } from '../tools/equipment-grounding.js';
 import type { FactType, Flavor, Subject, Tx, TypeDoc, ValidateResult, ValuePage } from './fact-type.js';
-import { mergeMemberFact } from './member-persist.js';
 
 /** A member subject's user id, or throws for a household subject (a member type mis-routed). */
 function memberId(subject: Subject): string {
@@ -85,7 +84,7 @@ class SkillLevelType extends EnumType {
     super('SKILL_LEVEL', "A member's cooking skill: beginner, intermediate, or advanced.");
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    await mergeMemberFact(this.prefs, memberId(subject), () => ({ skillLevel: this.normalize(value) as never }));
+    await this.prefs.setSkillLevel(memberId(subject), this.normalize(value) as (typeof DIFFICULTY_BANDS)[number]);
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).skillLevel;
@@ -388,12 +387,8 @@ class AllergenType implements FactType {
   async persist(subject: Subject, value: unknown): Promise<void> {
     const normalized = this.normalize(value);
     if (normalized === 'none') return; // "no allergies" is real data with nothing to write
-    const { allergen, severity } = normalized as { allergen: string; severity: string };
-    await mergeMemberFact(this.prefs, memberId(subject), (current) => ({
-      allergens: current.allergens.some((a) => a.allergen === allergen)
-        ? current.allergens
-        : [...current.allergens, { allergen: allergen as never, severity: severity as never }],
-    }));
+    const { allergen, severity } = normalized as { allergen: (typeof MAJOR_ALLERGENS)[number]; severity: (typeof ALLERGEN_SEVERITIES)[number] };
+    await this.prefs.upsertAllergen(memberId(subject), { allergen, severity });
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).allergens;
@@ -433,10 +428,8 @@ class DietType implements FactType {
     return { dietId: coerce(this.idOf(value), this.candidates).value!, strictness: isStrictness(v.strictness) ? v.strictness : 'strict' };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const { dietId, strictness } = this.normalize(value) as { dietId: string; strictness: string };
-    await mergeMemberFact(this.prefs, memberId(subject), (current) => ({
-      diets: current.diets.some((d) => d.dietId === dietId) ? current.diets : [...current.diets, { dietId, strictness: strictness as never }],
-    }));
+    const { dietId, strictness } = this.normalize(value) as { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] };
+    await this.prefs.upsertDiet(memberId(subject), { dietId, strictness });
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).diets;
