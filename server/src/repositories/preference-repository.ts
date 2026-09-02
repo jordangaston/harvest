@@ -1,6 +1,6 @@
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, type AffinityFacet } from '../schema.js';
+import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type AffinityFacet } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
@@ -176,13 +176,51 @@ export class PreferenceRepository {
     tx?: Executor,
   ): Promise<void> {
     if (pref.facet === 'primary_ingredient') throw new Error('primary_ingredient is server-owned');
-    const run = async (t: Executor) => {
+    await this.on(tx, async (t) => {
       await this.ensureRow(t, userId);
       await t.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.facet, pref.facet), eq(userFoodPrefs.value, pref.value)));
       await t.insert(userFoodPrefs).values({ userId, facet: pref.facet, value: pref.value, sentiment: pref.sentiment ?? null, target: pref.target ?? null, reason: pref.reason ?? null });
-    };
-    if (tx) return run(tx);
-    await this.db.transaction(run);
+    });
+  }
+
+  /**
+   * Upserts one member allergen targeted on `(userId, allergen)` — the chef's incremental write path.
+   * Deletes any existing row at that allergen then inserts, leaving other allergens and every other
+   * slice untouched. The caller (the ALLERGEN fact) gates confirmation + severity; this just persists.
+   */
+  async upsertAllergen(userId: string, entry: { allergen: (typeof MAJOR_ALLERGENS)[number]; severity: (typeof ALLERGEN_SEVERITIES)[number] }, tx?: Executor): Promise<void> {
+    await this.on(tx, async (t) => {
+      await this.ensureRow(t, userId);
+      await t.delete(userAllergens).where(and(eq(userAllergens.userId, userId), eq(userAllergens.allergen, entry.allergen)));
+      await t.insert(userAllergens).values({ userId, allergen: entry.allergen, severity: entry.severity });
+    });
+  }
+
+  /**
+   * Upserts one member diet targeted on `(userId, dietId)` — the chef's incremental write path.
+   * Deletes any existing row at that diet then inserts, leaving other diets and every other slice
+   * untouched. The caller (the DIET fact) applies the default strictness; this just persists.
+   */
+  async upsertDiet(userId: string, entry: { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] }, tx?: Executor): Promise<void> {
+    await this.on(tx, async (t) => {
+      await this.ensureRow(t, userId);
+      await t.delete(userDiets).where(and(eq(userDiets.userId, userId), eq(userDiets.dietId, entry.dietId)));
+      await t.insert(userDiets).values({ userId, dietId: entry.dietId, strictness: entry.strictness });
+    });
+  }
+
+  /** Sets ONLY `user_preferences.skill_level`, materializing the row first. Touches no other slice. */
+  async setSkillLevel(userId: string, level: (typeof DIFFICULTY_BANDS)[number], tx?: Executor): Promise<void> {
+    await this.on(tx, async (t) => {
+      await this.ensureRow(t, userId);
+      await t.update(userPreferences).set({ skillLevel: level, updatedAt: new Date() }).where(eq(userPreferences.userId, userId));
+    });
+  }
+
+  /** Runs `fn` on the given executor, or opens its own transaction when none is passed. */
+  private async on(tx: Executor | undefined, fn: (t: Executor) => Promise<void>): Promise<void> {
+    if (tx) return fn(tx);
+    await this.db.transaction(fn);
   }
 
   /**
