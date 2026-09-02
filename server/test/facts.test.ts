@@ -126,7 +126,7 @@ describe('writeFact — derived is read-only (TC-5)', () => {
   });
 });
 
-describe('member read-merge does not wipe siblings', () => {
+describe('a targeted member write touches only its own slice', () => {
   it('writing a diet after an allergen keeps the allergen', async () => {
     const { member, memberId, reg } = await seedHousehold();
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
@@ -159,9 +159,7 @@ describe('member read-merge does not wipe siblings', () => {
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'like' }));
   });
 
-  it('an allergen write (mergeMemberFact) preserves an upsert-written food pref', async () => {
-    // mergeMemberFact carries the current foodPrefs through savePreferences, so an allergen write
-    // must not wipe a food pref the chef upserted earlier via the targeted path.
+  it('an allergen write preserves a previously upsert-written food pref', async () => {
     const { member, memberId, reg } = await seedHousehold();
     await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'food_category', value: 'red_meat', target: -0.5, reason: 'trying to limit' }, db);
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
@@ -169,6 +167,21 @@ describe('member read-merge does not wipe siblings', () => {
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', target: -0.5, reason: 'trying to limit' }));
     expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
+  });
+
+  it('a skill_level write leaves allergen/diet/food-pref collections intact', async () => {
+    const { member, memberId, reg } = await seedHousehold();
+    await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
+    await writeFact(type(reg, 'DIET'), member, { value: 'vegan', strictness: 'strict' }, db);
+    await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'cuisine', value: 'thai', sentiment: 'like' }, db);
+
+    await writeFact(type(reg, 'SKILL_LEVEL'), member, 'advanced', db);
+
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userId, memberId));
+    expect(prefs.skillLevel).toBe('advanced');
+    expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
+    expect(await db.select().from(userDiets).where(eq(userDiets.userId, memberId))).toHaveLength(1);
+    expect(await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId))).toHaveLength(1);
   });
 });
 

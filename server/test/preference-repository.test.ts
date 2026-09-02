@@ -198,6 +198,33 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     await expect(repo.upsertFoodPref(userId, { facet: "primary_ingredient", value: "liver", sentiment: "dislike" })).rejects.toThrow();
   });
 
+  it("upsertAllergen/upsertDiet/setSkillLevel each mutate only their own slice", async () => {
+    const userId = await makeUser();
+    const repo = PreferenceRepository.create(db);
+    // A row in every slice, to prove a targeted write leaves the others untouched.
+    await repo.upsertAllergen(userId, { allergen: "milk", severity: "moderate" });
+    await repo.upsertDiet(userId, { dietId: "vegan", strictness: "flexible" });
+    await db.insert(userFoodPrefs).values({ userId, facet: "cuisine", value: "thai", sentiment: "like" });
+
+    // Add a second allergen and overwrite the first's severity — targeted, no sibling wipe.
+    await repo.upsertAllergen(userId, { allergen: "peanut", severity: "severe" });
+    await repo.upsertAllergen(userId, { allergen: "milk", severity: "severe" });
+    // Overwrite the diet's strictness.
+    await repo.upsertDiet(userId, { dietId: "vegan", strictness: "strict" });
+    // Set skill level.
+    await repo.setSkillLevel(userId, "advanced");
+
+    const prefs = await repo.getPreferences(userId);
+    expect(prefs.skillLevel).toBe("advanced");
+    expect(prefs.allergens).toEqual(expect.arrayContaining([
+      { allergen: "peanut", severity: "severe" },
+      { allergen: "milk", severity: "severe" },
+    ]));
+    expect(prefs.allergens).toHaveLength(2);
+    expect(prefs.diets).toEqual([{ dietId: "vegan", strictness: "strict" }]);
+    expect(prefs.foodPrefs).toContainEqual({ facet: "cuisine", value: "thai", sentiment: "like", target: null, reason: null });
+  });
+
   it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
