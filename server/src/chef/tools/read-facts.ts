@@ -2,7 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { FactRegistry, type FactDef } from '../facts/registry.js';
 import type { Subject } from '../facts/fact-type.js';
-import type { ChefTool, SaveResult, TurnContext } from './types.js';
+import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({ keys: z.array(z.string()).optional() });
 
@@ -22,7 +22,6 @@ interface FactReading {
  */
 export class ReadFactsTool implements ChefTool {
   readonly id = 'read_facts';
-  readonly saved: SaveResult[] = []; // reads never write
 
   private constructor(private readonly ctx: TurnContext) {}
 

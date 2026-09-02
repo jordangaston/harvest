@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { score, slugify, type Candidate } from './catalog.js';
-import type { ChefTool, SaveResult, TurnContext } from './types.js';
+import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({
   fact_type: z.string().optional(),
@@ -24,12 +24,11 @@ type FactTypesResponse = BrowseResponse | DescribeResponse | GroundResponse | Se
  * The model's window into the fact-type system — one tool, a 2×2 over `(fact_type?, query?)`:
  * neither browses the catalog of types; a `fact_type` alone describes it (its legal values or scalar
  * rule); a `query` alone grounds a loose phrase cross-type; both search one type's values. Every
- * response carries a `kind` tag; large enumerations page via `page_token`. Folds in the old
- * `search_catalog` grounding. Writes nothing.
+ * response carries a `kind` tag; large enumerations page via `page_token`. Grounds loose phrases
+ * against the catalogs. Writes nothing.
  */
 export class FactTypesTool implements ChefTool {
   readonly id = 'fact_types';
-  readonly saved: SaveResult[] = []; // discovery never writes
 
   private constructor(private readonly ctx: TurnContext) {}
 

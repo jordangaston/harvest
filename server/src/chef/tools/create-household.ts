@@ -10,12 +10,11 @@ const inputSchema = z.object({
 /**
  * The "same kitchen" command. Creates the household from the named members — the first is the
  * person texting (initiator/owner, keyed by their handle); the rest are proxy members (name-only
- * until they text). Sets `ctx.householdId`/`ctx.members` in place so a later `save_*` this turn
+ * until they text). Sets `ctx.householdId`/`ctx.members` in place so a tool built later this turn
  * sees the new household. Legal only until a household exists.
  */
 export class CreateHouseholdTool implements ChefTool {
   readonly id = 'create_household';
-  readonly saved: SaveResult[] = [];
 
   private constructor(private readonly ctx: TurnContext) {}
 
@@ -50,8 +49,6 @@ export class CreateHouseholdTool implements ChefTool {
     });
     this.ctx.householdId = householdId;
     this.ctx.members = memberUserIds.map((userId) => ({ userId }));
-    const result: SaveResult = { saved: { household: householdId, members: memberUserIds.length }, rejected: [] };
-    this.saved.push(result);
-    return result;
+    return { saved: { household: householdId, members: memberUserIds.length }, rejected: [] };
   }
 }

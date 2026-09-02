@@ -15,7 +15,6 @@ const inputSchema = z.object({ url: z.string() });
  */
 export class ImportRecipeTool implements ChefTool {
   readonly id = 'import_recipe';
-  readonly saved: SaveResult[] = [];
   private readonly imports: ImportService;
   private readonly links: ImessageImportRepository;
 
@@ -49,8 +48,6 @@ export class ImportRecipeTool implements ChefTool {
     const job = await this.imports.create(this.ctx.initiatorUserId, { url });
     if (!job) return { saved: {}, rejected: [{ input: url, reason: 'not a recipe link' }] };
     await this.links.insert({ jobId: job.id, threadId: this.ctx.threadId, targetExternalId: this.ctx.triggerExternalId });
-    const result: SaveResult = { saved: { job_id: job.id }, rejected: [] };
-    this.saved.push(result);
-    return result;
+    return { saved: { job_id: job.id }, rejected: [] };
   }
 }

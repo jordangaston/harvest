@@ -102,13 +102,13 @@ describe('prepareBriefing (pure prompt assembly)', () => {
 });
 
 describe('buildTools (per-turn legality gate)', () => {
-  it('offers create_household only before a household exists, and save_household after', async () => {
+  it('drops create_household once a household exists; keeps the always-legal tools', async () => {
     const { ctx } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
-    const withHh = buildTools(ctx, ['create_household', 'save_household_profile', 'search_catalog']).map((t) => t.id);
-    expect(withHh).toEqual(['save_household_profile', 'search_catalog']); // household exists → no create
+    const withHh = buildTools(ctx, ['create_household', 'read_facts']).map((t) => t.id);
+    expect(withHh).toEqual(['read_facts']); // household exists → no create
 
-    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, ['create_household', 'save_household_profile', 'save_member_profile', 'search_catalog']).map((t) => t.id);
-    expect(noHh).toEqual(['create_household', 'search_catalog']); // no household → no save_* yet
+    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, ['create_household', 'read_facts']).map((t) => t.id);
+    expect(noHh).toEqual(['create_household', 'read_facts']); // no household → create still offered
   });
 });
 

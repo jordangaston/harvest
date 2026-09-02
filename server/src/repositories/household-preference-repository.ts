@@ -9,7 +9,7 @@ export type HouseholdPreferencesPatch = Partial<Omit<HouseholdPreferences, 'hous
 
 /**
  * Read-merge-write on `household_preferences` (1:1 per household), mirroring
- * `PreferenceRepository`. The `save_household_profile` tool calls through; last-writer-wins
+ * `PreferenceRepository`. `writeFact` persists household facts through here; last-writer-wins
  * per scalar, matching the design's idempotent read-merge-write invariant.
  */
 export class HouseholdPreferenceRepository {

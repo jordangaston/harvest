@@ -89,8 +89,7 @@ export function taskGuidance(): Map<string, string> {
   return new Map(specs.filter((s) => s.guidance).map((s) => [s.fact ?? s.key, s.guidance!]));
 }
 
-/** The tools resident in the onboarding prompt (the fact surface + identity + import). `save_*` and
- *  `search_catalog` are gone from the list this pass (their files stay until 3c). */
+/** The tools resident in the onboarding prompt (the fact surface + identity + import). */
 const ONBOARDING_TOOLS = ['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe'];
 
 /** The onboarding objective definition, keyed by the `objectives.definition` string. Tasks are

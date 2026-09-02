@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { FactRegistry } from '../facts/registry.js';
 import { writeFact } from '../facts/write-fact.js';
 import type { Subject } from '../facts/fact-type.js';
-import type { ChefTool, SaveResult, TurnContext } from './types.js';
+import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({
   updates: z.array(z.object({ key: z.string(), value: z.unknown(), member_user_id: z.string().optional() })),
@@ -26,7 +26,6 @@ interface FactWriteResult {
  */
 export class UpdateFactsTool implements ChefTool {
   readonly id = 'update_facts';
-  readonly saved: SaveResult[] = [];
 
   private constructor(private readonly ctx: TurnContext) {}
 
@@ -68,7 +67,7 @@ export class UpdateFactsTool implements ChefTool {
     if (!subject) return { key, status: 'rejected', reason: `${key} needs a household or member to write to` };
 
     const res = await writeFact(type, subject, value, this.ctx.db);
-    if (res.ok) { this.saved.push({ saved: { [key]: res.value }, rejected: [] }); return { key, status: 'filled' }; }
+    if (res.ok) return { key, status: 'filled' };
     return { key, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
   }
 

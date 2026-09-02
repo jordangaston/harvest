@@ -32,7 +32,7 @@ export interface TurnContext {
 /**
  * What a tool actually did: the normalized values that landed, and each value the model tried that
  * was refused (unknown enum, unconfirmed allergen, absent member), with the nearest valid ids when
- * they exist. Returned to the model in the tool-loop and collected to reconcile slot updates.
+ * they exist. Returned to the model in the tool-loop.
  */
 export interface SaveResult {
   saved: Record<string, unknown>;
@@ -44,11 +44,10 @@ export interface SaveResult {
  * the turn context; the instance binds to that turn. `asMastraTool()` returns the Mastra tool that
  * closes over the instance, so the native tool-loop calls straight into our services — nothing is
  * threaded through Mastra's context. `canRun()` is the prompt-time legality gate (context only, no
- * args). `saved` accumulates what landed this turn, for slot reconciliation.
+ * args).
  */
 export interface ChefTool {
   readonly id: string;
-  readonly saved: SaveResult[];
   canRun(): boolean;
   asMastraTool(): Tool<any, any>;
 }

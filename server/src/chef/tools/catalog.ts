@@ -35,7 +35,7 @@ const ALIASES: Record<string, string> = {
   veg: 'vegetarian',
 };
 
-/** The five catalog kinds `search_catalog` grounds against. */
+/** The five catalog kinds `fact_types` grounds against. */
 export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen';
 
 /** The code-tuple catalogs (taste is DB-backed, handled by the tool). */

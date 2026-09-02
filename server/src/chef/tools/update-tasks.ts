@@ -4,7 +4,7 @@ import { writeFact } from '../facts/write-fact.js';
 import { ObjectiveRepository } from '../objective-repository.js';
 import type { Subject } from '../facts/fact-type.js';
 import type { Task } from '../../models/task.js';
-import type { ChefTool, SaveResult, TurnContext } from './types.js';
+import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({
   updates: z.array(z.object({ task_id: z.string(), value: z.unknown() })),
@@ -28,7 +28,6 @@ interface TaskWriteResult {
  */
 export class UpdateTasksTool implements ChefTool {
   readonly id = 'update_tasks';
-  readonly saved: SaveResult[] = [];
   private readonly objectives: ObjectiveRepository;
 
   private constructor(private readonly ctx: TurnContext) {
@@ -88,7 +87,6 @@ export class UpdateTasksTool implements ChefTool {
     if (!res.ok) return { task_id: taskId, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
 
     await this.ctx.db.transaction((tx) => this.objectives.applyTaskUpdates([{ taskId, status: 'filled' }], tx));
-    this.saved.push({ saved: { [task.fact ?? task.factType]: res.value }, rejected: [] });
     return { task_id: taskId, status: 'filled' };
   }
 
