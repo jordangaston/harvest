@@ -261,6 +261,31 @@ describe("Test Case 5: emit at send-time, explainer-ack on next inbound (AC-4)",
     expect(obj!.status).toBe("complete"); // every required task terminal → popped the same turn
   });
 
+  it("does NOT confirm the emit or pop the objective when the reply delivered no bubbles", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "sounds good");
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+
+    // An empty reply plan (MAX_ATTEMPTS fallback / a model that didn't deliver the close): no bubbles.
+    const chef: Chef = {
+      respond: async (): Promise<ChefReply> => ({
+        chatEvents: [],
+        confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }],
+        cursorTo: newestId,
+        objectiveId,
+      }),
+    };
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    const [emit] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(emit!.status).toBe("unasked"); // nothing was sent → the emit is NOT confirmed
+    const [obj] = await db.select().from(objectives).where(eq(objectives.id, objectiveId));
+    expect(obj!.status).toBe("active"); // the close never sent → the objective must not pop
+  });
+
   it("asks the fact-less explainer-ack when first delivered, fills it on the next inbound", async () => {
     const { threadId, ownerId } = await seedThread();
     const objectiveId = randomUUID();

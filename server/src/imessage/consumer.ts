@@ -76,6 +76,11 @@ export class Consumer {
         const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
           const reply = await this.chef.respond(threadId);
           if (!reply) return null; // nothing to say this turn — no commit, no send
+          // Send proves delivery: a fact-less confirm (emit filled / ack asked) and completion may
+          // only fire when the turn actually emitted bubbles. An empty reply plan (reasoning-agent
+          // MAX_ATTEMPTS fallback, or a model that didn't deliver the close) must NOT confirm the
+          // emit or pop the objective — the close was never sent.
+          const delivered = reply.chatEvents.length > 0;
 
           // Whether this turn fires an effect, decided in-txn (below) against the fresh flags +
           // post-update completion, then honoured by the send half after the commit.
@@ -107,11 +112,12 @@ export class Consumer {
             // fact-less task was addressed this turn" is a safe status-driven heuristic — no transcript
             // substring matching. If a future objective interleaves several emits in one turn, thread
             // per-emit delivery (which bubble carried which emit) instead of this blanket confirm.
-            await this.confirmTasks(reply.confirmTasks, tx);
+            if (delivered) await this.confirmTasks(reply.confirmTasks, tx);
             // Completion is a computable predicate — when every required task is terminal the
-            // objective completes and pops (the next suspended one, if any, activates).
+            // objective completes and pops (the next suspended one, if any, activates). Only when
+            // bubbles went out this turn: an empty reply can't have delivered the close.
             const completedNow =
-              !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
+              delivered && !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
             if (completedNow) await this.objectives.completeAndPop(reply.objectiveId, tx);
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
             // Stamp the effect gates in the same commit as the outbound rows, so the send fires
