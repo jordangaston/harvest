@@ -2,6 +2,7 @@ import { CreateHouseholdTool } from './create-household.js';
 import { ImportRecipeTool } from './import-recipe.js';
 import { ReadFactsTool } from './read-facts.js';
 import { FactTypesTool } from './fact-types.js';
+import { SetDirectiveTool } from './set-directive.js';
 import { UpdateFactsTool } from './update-facts.js';
 import { UpdateTasksTool } from './update-tasks.js';
 import type { Database } from '../../db.js';
@@ -13,6 +14,7 @@ const FACTORIES: Record<string, (ctx: TurnContext, db: Database) => ChefTool> = 
   import_recipe: ImportRecipeTool.create,
   read_facts: ReadFactsTool.create,
   fact_types: FactTypesTool.create,
+  set_directive: SetDirectiveTool.create,
   update_facts: UpdateFactsTool.create,
   update_tasks: UpdateTasksTool.create,
 };
