@@ -11,8 +11,7 @@ import { TAPBACK_GLYPHS } from '../chef/types.js';
  * The Consumer's per-turn live outbound channel (increment 2). Each `send` journals an outbound row
  * tagged `trigger_id` + a deterministic `${triggerId}#${ordinal}` guid (`onConflictDoNothing`), then
  * flushes it live through the `Sender`. On a redelivered, re-run turn the same guid already exists
- * and is already sent → the send is skipped, so the household sees each bubble exactly once. The very
- * first text bubble of a greet turn carries the confetti effect (WI-4B), then greet clears.
+ * and is already sent → the send is skipped, so the household sees each bubble exactly once.
  */
 class LiveOutboundSink implements OutboundSink {
   private ordinal = 0;
@@ -23,7 +22,6 @@ class LiveOutboundSink implements OutboundSink {
     private readonly threadId: string,
     private readonly chatGuid: string,
     private readonly triggerId: string,
-    private greet: boolean,
   ) {}
 
   async send(event: ChatEvent): Promise<void> {
@@ -44,15 +42,11 @@ class LiveOutboundSink implements OutboundSink {
     if (ids[0]) await this.threads.setExternalId(id, ids[0]);
   }
 
-  /** Sends one event live and returns its platform id(s): text→`send` (confetti on a greet turn's
-   *  first text), tapback→`sendReaction`, richlink→`sendLink`. */
+  /** Sends one event live and returns its platform id(s): text→`send`, tapback→`sendReaction`,
+   *  richlink→`sendLink`. */
   private async deliver(event: ChatEvent): Promise<string[]> {
     switch (event.kind) {
       case 'text':
-        if (this.greet) {
-          this.greet = false; // confetti rides the first text bubble of the greet turn, once
-          return this.sender.sendEffect(this.chatGuid, event.text, 'confetti');
-        }
         return this.sender.send(this.chatGuid, [event.text]);
       case 'richlink':
         return this.sender.sendLink(this.chatGuid, event.url);
@@ -109,18 +103,11 @@ export class Consumer {
 
     await this.lock.withThreadLock(threadId, async () => {
       let cursor = thread.lastProcessedId;
-      // One-time screen-effect gates (WI-4B): confetti on the first-ever Chef turn, fireworks the
-      // turn onboarding completes. Seeded from the thread's flags (null ⇒ still pending) so a
-      // redelivered doorbell — a fresh handle() that reloads the thread — can't re-fire; flipped
-      // once fired so the multi-turn drain loop fires each at most once.
-      let greetPending = thread.greetedAt === null;
-      let celebratePending = thread.celebratedAt === null;
-      // One-time lifecycle gates (WI-4C), same substrate: rename the chat to "Meal Planning" the
-      // turn the household first exists (group chats only — a DM no-ops); send Chef's contact card
-      // the turn onboarding completes (after the fireworks). Seeded null ⇒ pending, flipped once
-      // fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
+      // Confetti/fireworks/contact-card effects are removed for now (WI-4B/4C deferred) — they fired on
+      // a premature completion. The one-time RENAME gate stays: rename the chat to "Meal Planning" the
+      // turn the household first exists (group chats only — a DM no-ops). Seeded null ⇒ pending, flipped
+      // once fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
       let renamePending = thread.renamedAt === null;
-      let cardPending = thread.cardedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
@@ -131,8 +118,7 @@ export class Consumer {
         // Acknowledge receipt: mark the messages we're about to answer as read.
         await this.sender.markRead(thread.chatGuid, pending.map((m) => m.messageGuid));
 
-        const greetNow = greetPending; // confetti rides this turn's first live text send (in the sink)
-        const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, triggerId, greetNow);
+        const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, triggerId);
 
         // Keep the typing indicator up while the chef composes + sends live, then we commit.
         const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
@@ -144,14 +130,10 @@ export class Consumer {
           // emit or pop the objective — the close was never sent.
           const delivered = reply.delivered;
 
-          // Whether this turn fires a POST-turn effect, decided in-txn (below) against the fresh flags
-          // + post-update completion, then honoured after the commit.
-          let celebrateNow = false;
           // A household created this turn is why we rename: re-read the thread after respond (the
           // create_household tool linked it inside respond's own txn), gate on renamed_at + a set id.
           const householdNow = (await this.threads.findById(threadId))?.householdId ?? null;
           const renameNow = renamePending && householdNow !== null;
-          let cardNow = false;
 
           await this.db.transaction(async (tx) => {
             // Confirm the fact-less tasks now the turn's bubbles went out: an emit's just delivered
@@ -168,29 +150,14 @@ export class Consumer {
             // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
             // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink).
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
-            // Stamp the effect gates in the same commit, so a POST-turn effect fires exactly once
-            // even if the process dies before it (redelivery reloads a set flag).
-            const now = new Date();
-            if (greetNow) await this.threads.markGreeted(threadId, now, tx);
-            celebrateNow = completedNow && celebratePending;
-            if (celebrateNow) await this.threads.markCelebrated(threadId, now, tx);
-            // Rename once the household exists; stamp even for a DM (which no-ops on send) so it
-            // never retries. Card co-fires with the fireworks, after them, once.
-            if (renameNow) await this.threads.markRenamed(threadId, now, tx);
-            cardNow = celebrateNow && cardPending;
-            if (cardNow) await this.threads.markCarded(threadId, now, tx);
+            // Rename once the household exists; stamp even for a DM (which no-ops on send) so it never
+            // retries. (Confetti/fireworks/contact-card effects removed — WI-4B/4C deferred.)
+            if (renameNow) await this.threads.markRenamed(threadId, new Date(), tx);
           });
 
-          greetPending = greetPending && !greetNow; // fired once; don't confetti a later turn
-          celebratePending = celebratePending && !celebrateNow; // fired once; don't re-fireworks a later completion
           renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
-          cardPending = cardPending && !cardNow; // fired once; don't re-send the card
           // Rename the chat to "Meal Planning" once the household exists (group only; DM no-ops).
           if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
-          // Fireworks the moment onboarding completes — a short extra bubble, not a normal reply.
-          if (celebrateNow) await this.sender.sendEffect(thread.chatGuid, 'Your first menu is on its way! 🎆', 'fireworks');
-          // Chef's contact card follows the fireworks so the user can save Chef.
-          if (cardNow) await this.sender.sendContactCard(thread.chatGuid);
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining
