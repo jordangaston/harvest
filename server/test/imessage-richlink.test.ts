@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { Consumer } from '../src/imessage/consumer.js';
-import type { Chef, ChefReply } from '../src/imessage/chef.js';
+import { sendingChef } from './helpers/chef-double.js';
 import { StubSpectrumSender } from '../src/imessage/sender.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
@@ -60,17 +60,13 @@ describe('consumer dispatches a richlink event (AC1)', () => {
   it('sends the text batch first, then the link, persisting both with external_id', async () => {
     const { threadId, inboundId } = await seedThreadWithInbound();
     const url = 'https://recipes.example.com/pasta';
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [
-          { kind: 'text', text: 'Here you go:' },
-          { kind: 'richlink', url },
-        ],
-        confirmTasks: [],
-        cursorTo: inboundId,
-        objectiveId: '', // no objective this turn — the consumer's pop is a no-op on a blank id
-      }),
-    };
+    const chef = sendingChef(
+      [
+        { kind: 'text', text: 'Here you go:' },
+        { kind: 'richlink', url },
+      ],
+      { confirmTasks: [], cursorTo: inboundId, objectiveId: '' },
+    );
     const sender = new StubSpectrumSender();
     await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
 
@@ -92,14 +88,10 @@ describe('consumer dispatches a richlink event (AC1)', () => {
 describe('consumer dispatches a tapback event (WI-4A AC1)', () => {
   it('persists a reaction row (glyph + target) and calls sendReaction, not send', async () => {
     const { threadId, inboundId, inboundGuid } = await seedThreadWithInbound();
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'tapback', target: inboundGuid, emoji: 'love' }],
-        confirmTasks: [],
-        cursorTo: inboundId,
-        objectiveId: '',
-      }),
-    };
+    const chef = sendingChef(
+      [{ kind: 'tapback', target: inboundGuid, emoji: 'love' }],
+      { confirmTasks: [], cursorTo: inboundId, objectiveId: '' },
+    );
     const sender = new StubSpectrumSender();
     await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
 

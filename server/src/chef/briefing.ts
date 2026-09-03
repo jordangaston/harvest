@@ -30,6 +30,8 @@ export interface BriefingInput {
   suspended?: string[];
   /** When the trigger is a threaded reply, a snippet of the parent message it answers. */
   replyingTo?: string;
+  /** The supervisor's framed question when it delegated (e.g. "does Alex like spicy food?"). */
+  question?: string;
 }
 
 const HARD_RULE =
@@ -45,14 +47,10 @@ const CONDUCT_AND_SAFETY =
   'Record a fact the household volunteers that no task is asking for with update_facts by its key. ' +
   'Discover a fact type\'s legal values, or ground a loose phrase to a canonical value, with fact_types ' +
   'before filling — never write a value the tools did not return. ' +
-  // React-vs-reply (chef-tapback-emoji-style.md): a tapback is the low-friction "I saw / I like that".
-  'REACT vs REPLY: when a message just needs acknowledgment or appreciation and carries no content to ' +
-  'answer (a low-stakes answer, a "here you go", a bit of enthusiasm), acknowledge it with a tapback — ' +
-  'emit a single acknowledge intent and set replyPlan.address to that message. Reply with text when the ' +
-  'user expects real content (a question, a request), and say a plain "got it" as a short warm TEXT ' +
-  '("Sounds good!"), never a tapback. React sparingly — not every message. ' +
-  'In replyPlan.intents, ask for the next eligible task(s) — never repeat a question already answered, ' +
-  'and never echo the user back. Task status is set by the tools you call, not by the reply plan. ' +
+  'Return a deliberation result: `communicate` are the points to convey this turn (facts to confirm, ' +
+  'the upshot of your thinking) and `ask` are the questions to advance the next eligible task(s). Never ' +
+  'repeat a question already answered, and never echo the user back. Task status is set by the tools you ' +
+  'call, not by the result. ' +
   HARD_RULE;
 
 /**
@@ -88,6 +86,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `# Tasks in play (address by [id] with update_tasks; each with how to fill it)\n${unfilled || '(none)'}`,
     `# Household\n${members}`,
     `# Recent transcript\n${transcript}`,
+    input.question ? `# The chef is deliberating on\n${input.question}` : '',
     `# What just arrived\n${input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : ''}${input.trigger}`,
   ]
     .filter(Boolean)

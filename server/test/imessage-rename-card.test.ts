@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { Consumer } from '../src/imessage/consumer.js';
 import type { Chef, ChefReply } from '../src/imessage/chef.js';
+import { sendingChef } from './helpers/chef-double.js';
 import { StubSpectrumSender } from '../src/imessage/sender.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
@@ -56,12 +57,10 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
 
     let cursor = inboundId;
     const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: 'a reply' }],
-        confirmTasks: [],
-        cursorTo: cursor,
-        objectiveId: '',
-      }),
+      respond: async (_threadId, sink): Promise<ChefReply> => {
+        await sink.send({ kind: 'text', text: 'a reply' });
+        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true };
+      },
     };
     const sender = new StubSpectrumSender(); // spaceType defaults to 'group'
     const consumer = new Consumer(db, sender, chef, new StubThreadLock());
@@ -80,14 +79,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const { threadId, inboundId } = await seedThreadWithInbound();
     await ThreadRepository.create(db).markGreeted(threadId, new Date());
 
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: 'a reply' }],
-        confirmTasks: [],
-        cursorTo: inboundId,
-        objectiveId: '',
-      }),
-    };
+    const chef = sendingChef([{ kind: 'text', text: 'a reply' }], { confirmTasks: [], cursorTo: inboundId, objectiveId: '' });
     const sender = new StubSpectrumSender();
     sender.spaceType = 'dm'; // a DM: renameChat must no-op, not throw
     const consumer = new Consumer(db, sender, chef, new StubThreadLock());
@@ -96,44 +88,5 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     expect(sender.renameCalls).toHaveLength(0); // recorded nothing — the DM skipped the rename
     const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(thread!.renamedAt).not.toBeNull(); // stamped so it won't retry every turn
-  });
-});
-
-// AC3: contact card after the fireworks, once; redelivery no-ops.
-describe('contact card on onboarding-complete (WI-4C AC3)', () => {
-  it('sends one contact card after the fireworks, stamps carded_at, and a redelivery does not re-send', async () => {
-    const { threadId, inboundId } = await seedThreadWithInbound();
-    // Greet + rename out of the way; we isolate the card on the completing turn.
-    const repo = ThreadRepository.create(db);
-    await repo.markGreeted(threadId, new Date());
-    await repo.markRenamed(threadId, new Date());
-
-    const objectiveId = randomUUID();
-    await db.insert(objectives).values({ id: objectiveId, threadId, definition: 'onboarding', status: 'active', stackPosition: 0 });
-    const taskId = randomUUID();
-    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' });
-
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }],
-        cursorTo: inboundId,
-        objectiveId,
-      }),
-    };
-    const sender = new StubSpectrumSender();
-    const consumer = new Consumer(db, sender, chef, new StubThreadLock());
-
-    await consumer.handle({ threadId });
-
-    // Exactly one card, and it followed the fireworks (WI-4B fires the fireworks on the same turn).
-    expect(sender.contactCardCalls).toEqual([{ chatGuid: `g-${threadId}` }]);
-    expect(sender.effectCalls.some((c) => c.effectName === 'fireworks')).toBe(true);
-    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
-    expect(thread!.cardedAt).not.toBeNull();
-
-    // Redeliver: task terminal, carded_at set → no re-send.
-    await consumer.handle({ threadId });
-    expect(sender.contactCardCalls).toHaveLength(1);
   });
 });

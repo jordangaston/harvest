@@ -1,5 +1,5 @@
 import type { TaskSpec } from '../objective-repository.js';
-import type { ReplyPlan } from '../types.js';
+import type { DeliberationResult } from '../types.js';
 import { FactRegistry } from '../facts/registry.js';
 
 const req = true;
@@ -112,15 +112,15 @@ export const onboardingObjective = {
 };
 
 /**
- * The completion close the response renders when the close `emit` is eligible: the celebration, the
- * drop-a-recipe invitation, and the first-menu promise. The reasoning model emits these intents; this
- * is the canonical plan the WI-08 eval asserts against and tests drive with.
+ * The completion close the responder voices when the close `emit` is eligible: the celebration, the
+ * drop-a-recipe invitation, and the first-menu promise. The reasoner emits these as `communicate`
+ * lines; this is the canonical result the WI-08 eval asserts against and tests drive with.
  */
-export const ONBOARDING_CLOSE: ReplyPlan = {
-  intents: [
-    { kind: 'confirm', fact: "That's everything — your kitchen is all set." },
-    { kind: 'acknowledge', note: 'Drop a recipe link here anytime and I\'ll save it.' },
-    { kind: 'hand_off', note: 'Give me a sec — I\'m cooking up your first menu.' },
+export const ONBOARDING_CLOSE: DeliberationResult = {
+  communicate: [
+    "That's everything — your kitchen is all set.",
+    'Drop a recipe link here anytime and I\'ll save it.',
+    'Give me a sec — I\'m cooking up your first menu.',
   ],
-  must_say: [],
+  ask: [],
 };

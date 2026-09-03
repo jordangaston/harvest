@@ -218,11 +218,16 @@ export const threadMessages = sqliteTable(
     // targets resolve against. Nullable — an outbound row is null until its send resolves.
     externalId: text('external_id'),
     sentAt: integer('sent_at', { mode: 'timestamp' }),
+    // The inbound message that caused this outbound row (mid-turn send durability, increment 2):
+    // an outbound `send` is tagged with its trigger so a redelivered, re-run turn can dedupe what
+    // already went out. Null for inbound rows and legacy/greeting outbound.
+    triggerId: text('trigger_id'),
     createdAt: createdAt(),
   },
   (t) => [
     index('thread_messages_thread_id_idx').on(t.threadId),
     uniqueIndex('thread_messages_message_guid_uidx').on(t.messageGuid),
+    index('thread_messages_trigger_idx').on(t.threadId, t.triggerId),
   ],
 );
 

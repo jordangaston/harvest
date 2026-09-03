@@ -260,12 +260,10 @@ describe('completion + close', () => {
     expect(row!.completedAt).toBeInstanceOf(Date);
   });
 
-  it('the close plan carries the celebration, drop-a-recipe invite, and first-menu promise', () => {
-    const kinds = ONBOARDING_CLOSE.intents.map((i) => i.kind);
-    expect(kinds).toContain('confirm'); // celebration / "you're all set"
-    expect(kinds).toContain('acknowledge'); // drop a recipe here anytime
-    expect(kinds).toContain('hand_off'); // first-menu promise
+  it('the close result carries the celebration, drop-a-recipe invite, and first-menu promise', () => {
+    expect(ONBOARDING_CLOSE.communicate).toHaveLength(3); // celebration, drop-a-recipe, first-menu
     const text = JSON.stringify(ONBOARDING_CLOSE).toLowerCase();
+    expect(text).toMatch(/set/); // "you're all set" celebration
     expect(text).toMatch(/recipe/);
     expect(text).toMatch(/menu/);
   });

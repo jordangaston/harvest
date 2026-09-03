@@ -1,36 +1,45 @@
 import { z } from 'zod';
 import { Emoji } from '@spectrum-ts/core';
 
-/**
- * The reasoning component's output — the contract it hands the response component (WI-05),
- * never prose. `intents` are the things to convey this turn in order; `must_say` are safety
- * consequences that must appear verbatim in meaning; `address` directs the turn at one member.
- * The response component owns voice — this carries facts, not phrasing (design §ReplyPlan).
- */
-export const IntentSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ask'), question: z.string() }),
-  z.object({ kind: z.literal('confirm'), fact: z.string() }),
-  z.object({ kind: z.literal('acknowledge'), note: z.string() }),
-  z.object({ kind: z.literal('hand_off'), note: z.string() }),
+/** A structured payload from deliberation too rich for a sentence — rendered deterministically
+ *  through an existing send path (`richlink` → the `[richlink:<url>]` body). Extend later with
+ *  `meal_plan`, `recipe_card`, etc. as new kinds, never a reshaped payload. */
+export const ArtifactSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('richlink'), url: z.string() }),
 ]);
 
-export const ReplyPlanSchema = z.object({
-  intents: z.array(IntentSchema),
-  must_say: z.array(z.string()).default([]),
-  address: z.string().optional(),
-});
-
-export type ReplyPlan = z.infer<typeof ReplyPlanSchema>;
+export type Artifact = z.infer<typeof ArtifactSchema>;
 
 /**
- * The reasoning agent's structured output — just the reply plan. Task/fact writes happen in-loop
- * through the `update_tasks`/`update_facts` tools (WI-3b), so the plan no longer declares them.
+ * The reasoner's output — the contract the deliberate tool hands the responder supervisor, never
+ * prose. `communicate` are the points to convey this turn (facts, confirmations, the upshot of deep
+ * thinking); `ask` are questions to advance the objective (0+); `artifacts` are structured payloads
+ * the supervisor renders deterministically. The supervisor owns voice — this carries facts, not
+ * phrasing (design §Modules).
+ */
+export const DeliberationResultSchema = z.object({
+  communicate: z.array(z.string()).default([]),
+  ask: z.array(z.string()).default([]),
+  artifacts: z.array(ArtifactSchema).optional(),
+});
+
+export type DeliberationResult = z.infer<typeof DeliberationResultSchema>;
+
+/**
+ * The reasoning agent's structured output — a `DeliberationResult`. Task/fact writes happen in-loop
+ * through the `update_tasks`/`update_facts` tools (WI-3b), so the result no longer declares them.
  */
 export const ReasoningOutputSchema = z.object({
-  replyPlan: ReplyPlanSchema,
+  result: DeliberationResultSchema,
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
+
+/** True when a `DeliberationResult` carries nothing to voice — the supervisor short-circuits to
+ *  `[]` events before any render call (matches the reasoner's empty-plan branch; AC-4). */
+export function isEmptyDeliberation(result: DeliberationResult): boolean {
+  return result.communicate.length === 0 && result.ask.length === 0 && (result.artifacts?.length ?? 0) === 0;
+}
 
 export const TAPBACK_EMOJIS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
 

@@ -1,12 +1,61 @@
-import { randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectSender, type Sender } from './sender.js';
-import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type TaskUpdate } from './chef.js';
+import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type OutboundSink, type TaskUpdate } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
-import type { ThreadMessage } from '../models/thread-message.js';
+import type { ChatEvent } from '../chef/types.js';
 import { TAPBACK_GLYPHS } from '../chef/types.js';
+
+/**
+ * The Consumer's per-turn live outbound channel (increment 2). Each `send` journals an outbound row
+ * tagged `trigger_id` + a deterministic `${triggerId}#${ordinal}` guid (`onConflictDoNothing`), then
+ * flushes it live through the `Sender`. On a redelivered, re-run turn the same guid already exists
+ * and is already sent → the send is skipped, so the household sees each bubble exactly once.
+ */
+class LiveOutboundSink implements OutboundSink {
+  private ordinal = 0;
+
+  constructor(
+    private readonly threads: ThreadRepository,
+    private readonly sender: Sender,
+    private readonly threadId: string,
+    private readonly chatGuid: string,
+    private readonly triggerId: string,
+  ) {}
+
+  async send(event: ChatEvent): Promise<void> {
+    const messageGuid = `${this.triggerId}#${this.ordinal++}`;
+    const row =
+      event.kind === 'tapback'
+        ? { type: 'reaction' as const, body: null, reactionEmoji: TAPBACK_GLYPHS[event.emoji], targetGuid: event.target }
+        : { body: event.kind === 'text' ? event.text : `[richlink:${event.url}]` };
+    const { id, alreadySent } = await this.threads.insertOutboundIdempotent({
+      threadId: this.threadId,
+      messageGuid,
+      triggerId: this.triggerId,
+      ...row,
+    });
+    if (alreadySent) return; // a redelivery replay — this bubble already went out; skip the live send
+    const ids = await this.deliver(event);
+    await this.threads.markSent(id, new Date());
+    if (ids[0]) await this.threads.setExternalId(id, ids[0]);
+  }
+
+  /** Sends one event live and returns its platform id(s): text→`send`, tapback→`sendReaction`,
+   *  richlink→`sendLink`. */
+  private async deliver(event: ChatEvent): Promise<string[]> {
+    switch (event.kind) {
+      case 'text':
+        return this.sender.send(this.chatGuid, [event.text]);
+      case 'richlink':
+        return this.sender.sendLink(this.chatGuid, event.url);
+      case 'tapback':
+        await this.sender.sendReaction(this.chatGuid, event.target, TAPBACK_GLYPHS[event.emoji]);
+        return []; // a reaction returns no targetable platform id
+    }
+  }
+}
 
 /**
  * Drains a thread's pending inbound and answers it. The consumer owns its collaborators — the
@@ -38,11 +87,12 @@ export class Consumer {
    * processor works a thread at a time. The doorbell is keyed by message_guid, so a lock loser
    * can safely do nothing — the holder re-drains in the loop below, and a message is always
    * committed to the DB before its doorbell fires. Each iteration is one turn: mark the pending
-   * messages read, then — with the typing indicator up — ask the chef for a reply; nothing pending
-   * ⇒ stop. The chef loads its own context and returns what to commit; the consumer commits its
-   * `chatEvents` (outbound rows), fact-less-task confirmations, and cursor in ONE transaction, then sends the
-   * unsent rows. The `sent_at` gate makes a redelivered doorbell a no-op; the loop drains messages
-   * that arrived mid-turn.
+   * messages read, then — with the typing indicator up — ask the chef for a reply. The chef sends
+   * its bubbles LIVE through the per-turn `sink` (increment 2), each row tagged `trigger_id` +
+   * deduped by a deterministic guid; the consumer then commits fact-less-task confirmations,
+   * completion, and the cursor LAST in ONE transaction. On redelivery the sink re-runs against the
+   * same trigger, so already-sent bubbles are skipped and the cursor advance re-commits idempotently.
+   * The loop drains messages that arrived mid-turn.
    *
    * ponytail: the lock is `redlock` with no fencing token — a pause past the TTL can let two
    * turns write concurrently. Rare, accepted for now (spec D5); fix is a store-enforced fence.
@@ -53,98 +103,61 @@ export class Consumer {
 
     await this.lock.withThreadLock(threadId, async () => {
       let cursor = thread.lastProcessedId;
-      // One-time screen-effect gates (WI-4B): confetti on the first-ever Chef turn, fireworks the
-      // turn onboarding completes. Seeded from the thread's flags (null ⇒ still pending) so a
-      // redelivered doorbell — a fresh handle() that reloads the thread — can't re-fire; flipped
-      // once fired so the multi-turn drain loop fires each at most once.
-      let greetPending = thread.greetedAt === null;
-      let celebratePending = thread.celebratedAt === null;
-      // One-time lifecycle gates (WI-4C), same substrate: rename the chat to "Meal Planning" the
-      // turn the household first exists (group chats only — a DM no-ops); send Chef's contact card
-      // the turn onboarding completes (after the fireworks). Seeded null ⇒ pending, flipped once
-      // fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
+      // Confetti/fireworks/contact-card effects are removed for now (WI-4B/4C deferred) — they fired on
+      // a premature completion. The one-time RENAME gate stays: rename the chat to "Meal Planning" the
+      // turn the household first exists (group chats only — a DM no-ops). Seeded null ⇒ pending, flipped
+      // once fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
       let renamePending = thread.renamedAt === null;
-      let cardPending = thread.cardedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
+        // The trigger id tags every outbound row this turn and is where the cursor lands — the newest
+        // pending inbound. On redelivery the same trigger re-derives the same deterministic send guids.
+        const triggerId = pending[pending.length - 1]!.id;
 
         // Acknowledge receipt: mark the messages we're about to answer as read.
         await this.sender.markRead(thread.chatGuid, pending.map((m) => m.messageGuid));
 
-        // Keep the typing indicator up while the chef composes, we commit, and the reply sends.
+        const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, triggerId);
+
+        // Keep the typing indicator up while the chef composes + sends live, then we commit.
         const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
-          const reply = await this.chef.respond(threadId);
+          const reply = await this.chef.respond(threadId, sink);
           if (!reply) return null; // nothing to say this turn — no commit, no send
           // Send proves delivery: a fact-less confirm (emit filled / ack asked) and completion may
-          // only fire when the turn actually emitted bubbles. An empty reply plan (reasoning-agent
+          // only fire when the turn actually delivered a bubble. An empty turn (reasoning-agent
           // MAX_ATTEMPTS fallback, or a model that didn't deliver the close) must NOT confirm the
           // emit or pop the objective — the close was never sent.
-          const delivered = reply.chatEvents.length > 0;
+          const delivered = reply.delivered;
 
-          // Whether this turn fires an effect, decided in-txn (below) against the fresh flags +
-          // post-update completion, then honoured by the send half after the commit.
-          const greetNow = greetPending;
-          let celebrateNow = false;
           // A household created this turn is why we rename: re-read the thread after respond (the
           // create_household tool linked it inside respond's own txn), gate on renamed_at + a set id.
           const householdNow = (await this.threads.findById(threadId))?.householdId ?? null;
           const renameNow = renamePending && householdNow !== null;
-          let cardNow = false;
 
           await this.db.transaction(async (tx) => {
-            for (const event of reply.chatEvents) {
-              // A tapback persists as a `type='reaction'` row (glyph + the target's external_id); a
-              // richlink as a `[richlink:<url>]` body marker (no enum value) the send half unwraps.
-              if (event.kind === 'tapback') {
-                await this.threads.insertOutbound(
-                  { threadId, body: null, messageGuid: randomUUID(), type: 'reaction', reactionEmoji: TAPBACK_GLYPHS[event.emoji], targetGuid: event.target },
-                  tx,
-                );
-                continue;
-              }
-              const body = event.kind === 'text' ? event.text : `[richlink:${event.url}]`;
-              await this.threads.insertOutbound({ threadId, body, messageGuid: randomUUID() }, tx);
-            }
-            // Confirm the fact-less tasks at send-time: an emit's bubbles just went out (→ filled);
-            // the explainer-ack elicit is asked when first delivered and filled by the next inbound.
-            // ponytail: onboarding's gate is linear (ack first+solo, close last), so "an eligible
-            // fact-less task was addressed this turn" is a safe status-driven heuristic — no transcript
-            // substring matching. If a future objective interleaves several emits in one turn, thread
-            // per-emit delivery (which bubble carried which emit) instead of this blanket confirm.
+            // Confirm the fact-less tasks now the turn's bubbles went out: an emit's just delivered
+            // (→ filled); the explainer-ack elicit is asked when first delivered and filled by the
+            // next inbound. ponytail: onboarding's gate is linear (ack first+solo, close last), so
+            // "an eligible fact-less task was addressed this turn" is a safe status-driven heuristic.
             if (delivered) await this.confirmTasks(reply.confirmTasks, tx);
             // Completion is a computable predicate — when every required task is terminal the
-            // objective completes and pops (the next suspended one, if any, activates). Only when
-            // bubbles went out this turn: an empty reply can't have delivered the close.
+            // objective completes and pops (the next suspended one, if any, activates). Only when a
+            // bubble went out this turn: an empty turn can't have delivered the close.
             const completedNow =
               delivered && !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
             if (completedNow) await this.objectives.completeAndPop(reply.objectiveId, tx);
+            // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
+            // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink).
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
-            // Stamp the effect gates in the same commit as the outbound rows, so the send fires
-            // exactly once even if the process dies before the send (redelivery reloads a set flag).
-            const now = new Date();
-            if (greetNow) await this.threads.markGreeted(threadId, now, tx);
-            celebrateNow = completedNow && celebratePending;
-            if (celebrateNow) await this.threads.markCelebrated(threadId, now, tx);
-            // Rename once the household exists; stamp even for a DM (which no-ops on send) so it
-            // never retries. Card co-fires with the fireworks, after them, once.
-            if (renameNow) await this.threads.markRenamed(threadId, now, tx);
-            cardNow = celebrateNow && cardPending;
-            if (cardNow) await this.threads.markCarded(threadId, now, tx);
+            // Rename once the household exists; stamp even for a DM (which no-ops on send) so it never
+            // retries. (Confetti/fireworks/contact-card effects removed — WI-4B/4C deferred.)
+            if (renameNow) await this.threads.markRenamed(threadId, new Date(), tx);
           });
 
-          greetPending = greetPending && !greetNow; // fired once; don't confetti a later turn
-          celebratePending = celebratePending && !celebrateNow; // fired once; don't re-fireworks a later completion
           renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
-          cardPending = cardPending && !cardNow; // fired once; don't re-send the card
-          const unsent = await this.threads.loadUnsentOutbound(threadId);
-          await this.dispatch(thread.chatGuid, unsent, greetNow);
           // Rename the chat to "Meal Planning" once the household exists (group only; DM no-ops).
           if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
-          // Fireworks the moment onboarding completes — a short extra bubble, not a normal reply.
-          if (celebrateNow) await this.sender.sendEffect(thread.chatGuid, 'Your first menu is on its way! 🎆', 'fireworks');
-          // Chef's contact card follows the fireworks so the user can save Chef.
-          if (cardNow) await this.sender.sendContactCard(thread.chatGuid);
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining
@@ -165,59 +178,5 @@ export class Consumer {
       status: t.kind === 'emit' ? 'filled' : t.status === 'asked' ? 'filled' : 'asked',
     }));
     if (updates.length) await this.objectives.applyTaskUpdates(updates, tx);
-  }
-
-  /**
-   * Sends the unsent outbound rows in row order, preserving text batching, richlink, and reaction
-   * ordering. Contiguous text rows accumulate into one ordered `send` batch (so iMessage can't
-   * reorder the bubbles); a richlink row (a `[richlink:<url>]` body marker) or a `type='reaction'`
-   * row first flushes any pending text batch, then dispatches via `sendLink` / `sendReaction` —
-   * keeping the overall sequence intact. Every row gets marked sent (the `sent_at` idempotency gate);
-   * text/richlink rows also capture the send's returned `external_id` (a reaction returns none).
-   */
-  private async dispatch(chatGuid: string, unsent: ThreadMessage[], greet = false): Promise<void> {
-    let batch: ThreadMessage[] = [];
-    const flush = async () => {
-      if (batch.length === 0) return;
-      const ids = await this.sender.send(chatGuid, batch.map((r) => r.body ?? ''));
-      await this.markRowsSent(batch, ids);
-      batch = [];
-    };
-
-    for (const row of unsent) {
-      if (row.type === 'reaction') {
-        await flush(); // text before this reaction must land first
-        await this.sender.sendReaction(chatGuid, row.targetMessageGuid!, row.reactionEmoji!);
-        await this.markRowsSent([row], []); // no external_id — a reaction isn't a targetable message
-        continue;
-      }
-      const link = /^\[richlink:(.+)\]$/.exec(row.body ?? '');
-      if (!link) {
-        // Confetti greeting (WI-4B): the first text bubble of the greeting turn ships alone via
-        // sendEffect(confetti); the rest batch normally. Consumed once, so only that bubble carries it.
-        if (greet) {
-          greet = false;
-          const ids = await this.sender.sendEffect(chatGuid, row.body ?? '', 'confetti');
-          await this.markRowsSent([row], ids);
-          continue;
-        }
-        batch.push(row);
-        continue;
-      }
-      await flush(); // text before this link must land first
-      const ids = await this.sender.sendLink(chatGuid, link[1]!);
-      await this.markRowsSent([row], ids);
-    }
-    await flush(); // any trailing text
-  }
-
-  /** Marks each row sent and maps the send's returned platform ids back to rows by index. A degraded
-   *  return (fewer ids than rows) leaves the unmatched rows' external_id null rather than mis-assigning. */
-  private async markRowsSent(rows: ThreadMessage[], ids: string[]): Promise<void> {
-    const now = new Date();
-    for (const [i, row] of rows.entries()) {
-      await this.threads.markSent(row.id, now);
-      if (ids[i]) await this.threads.setExternalId(row.id, ids[i]!);
-    }
   }
 }

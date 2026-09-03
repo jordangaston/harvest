@@ -14,30 +14,27 @@ import { buildApp } from "../src/index.js";
 import { parseInbound } from "../src/imessage/inbound.js";
 import { Consumer } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
-import { StubChef } from "../src/imessage/chef.js";
+import { StubChef, type OutboundSink } from "../src/imessage/chef.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
 import { ThreadRepository } from "../src/repositories/thread-repository.js";
 
 const SECRET = "whsec_test";
 process.env.SPECTRUM_WEBHOOK_SECRET = SECRET;
 
-/** A Chef double that emits TWO text bubbles per turn — for the outbound external_id mapping tests. */
+/** A Chef double that sends TWO text bubbles live per turn — for the outbound external_id tests. */
 class TwoBubbleChef {
   private readonly threads: ThreadRepository;
   constructor(private readonly db: Database) {
     this.threads = ThreadRepository.create(db);
   }
-  async respond(threadId: string) {
+  async respond(threadId: string, sink: OutboundSink) {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
     const pending = await this.threads.loadPendingInbound(threadId, thread.lastProcessedId);
     if (pending.length === 0) return null;
-    return {
-      chatEvents: [{ kind: "text" as const, text: "first" }, { kind: "text" as const, text: "second" }],
-      confirmTasks: [],
-      cursorTo: pending[pending.length - 1]!.id,
-      objectiveId: "",
-    };
+    await sink.send({ kind: "text", text: "first" });
+    await sink.send({ kind: "text", text: "second" });
+    return { confirmTasks: [], cursorTo: pending[pending.length - 1]!.id, objectiveId: "", delivered: true };
   }
 }
 
@@ -326,9 +323,11 @@ describe("iMessage substrate", () => {
     expect(row.externalId).toBe("m-ext"); // the Spectrum message id the webhook carried
   });
 
-  it("outbound external_id captured in send order (WI-C AC1)", async () => {
+  it("each live bubble captures its send's external_id and is marked sent (WI-C AC1)", async () => {
+    // Increment 2: bubbles send LIVE, one `send()` call per bubble, so each captures the id its own
+    // call returned (the stub returns `ext-0` for a single-body send) — not a batch index-map.
     const [thread] = await postAndGetThread("m-ac1", "chat-ac1", "+15552220000", "hey");
-    const sender = new StubSpectrumSender(); // returns ext-0, ext-1, … in order
+    const sender = new StubSpectrumSender();
     await new Consumer(db, sender, new TwoBubbleChef(db), new StubThreadLock()).handle({ threadId: thread.id });
 
     const outbound = await db
@@ -337,8 +336,10 @@ describe("iMessage substrate", () => {
       .where(eq(threadMessages.direction, "outbound"))
       .orderBy(sql`rowid`);
     expect(outbound).toHaveLength(2);
-    expect(outbound.map((r) => r.externalId)).toEqual(["ext-0", "ext-1"]);
+    expect(outbound.map((r) => r.body)).toEqual(["first", "second"]); // sent in order
+    expect(outbound.every((r) => r.externalId === "ext-0")).toBe(true); // each from its own live send
     expect(outbound.every((r) => r.sentAt !== null)).toBe(true);
+    expect(sender.calls.map((c) => c.body)).toEqual(["first", "second"]); // two live sends, in order
   });
 
   it("reply-to-Chef resolves the parent via external_id + briefs (WI-C AC2)", async () => {
@@ -365,10 +366,12 @@ describe("iMessage substrate", () => {
     expect(prompt).toContain('replying to: "here\'s the menu for the week"');
   });
 
-  it("degraded send return doesn't crash or mis-assign (WI-C AC3)", async () => {
+  it("an empty send return doesn't crash and still marks the row sent (WI-C AC3)", async () => {
+    // A degraded send that returns no id leaves external_id null but must still mark the row sent —
+    // the send resolved, so the sent_at idempotency gate must trip regardless of the returned id.
     const [thread] = await postAndGetThread("m-ac3", "chat-ac3", "+15554440000", "yo");
     const sender = new StubSpectrumSender();
-    sender.sendReturn = ["only-0"]; // one id for a two-bubble turn
+    sender.sendReturn = []; // the send resolved but returned no platform id
     await new Consumer(db, sender, new TwoBubbleChef(db), new StubThreadLock()).handle({ threadId: thread.id });
 
     const outbound = await db
@@ -377,8 +380,7 @@ describe("iMessage substrate", () => {
       .where(eq(threadMessages.direction, "outbound"))
       .orderBy(sql`rowid`);
     expect(outbound).toHaveLength(2);
-    expect(outbound[0].externalId).toBe("only-0"); // the known one is set
-    expect(outbound[1].externalId).toBeNull(); // the unmatched one stays null — never mis-assigned
+    expect(outbound.every((r) => r.externalId === null)).toBe(true); // no id returned → left null
     expect(outbound.every((r) => r.sentAt !== null)).toBe(true); // both still marked sent
   });
 
