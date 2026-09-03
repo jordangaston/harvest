@@ -18,6 +18,9 @@ export const ThreadMessageSchema = z.object({
   // Set at insert for inbound, after send for outbound; null on an unsent outbound row.
   externalId: z.string().nullable(),
   sentAt: z.date().nullable(),
+  // The inbound message that caused this outbound row (mid-turn send durability). Null for inbound
+  // rows and legacy/greeting outbound.
+  triggerId: z.string().nullable(),
   createdAt: z.date(),
 });
 

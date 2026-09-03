@@ -116,11 +116,6 @@ export class ThreadRepository {
     return row ? ThreadMessageSchema.parse(row) : null;
   }
 
-  /** True when an inbound text message exists past the cursor (the interruption-barrier check). */
-  async hasInboundPast(threadId: string, cursor: string): Promise<boolean> {
-    return (await this.loadPendingInbound(threadId, cursor)).length > 0;
-  }
-
   /** Inserts one outbound row with `sent_at` NULL (the unsent send gate). Defaults to a `text` row;
    *  a `reaction` row carries `reactionEmoji` (the glyph) and `targetGuid` (the message reacted to).
    *  `targetGuid`, on a text row, records the parent it threads a reply to (symmetry with inbound). */
@@ -139,6 +134,41 @@ export class ThreadRepository {
     await tx
       .insert(threadMessages)
       .values({ ...rest, direction: 'outbound', type: type ?? 'text', reactionEmoji, targetMessageGuid: targetGuid });
+  }
+
+  /**
+   * Inserts one outbound row idempotently by its deterministic `messageGuid` — the mid-turn-send
+   * dedup gate (increment 2). Tags the row with `triggerId` (the inbound that caused the turn) and
+   * `sent_at` NULL. On the second delivery of a re-run turn the same guid already exists, so the
+   * insert is a no-op and this reports the existing row instead of a duplicate.
+   * @returns the row id, whether this call inserted it (`inserted`), and whether the row is already
+   *   sent (`alreadySent`) — the sink skips the live send when a row exists AND is already sent.
+   */
+  async insertOutboundIdempotent(
+    input: {
+      threadId: string;
+      body: string | null;
+      messageGuid: string;
+      triggerId: string;
+      type?: 'text' | 'reaction';
+      reactionEmoji?: string | null;
+      targetGuid?: string | null;
+    },
+  ): Promise<{ id: string; inserted: boolean; alreadySent: boolean }> {
+    const { targetGuid, type, reactionEmoji, ...rest } = input;
+    const [inserted] = await this.db
+      .insert(threadMessages)
+      .values({ ...rest, direction: 'outbound', type: type ?? 'text', reactionEmoji, targetMessageGuid: targetGuid })
+      .onConflictDoNothing({ target: threadMessages.messageGuid })
+      .returning({ id: threadMessages.id });
+    if (inserted) return { id: inserted.id, inserted: true, alreadySent: false };
+    // Conflict: the row already exists (a redelivery replay). Read it to decide whether its send
+    // already resolved (skip the live send) or crashed before markSent (re-send this one row).
+    const [existing] = await this.db
+      .select({ id: threadMessages.id, sentAt: threadMessages.sentAt })
+      .from(threadMessages)
+      .where(eq(threadMessages.messageGuid, input.messageGuid));
+    return { id: existing!.id, inserted: false, alreadySent: existing!.sentAt !== null };
   }
 
   /** Advances the cursor to the newest processed inbound id and bumps updated_at. */
