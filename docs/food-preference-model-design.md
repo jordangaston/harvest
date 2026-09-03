@@ -171,3 +171,20 @@ sequenceDiagram
 
 Out of scope: how the planner reconciles an already-blown day/week aggregate is meal-plan generation,
 not the preference model.
+
+## WI-4 build note (plate + composition)
+
+`completePlate` / `checkAggregate` land as pure modules in `server/src/ranking/` (`plate.ts`,
+`aggregate.ts`), over the same `RankableRecipe` the ranker consumes; `recipeMatches` is shared via
+`directive-match.ts`. **No schema change:** `meal_plan_entries` already holds `1..*` recipes per slot
+ordered by `position`, so a plate is a grouping the composer returns (main-first), not a new table or
+column — the design's "meal-plan entry is a plate" is a read/write grouping, satisfied today.
+
+There is **no meal-plan generation/planner path** in the codebase yet (meal-plan is manual
+add/remove/list); the composer/aggregate functions are the building blocks it will call. Wiring them
+into an end-to-end weekly generator is meal-plan generation — out of scope, as flagged.
+
+**Q-06 still open (data):** `dish_type=side_dish` corpus coverage is unmeasured here — the WI-4 tests
+supply their own side, so no test proves the gap blocks completion. Before the planner ships, confirm
+the live corpus carries enough `side_dish` recipes (esp. vegetable/fiber sides) or seed/backfill them;
+`completePlate` no-ops a rule when no matching side exists, so a thin corpus silently under-completes.
