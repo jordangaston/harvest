@@ -9,7 +9,6 @@ export interface SwipeInput {
   direction: (typeof recipeSwipes.$inferInsert)['direction'];
   reason?: (typeof recipeSwipes.$inferInsert)['reason'];
   score: number;
-  weights: RecipeSwipe['weights'];
 }
 
 /** Captured swipes: the feedback log that drives the deck and later ranking. */
@@ -32,7 +31,6 @@ export class SwipeRepository {
       direction: input.direction,
       reason: input.reason ?? null,
       score: input.score,
-      weights: input.weights,
       createdAt: new Date(),
     };
     const [row] = await this.db
@@ -40,7 +38,7 @@ export class SwipeRepository {
       .values(values)
       .onConflictDoUpdate({
         target: [recipeSwipes.userId, recipeSwipes.recipeId],
-        set: { direction: values.direction, reason: values.reason, score: values.score, weights: values.weights, createdAt: values.createdAt },
+        set: { direction: values.direction, reason: values.reason, score: values.score, createdAt: values.createdAt },
       })
       .returning();
     return RecipeSwipeSchema.parse(row);

@@ -1,4 +1,4 @@
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type DirectiveDimension, type DirectiveScope, type Direction, type Strength } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
@@ -9,19 +9,6 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 /** A write executor: an open transaction, or the bare `db` (which opens its own). */
 type Executor = Database | Tx;
 
-/** Maps a weight signal to its `user_preferences` column (drizzle property + column). */
-const WEIGHT_COLUMN = {
-  cost: 'weightCost',
-  difficulty: 'weightDifficulty',
-  nutrition: 'weightNutrition',
-  affinity: 'weightAffinity',
-  time: 'weightTime',
-  popularity: 'weightPopularity',
-  mealPrep: 'weightMealPrep',
-} as const;
-
-export type WeightSignal = keyof typeof WEIGHT_COLUMN;
-
 export class PreferenceRepository {
   constructor(private readonly db: Database) {}
 
@@ -31,11 +18,11 @@ export class PreferenceRepository {
 
   /**
    * Resolves a user's ranking preferences: their stored `user_preferences` row plus
-   * child tables when present, else goals-derived cold-start defaults.
+   * child tables when present, else cold-start defaults.
    * @param userId - The authenticated user (caller guarantees they exist).
    * @returns The fully-resolved preferences, parsed at the domain boundary.
-   * @throws If the row is stored but fails validation (e.g. an out-of-range weight),
-   *   or if no `users` row exists for the id (a bug — callers pass an authed user).
+   * @throws If the row is stored but fails validation, or if no `users` row exists for the id
+   *   (a bug — callers pass an authed user).
    */
   async getPreferences(userId: string): Promise<UserPreferences> {
     const [prefs] = await this.db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
@@ -56,15 +43,6 @@ export class PreferenceRepository {
       timeBudgetMinutes: prefs.timeBudgetMinutes,
       timeByMeal: timeByMealFromColumns(prefs.timeBreakfastMinutes, prefs.timeLunchMinutes, prefs.timeDinnerMinutes),
       weeklyMeals: prefs.weeklyMeals ?? ZERO_MEALS,
-      weights: {
-        cost: prefs.weightCost,
-        difficulty: prefs.weightDifficulty,
-        nutrition: prefs.weightNutrition,
-        affinity: prefs.weightAffinity,
-        time: prefs.weightTime,
-        popularity: prefs.weightPopularity,
-        mealPrep: prefs.weightMealPrep,
-      },
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
       foodPrefs: foodPrefs.map((f) => ({ dimension: f.dimension, value: f.value, scope: f.scope, direction: f.direction, strength: f.strength, target: f.target, unit: f.unit, reason: f.reason })),
@@ -76,7 +54,7 @@ export class PreferenceRepository {
     });
   }
 
-  /** Cold-start defaults from `users.goals`: all weights 1 (popularity 0), bumped by goal. */
+  /** Cold-start defaults: the baseline `user_preferences` row plus empty child tables. */
   private async coldStart(userId: string): Promise<UserPreferences> {
     const row = await this.coldStartRow(this.db, userId);
     return UserPreferencesSchema.parse({
@@ -84,15 +62,6 @@ export class PreferenceRepository {
       weeklyBudgetCents: null,
       timeByMeal: null,
       weeklyMeals: ZERO_MEALS,
-      weights: {
-        cost: row.weightCost,
-        difficulty: row.weightDifficulty,
-        nutrition: row.weightNutrition,
-        affinity: row.weightAffinity,
-        time: row.weightTime,
-        popularity: row.weightPopularity,
-        mealPrep: row.weightMealPrep,
-      },
       allergens: [],
       diets: [],
       foodPrefs: [],
@@ -105,27 +74,20 @@ export class PreferenceRepository {
   }
 
   /**
-   * The `user_preferences` column values for a cold-start user, derived from
-   * `users.goals`. Shared by the read path (resolve without writing) and the write
-   * path (materialize the row before the first nudge).
+   * The baseline `user_preferences` column values for a cold-start user. Shared by the read path
+   * (resolve without writing) and the write path (materialize the row before the first write).
+   * Goal→weight seeding is retired with the weight vector (WI-3); goals now shape ranking only as
+   * seeded directives, not baseline weights.
    * @throws If no `users` row exists for the id (a bug — callers pass an authed user).
    */
   private async coldStartRow(db: Database | Tx, userId: string) {
-    const [user] = await db.select({ goals: users.goals }).from(users).where(eq(users.id, userId));
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
     if (!user) throw new Error(`No user for id ${userId}`);
-    const goals = user.goals ?? [];
     return {
       userId,
       skillLevel: 'beginner' as const,
       budgetCentsPerServing: null,
       timeBudgetMinutes: null,
-      weightCost: goals.includes('save_money') ? 3 : 1,
-      weightDifficulty: 1,
-      weightNutrition: goals.includes('eat_healthier') ? 3 : 1,
-      weightAffinity: 1,
-      weightTime: goals.includes('quick_meals') ? 3 : 1,
-      weightPopularity: 0,
-      weightMealPrep: goals.includes('meal_prepping') ? 3 : 1,
     };
   }
 
@@ -133,20 +95,6 @@ export class PreferenceRepository {
   private async ensureRow(tx: Executor, userId: string): Promise<void> {
     const { userId: _id, ...row } = await this.coldStartRow(tx, userId);
     await tx.insert(userPreferences).values({ userId, ...row }).onConflictDoNothing();
-  }
-
-  /**
-   * Nudges one weight up by 1 (capped at 3), the first write-path into
-   * `user_preferences`. A cold-start user's defaults are materialized as a row first,
-   * so the nudge lands on their goal-derived baseline.
-   */
-  async bumpWeight(userId: string, signal: WeightSignal): Promise<void> {
-    const property = WEIGHT_COLUMN[signal];
-    const column = userPreferences[property];
-    await this.db.transaction(async (tx) => {
-      await this.ensureRow(tx, userId);
-      await tx.update(userPreferences).set({ [property]: sql`min(3, ${column} + 1)` }).where(eq(userPreferences.userId, userId));
-    });
   }
 
   /**
@@ -227,19 +175,14 @@ export class PreferenceRepository {
 
   /**
    * Persists the user-editable preferences from the settings surface (a full replace of the
-   * editable subset). Weights are left untouched — they're server-owned (dislike-tuned). The food-pref
-   * write replaces every caller-authored facet (taste like/dislike + food_category moderation),
-   * leaving the dislike loop's `primary_ingredient` rows intact. Reviewing preferences sets the equipment gate.
+   * editable subset). The food-pref write replaces every caller-authored facet (taste like/dislike +
+   * food_category moderation), leaving the dislike loop's `primary_ingredient` rows intact. Reviewing
+   * preferences sets the equipment gate.
    * @returns The re-resolved preferences after the write.
    */
   async savePreferences(userId: string, input: PreferencesUpdate): Promise<UserPreferences> {
     await this.db.transaction(async (tx) => {
       await this.ensureRow(tx, userId);
-
-      // Seed the meal-prep weight once when leftovers flip false→true (mirrors the goals
-      // cold-start seed); never lower it. Read the pre-save value inside the tx.
-      const [before] = await tx.select({ eatsLeftovers: userPreferences.eatsLeftovers }).from(userPreferences).where(eq(userPreferences.userId, userId));
-      const leftoversTurnedOn = input.eatsLeftovers && before && !before.eatsLeftovers;
 
       // `time_budget_minutes` is the derived max(...) scalar (back-compat + cold-start); when the
       // client sends per-meal budgets it wins (the largest set meal), else the client's own scalar.
@@ -265,7 +208,6 @@ export class PreferenceRepository {
           householdAdults: input.household.adults,
           householdKids: input.household.kids,
           eatsLeftovers: input.eatsLeftovers,
-          ...(leftoversTurnedOn ? { weightMealPrep: sql`min(3, ${userPreferences.weightMealPrep} + 1)` } : {}),
           updatedAt: new Date(),
         })
         .where(eq(userPreferences.userId, userId));

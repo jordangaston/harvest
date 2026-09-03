@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { AFFINITY_FACETS, DIRECTIVE_DIMENSIONS, DIRECTIVE_SCOPES, DIRECTIONS, STRENGTHS } from '../schema.js';
 
 // Ranking enum value tuples, re-declared here (repo convention: the model validates
-// independently of the Drizzle table). The 0–3 weight range is enforced in this
-// schema at the read boundary, not by a DB check constraint. `AFFINITY_FACETS`/`SENTIMENTS`
-// are the one exception — shared with the recipe/user facet columns, so imported from schema.
+// independently of the Drizzle table). `AFFINITY_FACETS`/`SENTIMENTS` are the one exception —
+// shared with the recipe/user facet columns, so imported from schema.
 const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
@@ -12,7 +11,6 @@ const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 export { AFFINITY_FACETS, DIRECTIVE_DIMENSIONS };
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
-const weight = () => z.number().int().min(0).max(3);
 const mealCount = () => z.number().int().min(0).max(21);
 
 /** How many of each meal type to plan per week (meal-count intake). */
@@ -68,15 +66,6 @@ export const UserPreferencesSchema = z.object({
   timeBudgetMinutes: z.number().int().positive().nullable(),
   timeByMeal: TimeByMealSchema.nullable(),
   weeklyMeals: WeeklyMealsSchema,
-  weights: z.object({
-    cost: weight(),
-    difficulty: weight(),
-    nutrition: weight(),
-    affinity: weight(),
-    time: weight(),
-    popularity: weight(),
-    mealPrep: weight(),
-  }),
   allergens: z.array(z.object({ allergen: z.enum(MAJOR_ALLERGENS), severity: z.enum(ALLERGEN_SEVERITIES) })),
   diets: z.array(z.object({ dietId: z.string(), strictness: z.enum(DIET_STRICTNESS) })),
   foodPrefs: z.array(FoodPrefSchema),
@@ -109,10 +98,9 @@ export const FoodPrefUpdateSchema = z.object({
 export type FoodPrefUpdate = z.infer<typeof FoodPrefUpdateSchema>;
 
 /**
- * The user-editable subset the settings + onboarding surfaces write. Weights are omitted on
- * purpose — they're server-owned (tuned by the dislike loop), so a save never clobbers them.
- * One `foodPrefs` array carries every food directive (taste + eat-more/less intent); the repo
- * upserts each by (userId, dimension, value, scope).
+ * The user-editable subset the settings + onboarding surfaces write. One `foodPrefs` array carries
+ * every food directive (taste + eat-more/less intent); the repo upserts each by
+ * (userId, dimension, value, scope).
  */
 export const PreferencesUpdateSchema = z.object({
   skillLevel: z.enum(SKILL_LEVELS),

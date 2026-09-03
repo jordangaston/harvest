@@ -1,4 +1,5 @@
 import type { Equipment, Essentiality } from '../schema.js';
+import type { LabelCoreKey } from '../models/label-core.js';
 
 /** Recipe-with-signals the engine consumes; WI-RANK-3 populates it from the DB. */
 export type RankableRecipe = {
@@ -8,6 +9,10 @@ export type RankableRecipe = {
   difficultyBand: 'beginner' | 'intermediate' | 'advanced' | null;
   mealPrepFit: 'unsuitable' | 'suitable' | 'designed' | null;
   nrfScore: number | null;
+  // Per-serving nutrition panel (the eight label-core macros), keyed by label-core column. A
+  // `nutrient` directive budgets against the field its value maps to (NUTRIENT_PANEL_COLUMN); a
+  // genuinely-absent macro is null and the directive can't bite.
+  nutrition: Record<LabelCoreKey, number | null>;
   totalMinutes: number | null;
   // The recipe's meal_type facets (breakfast/brunch/lunch/dinner/snack); picks the time budget.
   mealTypes: string[];

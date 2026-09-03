@@ -1,31 +1,5 @@
-import type { MealPrepFit } from '../schema.js';
-
 // Ranking tuning knobs. Literature/heuristic stopgaps — recalibrate from the real
 // catalog once recipes exist (then just re-rank; no code change needed).
-
-/** NRF value that scores 0.5 in the nutrition squash x⁺/(x⁺+k); NRF 15/3 whole-diet mean. */
-export const NUTRITION_K = 57;
-
-/** Cost/time curves ramp to 0 at this multiple of the user's budget. */
-export const BUDGET_SLOPE = 2;
-
-/** Asymmetric difficulty score by signed distance d = bandRank − skillRank. */
-export const DIFFICULTY_BY_DISTANCE: Record<number, number> = {
-  [-2]: 0.7,
-  [-1]: 0.85,
-  [0]: 1.0,
-  [1]: 0.6,
-  [2]: 0.2,
-};
-
-/** Meal-prep band → score (signal #10). `unsuitable` is 0.15 (down-weighted, not buried);
- * a calibration knob — recalibrate from the real catalog. Null fit → the signal is
- * unavailable and drops from the weighted average. */
-export const MEAL_PREP_SCORE: Record<MealPrepFit, number> = {
-  unsuitable: 0.15,
-  suitable: 0.6,
-  designed: 1.0,
-};
 
 /** Dish types that keep well when batch-cooked — the deterministic fallback's keeps-well
  * set (values are `recipe_categories` dish_type vocab members). */
@@ -39,11 +13,19 @@ export const PENALTY_MILD_ALLERGEN = 0.15;
 export const PENALTY_FLEXIBLE_INCOMPATIBLE = 0.2;
 export const PENALTY_UNKNOWN_VERDICT = 0.05;
 
-/** Max moderation down-weight, at full intent (`target = -1`); scales linearly by `-target`,
- *  so a `target = -0.6` red-meat pref subtracts `0.3 * 0.6 = 0.18` from a red-meat recipe.
- *  ponytail: stopgap tuning knob — validate against the live corpus (does a `target=-0.6`
- *  visibly reorder the deck?) and adjust; no code change, just re-rank. */
-export const MODERATION_PENALTY_MAX = 0.3;
+/**
+ * How much a `soft`/`firm` food_category or nutrient directive multiplies the base score when the
+ * recipe carries the directive's value (WI-3). `less` shrinks (`<1`), `more` grows (`>1`); `firm`
+ * bites harder than `soft`. Only food_category/nutrient use this — the taste dimensions
+ * (cuisine/dish_type/primary_ingredient/ingredient) carry strength inside the AffinityScorer's base
+ * score, so the modulation layer leaves them alone.
+ * ponytail: stopgap factors — validate against the live corpus (does a firm `less` visibly sink the
+ * value?) and retune; no code change, just re-rank.
+ */
+export const DIRECTIVE_FACTOR = {
+  soft: { less: 0.85, more: 1.15 },
+  firm: { less: 0.6, more: 1.4 },
+} as const;
 
 /** Equipment signal (WI-EQ-3): a flat, once-per-recipe penalty when a reviewed user lacks any
  * `recommended` (substitutable) gear the recipe suggests. Flat, not per-item, to avoid burying a
