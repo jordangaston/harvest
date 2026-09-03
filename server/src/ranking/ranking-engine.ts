@@ -1,26 +1,11 @@
-import type { UserPreferences, FoodPref } from '../models/user-preferences.js';
+import type { UserPreferences } from '../models/user-preferences.js';
 import type { RankableRecipe, RankedRecipe } from './types.js';
 import { type FilterRule, AllergenFilter, DietFilter, EquipmentFilter } from './filters.js';
 import { type SignalScorer, AffinityScorer, PopularityScorer } from './scorers.js';
-import { NUTRIENT_PANEL_COLUMN } from '../nutrition/nutrient-catalog.js';
+import { recipeMatches } from './directive-match.js';
 import {
   PENALTY_MILD_ALLERGEN, PENALTY_FLEXIBLE_INCOMPATIBLE, PENALTY_UNKNOWN_VERDICT, PENALTY_MISSING_EQUIPMENT, DIRECTIVE_FACTOR,
 } from './constants.js';
-
-/** The affinity facets a recipe carries directly on its category buckets (ingredient is separate). */
-const CATEGORY_BUCKET = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient', food_category: 'foodCategory' } as const;
-
-/** Whether a recipe carries a recipe-scope directive's `(dimension, value)` — the attribute the
- * directive ranks/filters against. Categories/ingredient match on membership; a `nutrient` matches
- * when the recipe's panel measures that nutrient (a non-null value to budget). */
-function recipeMatches(recipe: RankableRecipe, d: FoodPref): boolean {
-  if (d.dimension === 'ingredient') return recipe.baseIngredientIds.includes(d.value);
-  if (d.dimension === 'nutrient') {
-    const column = NUTRIENT_PANEL_COLUMN[d.value];
-    return column !== undefined && recipe.nutrition[column] !== null;
-  }
-  return recipe.categories[CATEGORY_BUCKET[d.dimension]].includes(d.value);
-}
 
 /** The four taste dimensions the AffinityScorer scores directly (strength-scaled). A soft/firm
  * directive on these is already in the base, so the modulation layer leaves them alone;
