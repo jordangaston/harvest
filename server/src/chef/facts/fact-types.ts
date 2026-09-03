@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import type { Database } from '../../db.js';
 import {
   GROCERY_STORES,
@@ -8,16 +7,15 @@ import {
   DIET_STRICTNESS,
   DIFFICULTY_BANDS,
   GOALS,
-  users,
-  householdMembers,
 } from '../../schema.js';
 import { HouseholdPreferenceRepository } from '../../repositories/household-preference-repository.js';
+import { HouseholdRepository } from '../../repositories/household-repository.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
 import { UserRepository } from '../../repositories/user-repository.js';
 import { TasteOptionsService, type TasteOptions } from '../../services/taste-options-service.js';
 import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
 import { WeeklyMealsSchema, TimeByMealSchema } from '../../models/user-preferences.js';
-import { coerce, codeCandidates, labelFor, parseBudgetCents, type Candidate } from '../tools/catalog.js';
+import { coerce, codeCandidates, labelFor, parseBudgetCents, rank, type Candidate } from '../tools/catalog.js';
 import { resolveEquipment } from '../tools/equipment-grounding.js';
 import type { FactType, Flavor, Subject, Tx, TypeDoc, ValidateResult, ValuePage } from './fact-type.js';
 
@@ -48,10 +46,11 @@ abstract class EnumType implements FactType {
     return { name: this.name, flavor: this.flavor, description: this.description, values: this.candidates };
   }
   search(query: string): ValuePage {
-    const slug = query.trim();
-    if (!slug) return { values: this.candidates };
+    if (!query.trim()) return { values: this.candidates };
     const { value } = coerce(query, this.candidates);
-    return { values: this.candidates.filter((c) => (value ? c.value === value : c.value.includes(slug))) };
+    // A strong coerce hit returns just that id; otherwise rank the catalog by fuzzy score (sorted,
+    // near-misses kept) so a misspelled query still surfaces its nearest legal values.
+    return { values: value ? this.candidates.filter((c) => c.value === value) : rank(query, this.candidates) };
   }
   validate(value: unknown): ValidateResult {
     if (typeof value !== 'string') return { ok: false, reason: `${this.name} needs a string` };
@@ -142,33 +141,18 @@ class OwnedEquipmentType implements FactType {
 }
 
 /** The household's cooking goals, fanned out onto EVERY member's `users.goals` (the goal set is
- *  household-wide; `PreferenceRepository.coldStart` reads it to seed ranking weights). */
+ *  household-wide; `PreferenceRepository.coldStart` reads it to seed ranking weights). The member
+ *  fan-out is the repository's job — this type only grounds the goal id. */
 class GoalType extends EnumType {
   protected readonly candidates = GOALS.map((value) => ({ value, label: labelFor(value) }));
-  constructor(private readonly db: Database) {
+  constructor(private readonly households: HouseholdRepository) {
     super('GOAL', 'A household cooking goal (e.g. eat_healthier, quick_meals).', 'catalog');
   }
   async persist(subject: Subject, value: unknown, tx: Tx): Promise<void> {
-    const hh = householdId(subject);
-    const goal = this.normalize(value) as (typeof GOALS)[number];
-    const members = await tx
-      .select({ id: users.id, goals: users.goals })
-      .from(users)
-      .innerJoin(householdMembers, eq(householdMembers.userId, users.id))
-      .where(eq(householdMembers.householdId, hh));
-    for (const m of members) {
-      const merged = Array.from(new Set([...(m.goals ?? []), goal])) as (typeof GOALS)[number][];
-      await tx.update(users).set({ goals: merged }).where(eq(users.id, m.id));
-    }
+    await this.households.addHouseholdGoal(householdId(subject), this.normalize(value) as (typeof GOALS)[number], tx);
   }
   async read(subject: Subject): Promise<unknown> {
-    const rows = await this.db
-      .select({ goals: users.goals })
-      .from(users)
-      .innerJoin(householdMembers, eq(householdMembers.userId, users.id))
-      .where(eq(householdMembers.householdId, householdId(subject)));
-    // Household-wide goals are unioned onto every member, so any member's set represents it.
-    return rows[0]?.goals ?? [];
+    return this.households.householdGoals(householdId(subject));
   }
 }
 
@@ -525,6 +509,7 @@ export class FactTypeRegistry {
 
   static create(db: Database): FactTypeRegistry {
     const hh = HouseholdPreferenceRepository.create(db);
+    const households = HouseholdRepository.create(db);
     const member = PreferenceRepository.create(db);
     const userRepo = UserRepository.create(db);
     const taste = TasteOptionsService.create(db);
@@ -538,7 +523,7 @@ export class FactTypeRegistry {
       new CookDaysCountType(hh),
       new EatsLeftoversType(hh),
       new OwnedEquipmentType(hh),
-      new GoalType(db),
+      new GoalType(households),
       new HouseholdSizeType(hh),
       new NameType(userRepo),
       new AllergenType(member),
