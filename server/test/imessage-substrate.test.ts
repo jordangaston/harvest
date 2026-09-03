@@ -34,7 +34,7 @@ class TwoBubbleChef {
     if (pending.length === 0) return null;
     return {
       chatEvents: [{ kind: "text" as const, text: "first" }, { kind: "text" as const, text: "second" }],
-      slotUpdates: [],
+      confirmTasks: [],
       cursorTo: pending[pending.length - 1]!.id,
       objectiveId: "",
     };
@@ -359,7 +359,7 @@ describe("iMessage substrate", () => {
     const { prepareBriefing } = await import("../src/chef/briefing.js");
     const prompt = prepareBriefing({
       objective: { definition: "onboarding" } as any,
-      slots: [], members: [], transcript: [], trigger: "make it vegetarian",
+      tasks: [], members: [], transcript: [], trigger: "make it vegetarian",
       replyingTo: parent!.body!,
     });
     expect(prompt).toContain('replying to: "here\'s the menu for the week"');

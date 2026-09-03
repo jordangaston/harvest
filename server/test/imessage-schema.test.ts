@@ -8,13 +8,13 @@ import {
   householdMembers,
   householdPreferences,
   objectives,
-  slots,
+  tasks,
 } from "../src/schema.js";
 import { HouseholdSchema } from "../src/models/household.js";
 import { HouseholdMemberSchema } from "../src/models/household-member.js";
 import { HouseholdPreferencesSchema } from "../src/models/household-preferences.js";
 import { ObjectiveSchema } from "../src/models/objective.js";
-import { SlotSchema } from "../src/models/slot.js";
+import { TaskSchema } from "../src/models/task.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 
 let client: Client;
@@ -50,7 +50,7 @@ async function seedObjective(threadId: string): Promise<string> {
 
 describe("increment-2 schema", () => {
   it("Test Case 1: migration creates the five tables and leaves increment-1 intact", async () => {
-    const names = ["households", "household_members", "household_preferences", "objectives", "slots", "threads", "thread_messages"];
+    const names = ["households", "household_members", "household_preferences", "objectives", "tasks", "threads", "thread_messages"];
     const res = await client.execute(
       `SELECT name FROM sqlite_master WHERE type='table' AND name IN (${names.map(() => "?").join(",")}) ORDER BY name`,
       names,
@@ -72,26 +72,26 @@ describe("increment-2 schema", () => {
     ).resolves.toBeDefined();
   });
 
-  it("Test Case 3: slot uniqueness on (objective, key, member); NULL members coexist", async () => {
+  it("Test Case 3: task uniqueness on (objective, fact, member); NULL members coexist", async () => {
     const memberA = await seedUser("A");
     const memberB = await seedUser("B");
     const threadId = await seedThread(memberA);
     const objectiveId = await seedObjective(threadId);
 
-    await db.insert(slots).values({ objectiveId, key: "member.allergens", scope: "member", memberUserId: memberA, required: true });
+    await db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "member.allergens", scope: "member", memberUserId: memberA, required: true });
     await expect(
-      db.insert(slots).values({ objectiveId, key: "member.allergens", scope: "member", memberUserId: memberA, required: true }),
+      db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "member.allergens", scope: "member", memberUserId: memberA, required: true }),
     ).rejects.toThrow();
 
     // Same key, distinct member → coexists.
     await expect(
-      db.insert(slots).values({ objectiveId, key: "member.allergens", scope: "member", memberUserId: memberB, required: true }),
+      db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "member.allergens", scope: "member", memberUserId: memberB, required: true }),
     ).resolves.toBeDefined();
 
-    // Two household-scoped slots (member NULL) with the same key coexist — SQLite treats NULL as distinct.
-    await db.insert(slots).values({ objectiveId, key: "household.cook_days_count", scope: "household", required: true });
+    // Two household-scoped tasks (member NULL) with the same fact coexist — SQLite treats NULL as distinct.
+    await db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days_count", scope: "household", required: true });
     await expect(
-      db.insert(slots).values({ objectiveId, key: "household.cook_days_count", scope: "household", required: true }),
+      db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days_count", scope: "household", required: true }),
     ).resolves.toBeDefined();
   });
 
@@ -129,10 +129,10 @@ describe("increment-2 schema", () => {
     expect(ObjectiveSchema.parse(o)).toEqual(o);
 
     const [s] = await db
-      .insert(slots)
-      .values({ objectiveId: o.id, key: "household.stores", scope: "household", required: false, value: ["kroger"] })
+      .insert(tasks)
+      .values({ objectiveId: o.id, kind: "elicit", fact: "household.stores", scope: "household", required: false })
       .returning();
-    expect(SlotSchema.parse(s)).toEqual(s);
+    expect(TaskSchema.parse(s)).toEqual(s);
   });
 
   it("Test Case 5: stack_position orders the stack; completed_at is nullable", async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { selectSender, type Sender } from './sender.js';
-import { selectChef, ObjectiveRepository, type Chef } from './chef.js';
+import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type TaskUpdate } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
 import type { ThreadMessage } from '../models/thread-message.js';
@@ -40,7 +40,7 @@ export class Consumer {
    * committed to the DB before its doorbell fires. Each iteration is one turn: mark the pending
    * messages read, then — with the typing indicator up — ask the chef for a reply; nothing pending
    * ⇒ stop. The chef loads its own context and returns what to commit; the consumer commits its
-   * `chatEvents` (outbound rows), `slotUpdates`, and cursor in ONE transaction, then sends the
+   * `chatEvents` (outbound rows), fact-less-task confirmations, and cursor in ONE transaction, then sends the
    * unsent rows. The `sent_at` gate makes a redelivered doorbell a no-op; the loop drains messages
    * that arrived mid-turn.
    *
@@ -76,6 +76,11 @@ export class Consumer {
         const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
           const reply = await this.chef.respond(threadId);
           if (!reply) return null; // nothing to say this turn — no commit, no send
+          // Send proves delivery: a fact-less confirm (emit filled / ack asked) and completion may
+          // only fire when the turn actually emitted bubbles. An empty reply plan (reasoning-agent
+          // MAX_ATTEMPTS fallback, or a model that didn't deliver the close) must NOT confirm the
+          // emit or pop the objective — the close was never sent.
+          const delivered = reply.chatEvents.length > 0;
 
           // Whether this turn fires an effect, decided in-txn (below) against the fresh flags +
           // post-update completion, then honoured by the send half after the commit.
@@ -101,11 +106,18 @@ export class Consumer {
               const body = event.kind === 'text' ? event.text : `[richlink:${event.url}]`;
               await this.threads.insertOutbound({ threadId, body, messageGuid: randomUUID() }, tx);
             }
-            await this.objectives.applySlotUpdates(reply.slotUpdates, tx);
-            // Completion is a computable predicate — when every required slot is terminal the
-            // objective completes and pops (the next suspended one, if any, activates).
+            // Confirm the fact-less tasks at send-time: an emit's bubbles just went out (→ filled);
+            // the explainer-ack elicit is asked when first delivered and filled by the next inbound.
+            // ponytail: onboarding's gate is linear (ack first+solo, close last), so "an eligible
+            // fact-less task was addressed this turn" is a safe status-driven heuristic — no transcript
+            // substring matching. If a future objective interleaves several emits in one turn, thread
+            // per-emit delivery (which bubble carried which emit) instead of this blanket confirm.
+            if (delivered) await this.confirmTasks(reply.confirmTasks, tx);
+            // Completion is a computable predicate — when every required task is terminal the
+            // objective completes and pops (the next suspended one, if any, activates). Only when
+            // bubbles went out this turn: an empty reply can't have delivered the close.
             const completedNow =
-              !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
+              delivered && !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
             if (completedNow) await this.objectives.completeAndPop(reply.objectiveId, tx);
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
             // Stamp the effect gates in the same commit as the outbound rows, so the send fires
@@ -139,6 +151,20 @@ export class Consumer {
         cursor = cursorTo; // re-check for messages that landed mid-turn before releasing the lock
       }
     });
+  }
+
+  /**
+   * Confirms the turn's fact-less tasks now that its bubbles are committing (send proves delivery).
+   * An `emit` is marked `filled` — its content just went out. The explainer-ack `elicit` is marked
+   * `asked` the turn it is first delivered (status `unasked`), and `filled` on the next inbound (its
+   * status is already `asked`) — the reply is the acknowledgment, unblocking the gated tasks.
+   */
+  private async confirmTasks(confirm: ConfirmTask[], tx: Parameters<typeof ObjectiveRepository.prototype.applyTaskUpdates>[1]): Promise<void> {
+    const updates: TaskUpdate[] = confirm.map((t) => ({
+      taskId: t.taskId,
+      status: t.kind === 'emit' ? 'filled' : t.status === 'asked' ? 'filled' : 'asked',
+    }));
+    if (updates.length) await this.objectives.applyTaskUpdates(updates, tx);
   }
 
   /**

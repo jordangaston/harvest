@@ -36,7 +36,7 @@ const ALIASES: Record<string, string> = {
   veg: 'vegetarian',
 };
 
-/** The catalog kinds `search_catalog` grounds against. */
+/** The catalog kinds `fact_types` grounds against. */
 export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen' | 'food_category';
 
 /** The code-tuple catalogs (taste is DB-backed, handled by the tool). */
@@ -63,7 +63,7 @@ export function slugify(raw: string): string {
  * else the max shared-prefix ratio across the id, its label, and their tokens. Enough
  * to rank `krog`→`kroger` and `veggie`→`vegetarian` first without a fuzzy-match dep.
  */
-function score(inputSlug: string, cand: Candidate): number {
+export function score(inputSlug: string, cand: Candidate): number {
   const id = cand.value;
   if (inputSlug === id || ALIASES[inputSlug] === id) return 1;
   const labelSlug = slugify(cand.label);

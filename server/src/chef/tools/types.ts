@@ -1,14 +1,14 @@
 import type { Tool } from '@mastra/core/tools';
-import type { Database } from '../../db.js';
+import type { Task } from '../../models/task.js';
 
 /**
- * One turn's mutable context, shared by every tool built for that turn. A tool reads the current
+ * One turn's mutable DATA, shared by every tool built for that turn. A tool reads the current
  * `householdId`/`members` at execute time (not at build time), so `create_household` running earlier
- * in a turn flows the new household to a later `save_*` in the same turn. `db` + the identity fields
- * let a tool wire its own repositories (CLAUDE.md: tools create their own dependencies).
+ * in a turn flows the new household to a later `save_*` in the same turn. Infra (the db, the
+ * registries) is NOT here — each tool captures its own via `create(ctx, db)` (CLAUDE.md: tools
+ * create their own dependencies), so this stays turn data only.
  */
 export interface TurnContext {
-  db: Database;
   threadId: string;
   objectiveId: string;
   /** The handle of the person texting (the initiator/owner) — from the thread's owner. */
@@ -21,12 +21,14 @@ export interface TurnContext {
   /** Null until the "same kitchen" flow runs; `create_household` sets it in place. */
   householdId: string | null;
   members: Array<{ userId: string; name?: string }>;
+  /** The turn's loaded, eligible non-terminal tasks — what `update_tasks` resolves task ids against. */
+  tasks: Task[];
 }
 
 /**
  * What a tool actually did: the normalized values that landed, and each value the model tried that
  * was refused (unknown enum, unconfirmed allergen, absent member), with the nearest valid ids when
- * they exist. Returned to the model in the tool-loop and collected to reconcile slot updates.
+ * they exist. Returned to the model in the tool-loop.
  */
 export interface SaveResult {
   saved: Record<string, unknown>;
@@ -34,15 +36,14 @@ export interface SaveResult {
 }
 
 /**
- * A chef command, as a self-contained class. `static create(ctx)` wires its own repositories from
- * the turn context; the instance binds to that turn. `asMastraTool()` returns the Mastra tool that
+ * A chef command, as a self-contained class. `static create(ctx, db)` wires its own repositories
+ * from `db`; the instance binds to that turn's data. `asMastraTool()` returns the Mastra tool that
  * closes over the instance, so the native tool-loop calls straight into our services — nothing is
  * threaded through Mastra's context. `canRun()` is the prompt-time legality gate (context only, no
- * args). `saved` accumulates what landed this turn, for slot reconciliation.
+ * args).
  */
 export interface ChefTool {
   readonly id: string;
-  readonly saved: SaveResult[];
   canRun(): boolean;
   asMastraTool(): Tool<any, any>;
 }

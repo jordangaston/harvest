@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { inArray, eq, isNull } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
 import {
-  threads, threadMessages, objectives, slots, households, householdMembers, householdPreferences,
+  threads, threadMessages, objectives, tasks, households, householdMembers, householdPreferences,
   users, userAllergens, userDiets, userFoodPrefs, userPreferences,
 } from '../src/schema.js';
 const HANDLE = '+15128267702';
@@ -19,7 +19,7 @@ const memberIds = hhIds.length ? (await db.select().from(householdMembers).where
 const [t] = await db.select().from(threads).where(eq(threads.chatGuid, CHAT));
 if (t) {
   const objIds = (await db.select().from(objectives).where(eq(objectives.threadId, t.id))).map((o) => o.id);
-  if (objIds.length) await db.delete(slots).where(inArray(slots.objectiveId, objIds));
+  if (objIds.length) await db.delete(tasks).where(inArray(tasks.objectiveId, objIds));
   await db.delete(objectives).where(eq(objectives.threadId, t.id));
   await db.delete(threadMessages).where(eq(threadMessages.threadId, t.id));
   await db.delete(threads).where(eq(threads.id, t.id));

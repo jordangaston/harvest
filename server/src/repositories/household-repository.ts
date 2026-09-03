@@ -1,7 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db.js';
-import { households, householdMembers, users } from '../schema.js';
+import { households, householdMembers, users, GOALS } from '../schema.js';
+
+/** A household cooking goal id (the `users.goals` element type). */
+type Goal = (typeof GOALS)[number];
 import { HouseholdSchema, type Household } from '../models/household.js';
 
 /** A write/read executor: the db singleton or an interactive transaction client. */
@@ -76,5 +79,38 @@ export class HouseholdRepository {
       .innerJoin(users, eq(householdMembers.userId, users.id))
       .where(eq(householdMembers.householdId, householdId));
     return rows.map((r) => HouseholdMemberViewSchema.parse(r));
+  }
+
+  /**
+   * Unions one cooking goal onto every member's `users.goals` — the goal set is household-wide, so
+   * it fans out to each member (`PreferenceRepository.coldStart` reads it to seed ranking weights).
+   * Dedupes per member; a re-add is a no-op.
+   * @param householdId - The household whose members receive the goal.
+   * @param goal - The goal id to add.
+   * @param tx - The executor (the identity/fact write's transaction).
+   */
+  async addHouseholdGoal(householdId: string, goal: Goal, tx: Executor = this.db): Promise<void> {
+    const members = await tx
+      .select({ id: users.id, goals: users.goals })
+      .from(users)
+      .innerJoin(householdMembers, eq(householdMembers.userId, users.id))
+      .where(eq(householdMembers.householdId, householdId));
+    for (const m of members) {
+      const merged = [...new Set([...(m.goals ?? []), goal])];
+      await tx.update(users).set({ goals: merged }).where(eq(users.id, m.id));
+    }
+  }
+
+  /**
+   * The household's cooking goals. Unioned onto every member, so any one member's set represents the
+   * household; reads the first member's. Empty when the household has none.
+   */
+  async householdGoals(householdId: string, tx: Executor = this.db): Promise<Goal[]> {
+    const [row] = await tx
+      .select({ goals: users.goals })
+      .from(users)
+      .innerJoin(householdMembers, eq(householdMembers.userId, users.id))
+      .where(eq(householdMembers.householdId, householdId));
+    return row?.goals ?? [];
   }
 }

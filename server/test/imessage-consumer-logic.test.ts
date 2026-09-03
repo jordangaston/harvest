@@ -15,7 +15,7 @@ import { ScriptedReasoner } from "../src/chef/reasoning-agent.js";
 import { ScriptedResponder } from "../src/chef/response-agent.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { AuthService } from "../src/services/auth-service.js";
-import { threads, threadMessages, slots } from "../src/schema.js";
+import { threads, threadMessages, tasks, objectives } from "../src/schema.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 import { type Database } from "../src/db.js";
 import type { ThreadMessage } from "../src/models/thread-message.js";
@@ -67,8 +67,8 @@ beforeEach(async () => {
 });
 afterEach(() => cleanup());
 
-/** Seeds a thread + household + one member + an active onboarding objective with the given slots. */
-async function seedThread(slotKeys: string[] = []): Promise<{ threadId: string; chatGuid: string; ownerId: string }> {
+/** Seeds a thread + household + one member + an active onboarding objective with the given tasks. */
+async function seedThread(taskKeys: string[] = []): Promise<{ threadId: string; chatGuid: string; ownerId: string }> {
   const { privateKey, publicKey } = AuthService.create().generateKeyPair();
   const phone = `+1555559${String(1000 + phoneSeq++).slice(-4)}`;
   const owner = await UserRepository.create(db).insert({ phone, jwtPrivateKey: privateKey, jwtPublicKey: publicKey });
@@ -83,11 +83,11 @@ async function seedThread(slotKeys: string[] = []): Promise<{ threadId: string; 
   // (which would otherwise route the fresh thread's first bubble through sendEffect).
   await db.insert(threads).values({ id: threadId, chatGuid, ownerUserId: owner.id, householdId: household.id, greetedAt: new Date() });
 
-  if (slotKeys.length)
+  if (taskKeys.length)
     await ObjectiveRepository.create(db).pushObjective({
       threadId,
       definition: "onboarding",
-      slots: slotKeys.map((key) => ({ key, scope: "household" as const, required: true })),
+      tasks: taskKeys.map((key) => ({ key, kind: "elicit" as const, fact: key, scope: "household" as const, required: true })),
       position: "top",
     });
 
@@ -127,25 +127,22 @@ describe("Test Case 2: null reply → no commit, no send (AC-2)", () => {
   });
 });
 
-describe("Test Case 3: a turn commits N rows + M slot updates + advances the cursor (AC-3, AC-4)", () => {
-  it("commits 2 bubbles + 2 slot updates + cursor, sends twice", async () => {
+describe("Test Case 3: a turn commits N rows + advances the cursor (AC-3, AC-4)", () => {
+  it("commits 2 bubbles + cursor, sends twice", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores", "household.cook_days_count"]);
     await seedInbound(threadId, ownerId, "we shop at kroger");
     const newestId = await seedInbound(threadId, ownerId, "and cook 5 nights");
 
     const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
-    const askedSlot = active.slots.find((s) => s.key === "household.cook_days_count")!;
-    const filledSlot = active.slots.find((s) => s.key === "household.grocery_stores")!;
+    // Task fills happen through the in-loop update_tasks tool now, not via ChefReply; the consumer
+    // just commits the bubbles, confirms any fact-less tasks, and advances the cursor.
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [
           { kind: "text", text: "Kroger, nice." },
           { kind: "text", text: "Five nights it is." },
         ],
-        slotUpdates: [
-          { slotId: askedSlot.id, status: "asked" },
-          { slotId: filledSlot.id, status: "filled", value: ["kroger"] },
-        ],
+        confirmTasks: [],
         cursorTo: newestId,
         objectiveId: active.objective.id,
       }),
@@ -158,34 +155,31 @@ describe("Test Case 3: a turn commits N rows + M slot updates + advances the cur
     expect(outbound.every((r) => r.sentAt !== null)).toBe(true);
     expect(sender.calls).toHaveLength(2);
 
-    const slotRows = await db.select().from(slots).where(eq(slots.objectiveId, active.objective.id));
-    expect(slotRows.find((s) => s.id === askedSlot.id)!.status).toBe("asked");
-    const filled = slotRows.find((s) => s.id === filledSlot.id)!;
-    expect(filled.status).toBe("filled");
-    expect(filled.value).toEqual(["kroger"]);
-
     const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(after.lastProcessedId).toBe(newestId);
   });
 });
 
-describe("Test Case 4: commit is atomic — a failing slot update rolls back the rows (AC-3)", () => {
-  it("rolls back the outbound rows and cursor when applySlotUpdates throws", async () => {
+describe("Test Case 4: commit is atomic — a failing task update rolls back the rows (AC-3)", () => {
+  it("rolls back the outbound rows and cursor when applyTaskUpdates throws", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     const newestId = await seedInbound(threadId, ownerId, "hi");
     const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
-    const slot = active.slots[0]!;
+    const task = active.tasks[0]!;
     const chef: Chef = {
-      // filled with no landed value → applySlotUpdates rejects inside the tx.
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: "text", text: "should roll back" }],
-        slotUpdates: [{ slotId: slot.id, status: "filled" }],
+        // A fact-less task the consumer confirms in-txn via applyTaskUpdates (spied to throw below).
+        confirmTasks: [{ taskId: task.id, kind: "emit", status: "unasked" }],
         cursorTo: newestId,
         objectiveId: active.objective.id,
       }),
     };
+    // Make the confirm write fail inside the commit tx to prove the outbound rows + cursor roll back.
+    const spy = vi.spyOn(ObjectiveRepository.prototype, "applyTaskUpdates").mockRejectedValueOnce(new Error("boom"));
     const sender = new StubSpectrumSender();
     await expect(new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId })).rejects.toThrow();
+    spy.mockRestore();
 
     expect(await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).toHaveLength(0);
     const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
@@ -198,7 +192,7 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "hey");
 
-    const reasoner = new ScriptedReasoner({ replyPlan: { intents: [{ kind: "acknowledge", note: "hi" }], must_say: [] }, slotUpdates: [] });
+    const reasoner = new ScriptedReasoner({ replyPlan: { intents: [{ kind: "acknowledge", note: "hi" }], must_say: [] } });
     const responder = new ScriptedResponder();
     const runSpy = vi.spyOn(reasoner, "run");
     const renderSpy = vi.spyOn(responder, "render");
@@ -239,5 +233,93 @@ describe("Test Case 6: selectChef(db) returns StubChef offline (AC-6)", () => {
     expect(reply).not.toBeNull();
     expect(reply!.chatEvents).toHaveLength(1);
     expect(reply!.cursorTo).toBe(newestId);
+  });
+});
+
+describe("Test Case 5: emit at send-time, explainer-ack on next inbound (AC-4)", () => {
+  it("marks an emit filled the turn its bubbles send", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "sounds good");
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+
+    const chef: Chef = {
+      respond: async (): Promise<ChefReply> => ({
+        chatEvents: [{ kind: "text", text: "You're all set!" }],
+        confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }],
+        cursorTo: newestId,
+        objectiveId,
+      }),
+    };
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    const [emit] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(emit!.status).toBe("filled"); // its bubbles went out → filled
+    const [obj] = await db.select().from(objectives).where(eq(objectives.id, objectiveId));
+    expect(obj!.status).toBe("complete"); // every required task terminal → popped the same turn
+  });
+
+  it("does NOT confirm the emit or pop the objective when the reply delivered no bubbles", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "sounds good");
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+
+    // An empty reply plan (MAX_ATTEMPTS fallback / a model that didn't deliver the close): no bubbles.
+    const chef: Chef = {
+      respond: async (): Promise<ChefReply> => ({
+        chatEvents: [],
+        confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }],
+        cursorTo: newestId,
+        objectiveId,
+      }),
+    };
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    const [emit] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(emit!.status).toBe("unasked"); // nothing was sent → the emit is NOT confirmed
+    const [obj] = await db.select().from(objectives).where(eq(objectives.id, objectiveId));
+    expect(obj!.status).toBe("active"); // the close never sent → the objective must not pop
+  });
+
+  it("asks the fact-less explainer-ack when first delivered, fills it on the next inbound", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const ackId = randomUUID();
+    await db.insert(tasks).values({ id: ackId, objectiveId, kind: "elicit", fact: null, scope: "household", required: true, status: "unasked", solo: true });
+
+    // The chef reports the ack's current status; the consumer asks-then-fills based on it.
+    const chef: Chef = {
+      respond: async (): Promise<ChefReply | null> => {
+        const [ack] = await db.select().from(tasks).where(eq(tasks.id, ackId));
+        const pending = await ThreadRepository.create(db).loadPendingInbound(threadId, (await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId);
+        if (pending.length === 0) return null;
+        return {
+          chatEvents: [{ kind: "text", text: "here's how this works" }],
+          confirmTasks: [{ taskId: ackId, kind: "elicit", status: ack!.status }],
+          cursorTo: pending[pending.length - 1]!.id,
+          objectiveId,
+        };
+      },
+    };
+    const consumer = new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock());
+
+    // Turn 1: the explainer is delivered → the ack is asked (not yet filled).
+    await seedInbound(threadId, ownerId, "hi");
+    await consumer.handle({ threadId });
+    expect((await db.select().from(tasks).where(eq(tasks.id, ackId)))[0]!.status).toBe("asked");
+
+    // Turn 2: the user replies → the reply is the acknowledgment → the ack fills. Bump created_at a
+    // second so this inbound deterministically sorts past turn 1's cursor (created_at is 1s-resolution).
+    const g2 = randomUUID();
+    await ThreadRepository.create(db).insertInboundMessage({ threadId, senderUserId: ownerId, type: "text", body: "got it, cool", messageGuid: g2 });
+    await db.update(threadMessages).set({ createdAt: new Date(Date.now() + 1000) }).where(eq(threadMessages.messageGuid, g2));
+    await consumer.handle({ threadId });
+    expect((await db.select().from(tasks).where(eq(tasks.id, ackId)))[0]!.status).toBe("filled");
   });
 });

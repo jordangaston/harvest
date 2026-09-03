@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
-import { users, threads, householdMembers, objectives, slots as slotsTable } from '../src/schema.js';
+import { users, threads, householdMembers, objectives, tasks as tasksTable } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import {
   onboardingObjective,
-  householdSlotSpecs,
-  memberSlotSpecs,
+  householdTaskSpecs,
+  memberTaskSpecs,
   ONBOARDING_CLOSE,
 } from '../src/chef/objectives/onboarding.js';
 import { SameKitchenFlow } from '../src/chef/objectives/onboarding-identity.js';
@@ -35,34 +35,76 @@ async function seedThread(): Promise<string> {
 /** Seeds the onboarding objective (household slots) on a fresh thread, returns its id. */
 async function seedOnboarding(threadId: string): Promise<string> {
   const store = ObjectiveRepository.create(db);
-  const obj = await store.pushObjective({ threadId, definition: onboardingObjective.id, slots: householdSlotSpecs(), position: 'top' });
+  const obj = await store.pushObjective({ threadId, definition: onboardingObjective.id, tasks: householdTaskSpecs(), position: 'top' });
   return obj.id;
 }
 
 describe('onboarding definition', () => {
-  it('seeding creates one household slot row per household-scoped slot (AC-1)', async () => {
+  it('seeding creates one household task row per household-scoped spec (AC-1)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
 
-    const rows = await db.select().from(slotsTable).where(eq(slotsTable.objectiveId, objId));
-    // Every seeded slot is household-scoped, unasked, member_user_id null.
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
+    // Every seeded task is household-scoped, unasked, member_user_id null.
     expect(rows.every((r) => r.scope === 'household' && r.status === 'unasked' && r.memberUserId === null)).toBe(true);
-    expect(rows.map((r) => r.key).sort()).toEqual(householdSlotSpecs().map((s) => s.key).sort());
+    // fact is null for the explainer-ack + close emit; the rest carry their fact key.
+    expect(rows.map((r) => r.fact ?? null).filter((f): f is string => !!f).sort()).toEqual(
+      householdTaskSpecs().map((s) => s.fact).filter((f): f is string => !!f).sort(),
+    );
     // No member-scoped rows until a member exists.
     expect(rows.some((r) => r.scope === 'member')).toBe(false);
   });
 
+  it('the explainer-ack is a solo, fact-less elicit asked first, gating every other task (AC-4)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedOnboarding(threadId);
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
+
+    const ack = rows.find((r) => r.solo)!;
+    expect(ack.kind).toBe('elicit');
+    expect(ack.fact).toBeNull(); // no domain fact — confirmed by the next inbound, not a tool
+    expect(ack.afterTaskIds).toEqual([]); // nothing gates the ack — it runs first
+
+    // Gating is enforced by the solo-exclusive eligibility rule, not per-task `after` edges: while the
+    // required solo ack is non-terminal, loadActive offers ONLY solo tasks, so nothing else is asked first.
+    const store = ObjectiveRepository.create(db);
+    const upFront = (await store.loadActive(threadId))!.tasks;
+    expect(upFront.some((t) => t.id === ack.id)).toBe(true);
+    expect(upFront.every((t) => t.solo)).toBe(true);
+    // Once the ack is acknowledged (terminal), the rest of the elicits open up.
+    await db.update(tasksTable).set({ status: 'filled' }).where(eq(tasksTable.id, ack.id));
+    const afterAck = (await store.loadActive(threadId))!.tasks;
+    expect(afterAck.length).toBeGreaterThan(1);
+    expect(afterAck.some((t) => t.id === ack.id)).toBe(false);
+  });
+
+  it('the close is a required, fact-less emit gated after every required elicit (AC-5)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedOnboarding(threadId);
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.objectiveId, objId));
+
+    const emit = rows.find((r) => r.kind === 'emit')!;
+    expect(emit.fact).toBeNull();
+    expect(emit.required).toBe(true);
+    // Gated after the required household elicits (same_household, household_size, grocery_stores,
+    // weekly_meals, cook_days_count) — their row ids populate the emit's after_task_ids.
+    const requiredElicitIds = rows
+      .filter((r) => r.kind === 'elicit' && r.required && r.fact)
+      .map((r) => r.id);
+    expect(requiredElicitIds.every((id) => emit.afterTaskIds.includes(id))).toBe(true);
+  });
+
   it('the required household set is exactly the design contract (AC-2)', () => {
-    const required = onboardingObjective.slots.filter((s) => s.scope === 'household' && s.required).map((s) => s.key).sort();
+    const required = householdTaskSpecs().filter((s) => s.scope === 'household' && s.required && s.fact).map((s) => s.fact).sort();
     expect(required).toEqual(
       ['household.same_household', 'household.grocery_stores', 'household.household_size', 'household.weekly_meals', 'household.cook_days_count'].sort(),
     );
-    const requiredMember = onboardingObjective.slots.filter((s) => s.scope === 'member' && s.required).map((s) => s.key).sort();
+    const requiredMember = memberTaskSpecs('m').filter((s) => s.scope === 'member' && s.required).map((s) => s.key).sort();
     expect(requiredMember).toEqual(['allergens', 'name']);
   });
 
-  it('the tool set is exactly the onboarding command tools and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog', 'import_recipe']);
+  it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
+    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();
@@ -70,12 +112,19 @@ describe('onboarding definition', () => {
     expect(def.cursor).toBeUndefined();
   });
 
-  it('fill guidance is attached to the slots it governs, not a separate list', () => {
-    const byKey = new Map(onboardingObjective.slots.map((s) => [s.key, s.guidance]));
+  it('elicit tasks carry their fact type so update_tasks can route the fill', () => {
+    const stores = householdTaskSpecs().find((s) => s.fact === 'household.grocery_stores')!;
+    expect(stores.factType).toBe('GROCERY_STORE');
+    const allergens = memberTaskSpecs('m').find((s) => s.key === 'allergens')!;
+    expect(allergens.factType).toBe('ALLERGEN');
+  });
+
+  it('fill guidance is attached to the tasks it governs, not a separate list', () => {
+    const byKey = new Map([...householdTaskSpecs(), ...memberTaskSpecs('m')].map((s) => [s.key, s.guidance]));
     expect(byKey.get('allergens')).toMatch(/severity|no_allergens/i);
     expect(byKey.get('diets')).toMatch(/strict|flexible/i);
-    expect(byKey.get('likes')).toMatch(/broad|drill/i);
-    // The objective carries no separate one-off guidance list anymore.
+    expect(byKey.get('food_preferences')).toMatch(/broad|drill/i);
+    // The definition carries no separate one-off guidance list.
     expect((onboardingObjective as unknown as Record<string, unknown>).guidance).toBeUndefined();
   });
 });
@@ -111,14 +160,12 @@ describe('same-kitchen identity flow', () => {
     expect(owner.id).toBe(priya.id);
 
     // same_household slot filled
-    const [sh] = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.key, 'household.same_household')));
+    const [sh] = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.fact, 'household.same_household')));
     expect(sh!.status).toBe('filled');
-    expect(sh!.value).toBe(true);
 
-    // household_size filled deterministically with the roster count (not model-volunteered)
-    const [hs] = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.key, 'household.household_size')));
+    // household_size filled deterministically (the roster count lives in the domain table now)
+    const [hs] = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.fact, 'household.household_size')));
     expect(hs!.status).toBe('filled');
-    expect(hs!.value).toBe(2);
   });
 
   it('an un-named participant blocks only their own membership + member slots (AC-4)', async () => {
@@ -141,7 +188,7 @@ describe('same-kitchen identity flow', () => {
     const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
     expect(members).toHaveLength(1);
 
-    const samSlots = await db.select().from(slotsTable).where(eq(slotsTable.memberUserId, sam.id));
+    const samSlots = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, sam.id));
     expect(samSlots).toHaveLength(0);
   });
 
@@ -156,10 +203,10 @@ describe('same-kitchen identity flow', () => {
     });
     const priya = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110001')))[0]!;
 
-    const rows = await db.select().from(slotsTable).where(eq(slotsTable.memberUserId, priya.id));
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, priya.id));
     expect(rows.every((r) => r.scope === 'member')).toBe(true);
-    expect(rows.map((r) => r.key).sort()).toEqual(['name', 'allergens', 'diets', 'likes', 'dislikes', 'skill_level'].sort());
-    expect(rows.filter((r) => r.required).map((r) => r.key).sort()).toEqual(['allergens', 'name']);
+    expect(rows.map((r) => r.fact).sort()).toEqual(['name', 'allergens', 'diets', 'food_preferences', 'skill_level'].sort());
+    expect(rows.filter((r) => r.required).map((r) => r.fact).sort()).toEqual(['allergens', 'name']);
   });
 
   it('is idempotent — a re-run converges (no duplicate users, memberships, or slots)', async () => {
@@ -177,8 +224,8 @@ describe('same-kitchen identity flow', () => {
     const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
     // addMember is unique on user_id, so the second household's re-add is a no-op for the member.
     expect(members.filter((m) => m.userId === priya.id)).toHaveLength(1);
-    const slots = await db.select().from(slotsTable).where(eq(slotsTable.memberUserId, priya.id));
-    expect(slots).toHaveLength(memberSlotSpecs(priya.id).length);
+    const memberRows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, priya.id));
+    expect(memberRows).toHaveLength(memberTaskSpecs(priya.id).length);
   });
 });
 
@@ -191,19 +238,20 @@ describe('completion + close', () => {
     // Add one identified member so member-required slots exist too.
     await SameKitchenFlow.create(db).establish({ threadId, objectiveId: objId, participants: [{ handle: '+15551110001', name: 'Priya' }] });
 
-    // Fill/​default every required slot except the member's allergens (leave it asked).
-    const required = await db.select().from(slotsTable).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.required, true)));
+    // Fill/​default every required task except the member's allergens (leave it asked). The close
+    // emit + explainer-ack are required too — default them here.
+    const required = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.required, true)));
     for (const s of required) {
-      if (s.key === 'allergens') {
-        await db.update(slotsTable).set({ status: 'asked' }).where(eq(slotsTable.id, s.id));
+      if (s.fact === 'allergens') {
+        await db.update(tasksTable).set({ status: 'asked' }).where(eq(tasksTable.id, s.id));
       } else {
-        await db.update(slotsTable).set({ status: 'defaulted' }).where(eq(slotsTable.id, s.id));
+        await db.update(tasksTable).set({ status: 'defaulted' }).where(eq(tasksTable.id, s.id));
       }
     }
     expect(await store.isComplete(objId)).toBe(false);
 
     // Default the outstanding allergens slot → complete.
-    await db.update(slotsTable).set({ status: 'defaulted' }).where(and(eq(slotsTable.objectiveId, objId), eq(slotsTable.key, 'allergens')));
+    await db.update(tasksTable).set({ status: 'defaulted' }).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.fact, 'allergens')));
     expect(await store.isComplete(objId)).toBe(true);
 
     await db.transaction((tx) => store.completeAndPop(objId, tx));

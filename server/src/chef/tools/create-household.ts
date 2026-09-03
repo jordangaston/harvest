@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { SameKitchenFlow } from '../objectives/onboarding-identity.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
@@ -10,17 +11,16 @@ const inputSchema = z.object({
 /**
  * The "same kitchen" command. Creates the household from the named members — the first is the
  * person texting (initiator/owner, keyed by their handle); the rest are proxy members (name-only
- * until they text). Sets `ctx.householdId`/`ctx.members` in place so a later `save_*` this turn
+ * until they text). Sets `ctx.householdId`/`ctx.members` in place so a tool built later this turn
  * sees the new household. Legal only until a household exists.
  */
 export class CreateHouseholdTool implements ChefTool {
   readonly id = 'create_household';
-  readonly saved: SaveResult[] = [];
 
-  private constructor(private readonly ctx: TurnContext) {}
+  private constructor(private readonly ctx: TurnContext, private readonly db: Database) {}
 
-  static create(ctx: TurnContext): CreateHouseholdTool {
-    return new CreateHouseholdTool(ctx);
+  static create(ctx: TurnContext, db: Database): CreateHouseholdTool {
+    return new CreateHouseholdTool(ctx, db);
   }
 
   canRun(): boolean {
@@ -43,15 +43,13 @@ export class CreateHouseholdTool implements ChefTool {
     const participants = members.map((m, i) =>
       i === 0 ? { handle: this.ctx.initiatorHandle, name: m.name } : { name: m.name },
     );
-    const { householdId, memberUserIds } = await SameKitchenFlow.create(this.ctx.db).establish({
+    const { householdId, memberUserIds } = await SameKitchenFlow.create(this.db).establish({
       threadId: this.ctx.threadId,
       objectiveId: this.ctx.objectiveId,
       participants,
     });
     this.ctx.householdId = householdId;
     this.ctx.members = memberUserIds.map((userId) => ({ userId }));
-    const result: SaveResult = { saved: { household: householdId, members: memberUserIds.length }, rejected: [] };
-    this.saved.push(result);
-    return result;
+    return { saved: { household: householdId, members: memberUserIds.length }, rejected: [] };
   }
 }

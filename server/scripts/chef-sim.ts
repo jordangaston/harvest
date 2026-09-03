@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { eq, asc } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
-import { users, threads, threadMessages, households, householdMembers, objectives, slots } from '../src/schema.js';
+import { users, threads, threadMessages, households, householdMembers, objectives, tasks } from '../src/schema.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { Consumer } from '../src/imessage/consumer.js';
 import { selectChef } from '../src/imessage/chef.js';
@@ -62,7 +62,7 @@ async function reset(db: ReturnType<typeof dbFromEnv>): Promise<void> {
   const [t] = await db.select().from(threads).where(eq(threads.chatGuid, CHAT));
   if (t) {
     const objs = await db.select().from(objectives).where(eq(objectives.threadId, t.id));
-    for (const o of objs) await db.delete(slots).where(eq(slots.objectiveId, o.id));
+    for (const o of objs) await db.delete(tasks).where(eq(tasks.objectiveId, o.id));
     await db.delete(objectives).where(eq(objectives.threadId, t.id));
     await db.delete(threadMessages).where(eq(threadMessages.threadId, t.id));
     if (t.householdId) {
@@ -105,9 +105,9 @@ async function transcript(db: ReturnType<typeof dbFromEnv>, threadId: string): P
 
   const hh = await db.select().from(households);
   const mem = await db.select().from(householdMembers);
-  const sl = await db.select().from(slots);
+  const sl = await db.select().from(tasks);
   const filled = sl.filter((s) => s.status === 'filled');
-  console.log(`\n── state: households=${hh.length} members=${mem.length} slots=${sl.length} (filled ${filled.length}) ──`);
-  if (filled.length) console.log('   filled:', filled.map((s) => `${s.key}=${JSON.stringify(s.value)}`).join(', '));
+  console.log(`\n── state: households=${hh.length} members=${mem.length} tasks=${sl.length} (filled ${filled.length}) ──`);
+  if (filled.length) console.log('   filled:', filled.map((s) => s.fact ?? s.kind).join(', '));
   process.exit(0);
 })().catch((e) => { console.error(e?.stack ?? e?.message ?? e); process.exit(1); });

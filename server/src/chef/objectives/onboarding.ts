@@ -1,80 +1,120 @@
-import type { SlotSpec } from '../objective-repository.js';
+import type { TaskSpec } from '../objective-repository.js';
 import type { ReplyPlan } from '../types.js';
-import type { DefinitionSlot, ObjectiveDefinition } from './types.js';
+import { FactRegistry } from '../facts/registry.js';
 
 const req = true;
 
-/** A household-scoped definition slot, with optional fill guidance shown beside it. */
-const slot = (key: string, required = false, guidance?: string): DefinitionSlot => ({ key: `household.${key}`, scope: 'household', required, guidance });
-/** A member-scoped definition slot — instantiated per member as they are identified. */
-const mslot = (key: string, required = false, guidance?: string): DefinitionSlot => ({ key, scope: 'member', required, guidance });
+/** The stable key for the solo explainer-ack task — a fact-less elicit gating the rest of onboarding,
+ *  confirmed by the user's next inbound (the consumer), not by a tool. */
+export const EXPLAINER_ACK_KEY = 'explainer_ack';
+/** The stable key for the close emit — a fact-less emit gated after every required elicit. */
+export const CLOSE_EMIT_KEY = 'close';
+
+/** The factType a registry key elicits, or undefined for a fact the registry doesn't know (e.g.
+ *  `same_household`, which has no domain fact and is code-filled). */
+function factTypeFor(key: string): string | undefined {
+  return FactRegistry.get(key)?.factType;
+}
+
+/** A household-scoped elicit task, typed from the registry so `update_tasks` can route its fill. */
+function hh(key: string, required = false, guidance?: string, extra: Partial<TaskSpec> = {}): TaskSpec {
+  const fact = `household.${key}`;
+  return { key: fact, kind: 'elicit', fact, factType: factTypeFor(fact), scope: 'household', required, guidance, ...extra };
+}
+/** A member-scoped elicit task template (memberUserId resolved per member at instantiation). */
+function member(key: string, required = false, guidance?: string): TaskSpec {
+  return { key, kind: 'elicit', fact: key, factType: factTypeFor(key), scope: 'member', required, guidance };
+}
 
 /**
- * The onboarding objective: guide a household through its cooking profile. It declares the
- * slots to fill, the three command tools, and condition-gated L2 guidance — never a
- * conversational path (no step list, no cursor). The model self-orchestrates the dialogue;
- * ObjectiveRepository seeds the household slots on push, and member slots are instantiated per
- * member as the "same kitchen" identity flow (onboarding-identity.ts) creates memberships.
+ * The onboarding objective: guide a household through its cooking profile as a set of typed tasks.
+ * A solo `explainer-ack` elicit runs first and gates the rest; the profile elicits are filled by the
+ * model through `update_tasks`; the close is a required `emit` gated after every required elicit.
+ * `same_household`/`household_size` are code-filled by the identity flow (not via `update_tasks`).
+ * The model self-orchestrates the dialogue; it never sees a step list or cursor.
  */
-export const onboardingObjective: ObjectiveDefinition = {
-  id: 'onboarding',
-  instructions:
-    "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, " +
-    'allergies, diets, tastes, and skill — writing each answer through with a command tool, following ' +
-    "each slot's fill guidance. Ack low-stakes answers with a tapback; never write a value the tools did " +
-    'not return. If a required slot stays unanswered after the room moves on, send one reworded follow-up ' +
-    'then state a default. Done when every required slot is filled or defaulted — then send the close: a ' +
-    'celebration, "drop a recipe here anytime," and the promise of a first menu, and the objective pops.',
-  tools: ['create_household', 'save_household_profile', 'save_household_goals', 'save_member_profile', 'search_catalog', 'import_recipe'],
-  slots: [
-    // household-scoped
-    slot('same_household', req),
-    slot('goals'),
-    slot('grocery_stores', req, 'Ground each store with search_catalog; acknowledge and drop any it does not return.'),
-    slot('grocery_shopping_day'),
-    slot('weekly_budget_cents'),
-    slot('household_size', req),
-    slot('weekly_meals', req),
-    slot('cook_days_count', req),
-    slot('time_by_meal'),
-    slot('eats_leftovers'),
-    slot('owned_equipment', false, 'Ground each item with search_catalog; drop anything off-catalog.'),
-    // member-scoped (one set per member)
-    mslot('name', req),
-    mslot(
+
+/** The household-scoped task specs seeded when the objective is pushed onto a new thread. */
+export function householdTaskSpecs(): TaskSpec[] {
+  return [
+    // The solo explainer-ack: fact-less, first, gating everything. Confirmed by the next inbound.
+    { key: EXPLAINER_ACK_KEY, kind: 'elicit', scope: 'household', required: req, solo: true },
+    // Code-filled identity tasks (SameKitchenFlow.establish, via markTaskFilled) — not model-fillable.
+    { key: 'household.same_household', kind: 'elicit', fact: 'household.same_household', scope: 'household', required: req },
+    { key: 'household.household_size', kind: 'elicit', fact: 'household.household_size', factType: 'HOUSEHOLD_SIZE', scope: 'household', required: req },
+    // Model-filled household elicits.
+    hh('goals'),
+    hh('grocery_stores', req, 'Ground each store with fact_types(GROCERY_STORE, "<store>"); acknowledge and drop any it does not return.'),
+    hh('grocery_shopping_day'),
+    hh('weekly_budget_cents'),
+    hh('weekly_meals', req),
+    hh('cook_days_count', req),
+    hh('time_by_meal'),
+    hh('eats_leftovers'),
+    hh('owned_equipment', false, 'Ground each item with fact_types(OWNED_EQUIPMENT, "<item>"); drop anything off-catalog.'),
+    // The close: a required emit gated after every required elicit (delivered via the reply plan,
+    // confirmed at send-time by the consumer).
+    {
+      key: CLOSE_EMIT_KEY,
+      kind: 'emit',
+      scope: 'household',
+      required: req,
+      after: ['household.same_household', 'household.household_size', 'household.grocery_stores', 'household.weekly_meals', 'household.cook_days_count'],
+    },
+  ];
+}
+
+/** The member-scoped task specs for one identified member (instantiated as they join). */
+export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
+  return [
+    member('name', req),
+    member(
       'allergens',
       req,
       'If an allergen is named without a severity, ask mild/moderate/severe, then write it with confirmed:true ' +
-        '(an unconfirmed allergen is never saved). If the member confirms none, save no_allergens:true — "none" ' +
-        'fills this slot. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
+        '(an unconfirmed allergen is never saved). If the member confirms none, write no_allergens:true — "none" ' +
+        'fills this task. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
     ),
-    mslot('diets', false, 'If strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before saving, and write it through.'),
-    mslot('likes', false, 'If a like is broad ("anything with chicken"), drill down (fajitas / creamy pasta / stir-fry?) and ground each value with search_catalog before saving.'),
-    mslot('dislikes'),
-    mslot('skill_level'),
-  ],
+    member('diets', false, 'If strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
+    member(
+      'food_preferences',
+      false,
+      'Capture the member\'s likes, dislikes, and foods to eat less of. Ground each value with ' +
+        'fact_types(FOOD_PREFERENCE, "<phrase>"), then write it: set sentiment (like/dislike) for a taste, ' +
+        'or a negative target for a food_category they want less of. If a like is broad ("anything with ' +
+        'chicken"), drill down (fajitas / creamy pasta / stir-fry?) before writing.',
+    ),
+    member('skill_level'),
+  ].map((t) => ({ ...t, memberUserId }));
+}
+
+/** Fill guidance keyed by the task's fact/key, for the briefing to render beside a task. Built from
+ *  the seed specs (guidance is not persisted on the task row). */
+export function taskGuidance(): Map<string, string> {
+  const specs = [...householdTaskSpecs(), ...memberTaskSpecs('')];
+  return new Map(specs.filter((s) => s.guidance).map((s) => [s.fact ?? s.key, s.guidance!]));
+}
+
+/** The tools resident in the onboarding prompt (the fact surface + identity + import). */
+const ONBOARDING_TOOLS = ['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe'];
+
+/** The onboarding objective definition, keyed by the `objectives.definition` string. Tasks are
+ *  seeded via `householdTaskSpecs`/`memberTaskSpecs`; this carries the id, instructions, and tools. */
+export const onboardingObjective = {
+  id: 'onboarding',
+  instructions:
+    "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, allergies, " +
+    'diets, tastes, and skill — following each task\'s fill guidance. If a required task stays unanswered ' +
+    'after the room moves on, send one reworded follow-up then state a default. When every required task is ' +
+    'filled the close becomes eligible — deliver it (a celebration, "drop a recipe here anytime," and the ' +
+    'promise of a first menu); the objective pops once its bubbles send.',
+  tools: ONBOARDING_TOOLS,
 };
 
-/** The member-scoped slot keys the onboarding definition declares, with their required flags. */
-const MEMBER_SLOTS = onboardingObjective.slots.filter((s) => s.scope === 'member');
-
-/** The household-scoped slot specs to seed when the objective is pushed onto a new thread. */
-export function householdSlotSpecs(): SlotSpec[] {
-  return onboardingObjective.slots
-    .filter((s) => s.scope === 'household')
-    .map((s) => ({ key: s.key, scope: 'household', required: s.required }));
-}
-
-/** The member-scoped slot specs for one identified member (instantiated as they join). */
-export function memberSlotSpecs(memberUserId: string): SlotSpec[] {
-  return MEMBER_SLOTS.map((s) => ({ key: s.key, scope: 'member', memberUserId, required: s.required }));
-}
-
 /**
- * The completion close the response renders when every required slot is terminal (AC-5):
- * the celebration, the drop-a-recipe invitation, and the first-menu promise. The reasoning
- * model emits these intents (steered by the last guidance pair); this is the canonical plan
- * the WI-08 eval asserts against and tests drive with.
+ * The completion close the response renders when the close `emit` is eligible: the celebration, the
+ * drop-a-recipe invitation, and the first-menu promise. The reasoning model emits these intents; this
+ * is the canonical plan the WI-08 eval asserts against and tests drive with.
  */
 export const ONBOARDING_CLOSE: ReplyPlan = {
   intents: [

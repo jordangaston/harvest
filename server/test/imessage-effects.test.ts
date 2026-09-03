@@ -9,7 +9,7 @@ import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { threads, threadMessages, objectives, slots } from '../src/schema.js';
+import { threads, threadMessages, objectives, tasks } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { type Database } from '../src/db.js';
 
@@ -59,7 +59,7 @@ describe('confetti greeting (WI-4B AC1, AC2)', () => {
           { kind: 'text', text: 'Hey there! 👋' },
           { kind: 'text', text: "I'm Chef." },
         ],
-        slotUpdates: [],
+        confirmTasks: [],
         cursorTo: inboundId,
         objectiveId: '',
       }),
@@ -84,7 +84,7 @@ describe('confetti greeting (WI-4B AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: 'a reply' }],
-        slotUpdates: [],
+        confirmTasks: [],
         cursorTo: cursor,
         objectiveId: '',
       }),
@@ -109,16 +109,17 @@ describe('fireworks on onboarding-complete (WI-4B AC3)', () => {
     // Mark greeted so the confetti path is out of the way — we're testing fireworks in isolation.
     await ThreadRepository.create(db).markGreeted(threadId, new Date());
 
-    // An onboarding objective with one required, unfilled slot; the turn fills it → complete.
+    // An onboarding objective with one required, unfilled emit (the close); delivering it this turn
+    // confirms it at send-time → complete.
     const objectiveId = randomUUID();
     await db.insert(objectives).values({ id: objectiveId, threadId, definition: 'onboarding', status: 'active', stackPosition: 0 });
-    const slotId = randomUUID();
-    await db.insert(slots).values({ id: slotId, objectiveId, key: 'k', scope: 'household', required: true, status: 'unasked' });
+    const taskId = randomUUID();
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' });
 
     const chef: Chef = {
       respond: async (): Promise<ChefReply> => ({
         chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        slotUpdates: [{ slotId, status: 'filled', value: 'done' }],
+        confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }],
         cursorTo: inboundId,
         objectiveId,
       }),
@@ -134,7 +135,7 @@ describe('fireworks on onboarding-complete (WI-4B AC3)', () => {
     const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(thread!.celebratedAt).not.toBeNull();
 
-    // Redeliver the same doorbell: cursor already advanced, slot terminal, celebrated_at set → no re-fire.
+    // Redeliver the same doorbell: cursor already advanced, task terminal, celebrated_at set → no re-fire.
     await consumer.handle({ threadId });
     expect(sender.effectCalls).toHaveLength(1);
   });

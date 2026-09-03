@@ -5,8 +5,8 @@ import { FdcFoodRepository } from './fdc-food-repository.js';
 /**
  * Resolves free ingredient text to the curated base-ingredient cluster it rolls up to
  * (string → FDC food → `base_ingredient_id`) — the same tuned matcher recipes use, so
- * "grilled chicken"→Chicken and "salmon"→Fish. One resolver, shared by the grounding
- * (`search_catalog`) and the save (`save_member_profile`) paths so they always agree.
+ * "grilled chicken"→Chicken and "salmon"→Fish. One resolver, shared by the `fact_types` grounding
+ * and the `writeFact` persist paths so they always agree.
  */
 export class BaseIngredientResolver {
   constructor(
