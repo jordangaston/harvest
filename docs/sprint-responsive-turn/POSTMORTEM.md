@@ -101,5 +101,55 @@ Design D-03 + spec-01 updated to match. Folding all P0/P1 fixes into spec-01/spe
 - **Design doc + spec-01 to reconcile** to the send-tool model (they still describe the two-gen
   structured render — now superseded). Pending after suite confirmation.
 
+## Phase 6 — Implement Story 2 (mid-turn send + durability)
+
+- Story 1 committed: `22ee3f8` (agentic responder) + `14d6176` (docs). Full suite green (baseline).
+- **Schema increment DONE + committed `5be93b5`:** `thread_messages.trigger_id` + `(thread_id,
+  trigger_id)` index; migration `0035`. Applies against the libSQL test db; 31 integration tests green.
+- **Durability approach (user-confirmed): deterministic-guid dedup.** Each send's
+  `message_guid = ${triggerId}#${ordinal}` → onConflictDoNothing on the unique index dedupes a
+  redelivery replay; cursor advances last. Ceiling: divergent re-run after a mid-turn crash may
+  drop/misorder the tail (rare, no data loss). Reframed by a find: the **current** code already
+  documents a double-send-on-crash ceiling (`sender.ts:81`) — deterministic-guid is strictly better.
+- **Two delicate interactions found & folded into spec-02:** (a) the **interruption barrier** must
+  drop its restart — live sends aren't discardable (Q-02 resolved in practice: the drain loop picks up
+  mid-turn messages next iteration); (b) **greet confetti** rides the first live send via the sink.
+- **Design authored into `specs/spec-02` (Implementation design section):** the `OutboundSink`, the
+  `chef.respond(threadId, sink)` contract change (`ChefReply` → `{confirmTasks, cursorTo, objectiveId,
+  delivered}`), the Consumer rework (confirm/complete/cursor-last + post-turn effects), the load-bearing
+  crash/resume test. Dispatched to implementer.
+
+## Phase 6 — Story 2 verified (coordinator, independent)
+
+- Implementer commits: `c0533d8` (OutboundSink + SupervisorTurn.send), `6833bcf` (Consumer sink,
+  cursor-last), `64db21e` (crash/resume + trigger_id tests). Full suite (implementer): 586 pass.
+- **Coordinator independent verification:** tsc clean; full suite re-run — only the 2 pre-existing
+  `media.test.ts` ffmpeg failures (no regressions). Read the Consumer `LiveOutboundSink` (deterministic
+  `${triggerId}#${ordinal}` guid, `insertOutboundIdempotent` onConflictDoNothing + `alreadySent`
+  skip, cursor advances LAST, greet-confetti on first live text, post-turn effects preserved) and the
+  load-bearing crash/resume test (TC2) — both correct. Verified, not relayed.
+
+## Phase 7 — Demo (LIMITATION, logged)
+
+- **No live demo possible in this environment.** The real path needs `DEEPSEEK_API_KEY` (the model's
+  social-vs-deliberate judgment + voice) and a Spectrum/iMessage runtime (`PHOTON_*` creds); offline,
+  the env-gate selects the scripted doubles. The unit + integration suite is the proof of *wiring*;
+  the model's *judgment* (does it bias-to-deliberate, does the ack feel natural, does it pick
+  tapback-vs-warm-reply well) is **unverified**. This is the standing caveat from both stories.
+- Recommended live check before ship: run the `chef-sim` harness (or a real thread) with a key and
+  walk the scripted scenarios (social → tapback/warm line, no deliberate; task → ack → deliberate →
+  result; crash mid-turn → no double-text).
+
+## Follow-ups before ship
+1. **Bubble reordering (regression, Story 2).** Live per-bubble sends replaced the ordered batch that
+   `dispatch` used to prevent iMessage reordering rapid sends (`sender.ts:81` documents the reorder
+   bug). A turn emitting 2+ text bubbles back-to-back can reorder client-side. Mitigated (CHEF_VOICE
+   prefers one message; ack/result separated by deliberation) but real. Fix if it surfaces: buffer
+   consecutive same-kind sends in the sink and flush as one batch (needs a flush signal).
+2. **Live judgment unverified** (Phase 7) — run a keyed demo before ship.
+3. `ONBOARDING_CLOSE` is now effectively dead product code (reshaped, not deleted) — candidate removal.
+4. `server/CLAUDE.md` still says DBOS/Postgres; stack is libSQL/Turso — correct the doc.
+
 ## Blockers / quota gaps / skips
-- _(none yet)_
+- Phase 7 live demo skipped — no DEEPSEEK/Spectrum creds in this env (logged above). Not a blocker to
+  code-completion; is a blocker to "shippable" until a keyed demo runs.

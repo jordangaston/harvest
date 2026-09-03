@@ -11,6 +11,55 @@
 >   FK is fine.
 > - Tests already migrate a real libSQL file db (`server/test/helpers/migrated-db.ts` via
 >   `drizzle-orm/libsql/migrator`), so TC5 (migration is real) needs no new infra.
+>
+> ## Implementation design (authoritative — grounded in the post-Story-1 agentic responder)
+>
+> **Schema (DONE, committed `5be93b5`):** `thread_messages.trigger_id` nullable + `(thread_id,
+> trigger_id)` index. Migration `0035_responsive_turn_trigger_id.sql`.
+>
+> **The outbound sink.** The Consumer owns the `Sender`; the responder must send *during* its generate.
+> So the Consumer builds a per-turn **sink** and passes it into `chef.respond(threadId, sink)`:
+> ```ts
+> interface OutboundSink { send(event: ChatEvent): Promise<void>; }  // journal + live send, idempotent
+> ```
+> `chef.respond` threads `sink.send` into `SupervisorTurn.send`; the responder's `send` tool calls
+> `turn.send(sendEvent(payload, triggerExternalId))`. The sink, per call:
+> 1. `messageGuid = `${triggerId}#${ordinal}`` (deterministic; ordinal increments per send this turn).
+> 2. Insert the outbound row (tagged `trigger_id`, the deterministic guid) with **onConflictDoNothing**
+>    on the unique `message_guid` index. If the insert was a **no-op** (row already exists) AND that
+>    row's `sent_at` is set → a redelivery replay, **skip the real send**. Else → send live via
+>    `Sender` (text→`send`, tapback→`sendReaction`, richlink→`sendLink`), then `markSent` + `setExternalId`.
+> 3. Increment ordinal.
+>
+> **`chef.respond` contract change.** It no longer returns `chatEvents` for the Consumer to send (sends
+> happened live). `ChefReply` becomes `{ confirmTasks, cursorTo, objectiveId, delivered }` where
+> `delivered` = "at least one send happened" (the sink tracks it). The `deliberated` flag still gates
+> `confirmTasks` (social turn → `[]`).
+>
+> **Consumer.handle.** After `chef.respond(threadId, sink)` returns, in ONE transaction: `confirmTasks`
+> (if delivered) + completion-pop + **`advanceCursor` LAST** + effect-gate stamps. Then fire the
+> POST-turn effects via `Sender` (fireworks on completion, rename, contact card) — unchanged, they were
+> already separate bubbles. It no longer inserts/dispatches outbound rows.
+>
+> **Effect gate — greet confetti (the one woven into a bubble).** The confetti rides the *first* live
+> send of a greet turn. The sink is built with a `greet` flag; its first text send uses
+> `sender.sendEffect(confetti)` instead of `send`, then clears the flag. All other gates stay post-turn.
+>
+> **Interruption barrier (DELICATE — changes).** Today `chef.respond` discards a render and restarts if
+> a message landed mid-reasoning (`MAX_INTERRUPT_RESTARTS`). **Live sends are not discardable** — a
+> restarted attempt has already sent. So: **remove the restart**; a message that lands mid-turn is
+> picked up by the Consumer's existing drain loop on the next iteration (the reasoner reads all pending
+> at its next turn). Log this as the Q-02 resolution in practice.
+>
+> **Ceilings to log (POSTMORTEM):**
+> - Divergent re-run after a mid-turn crash (model sends a different prefix) can drop/misorder the tail
+>   — rare; no data loss (reasoner writes persist; ordinals realign next turn).
+> - Row-inserted-but-crash-before-`markSent` re-sends that one row on redelivery (the *existing*
+>   increment-1 `sent_at`-gate ceiling, now per-row instead of per-batch — strictly narrower).
+>
+> **Load-bearing test (TC2):** run a turn, throw after the first live send commits (before cursor
+> advance), assert cursor unmoved, re-invoke `handle` on the same doorbell, assert the stub `Sender`
+> received exactly one of each send across both runs and the cursor advanced after.
 
 
 ## Background
