@@ -19,6 +19,7 @@ function turn(overrides: Partial<ChefTurn> = {}): ChefTurn & { sent: ChatEvent[]
     briefing: overrides.briefing ?? briefing,
     ctx: overrides.ctx ?? ({} as TurnContext),
     triggerExternalId: overrides.triggerExternalId ?? null,
+    messageTargets: overrides.messageTargets ?? {},
     send: overrides.send ?? (async (e) => { sent.push(e); }),
     sent,
   };
@@ -59,6 +60,15 @@ describe('sendEvent grounding', () => {
   it('a tapback grounds only on a real trigger id — never a bogus target', () => {
     expect(sendEvent({ type: 'tapback' }, 'spc-REAL')).toEqual({ kind: 'tapback', target: 'spc-REAL', emoji: 'love' });
     expect(sendEvent({ type: 'tapback' }, null)).toBeNull(); // no trigger ⇒ no tapback (the model sends text instead)
+  });
+
+  it('a tapback targets any message by its [m#] handle; an unknown handle grounds nowhere', () => {
+    const targets = { m1: 'spc-1', m2: 'spc-2' };
+    expect(sendEvent({ type: 'tapback', target: 'm2' }, 'spc-trigger', targets)).toEqual({ kind: 'tapback', target: 'spc-2', emoji: 'love' });
+    // no target ⇒ default to the trigger
+    expect(sendEvent({ type: 'tapback' }, 'spc-trigger', targets)).toEqual({ kind: 'tapback', target: 'spc-trigger', emoji: 'love' });
+    // unknown handle ⇒ dropped, never a raw model-supplied id
+    expect(sendEvent({ type: 'tapback', target: 'm9' }, 'spc-trigger', targets)).toBeNull();
   });
 
   it('text and richlink pass through regardless of trigger; empty content is dropped', () => {

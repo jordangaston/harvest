@@ -43,15 +43,6 @@ export class HouseholdRepository {
   }
 
   /**
-   * The household a user already belongs to (one per user in v1), or null. Lets the identity
-   * flow be idempotent — a re-run resolves the existing household instead of orphaning a new one.
-   */
-  async findHouseholdIdForUser(userId: string, tx: Executor = this.db): Promise<string | null> {
-    const [row] = await tx.select({ householdId: householdMembers.householdId }).from(householdMembers).where(eq(householdMembers.userId, userId));
-    return row?.householdId ?? null;
-  }
-
-  /**
    * Links a user to a household, idempotent on the unique `user_id` (one household per user
    * in v1). Re-adding the same user — or a user already in another household — is a no-op.
    */
@@ -66,6 +57,17 @@ export class HouseholdRepository {
       .insert(householdMembers)
       .values(userIds.map((userId) => ({ householdId, userId })))
       .onConflictDoNothing({ target: householdMembers.userId });
+  }
+
+  /** The non-null names of the household's current members — the app-level uniqueness set that
+   *  `add_members` checks a new name against (name lives on `users`, so there's no DB constraint). */
+  async memberNames(householdId: string, tx: Executor = this.db): Promise<string[]> {
+    const rows = await tx
+      .select({ name: users.name })
+      .from(householdMembers)
+      .innerJoin(users, eq(householdMembers.userId, users.id))
+      .where(eq(householdMembers.householdId, householdId));
+    return rows.map((r) => r.name).filter((n): n is string => !!n);
   }
 
   /**

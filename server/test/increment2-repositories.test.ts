@@ -6,6 +6,7 @@ import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
+import { ThreadRepository } from '../src/repositories/thread-repository.js';
 
 let db: Database;
 let cleanup: () => void;
@@ -36,6 +37,28 @@ async function seedObjective(threadId: string, status: 'active' | 'suspended' | 
 
 /** An elicit household task spec (fact = key). */
 const et = (key: string, required = true, extra: Partial<{ solo: boolean; after: string[] }> = {}) => ({ key, kind: 'elicit' as const, fact: key, scope: 'household' as const, required, ...extra });
+
+describe('ThreadRepository.loadRecentMessages', () => {
+  it('returns the last N text/reply messages, both directions, in chronological order', async () => {
+    const threadId = await seedThread();
+    const owner = (await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.ownerUserId;
+    const repo = ThreadRepository.create(db);
+
+    await repo.insertInboundMessage({ threadId, senderUserId: owner, type: 'text', body: 'hi', messageGuid: 'g1' });
+    await repo.insertOutbound({ threadId, body: 'hey there', messageGuid: 'o1' });
+    await repo.insertInboundMessage({ threadId, senderUserId: owner, type: 'text', body: 'we shop at kroger', messageGuid: 'g2' });
+    await repo.insertOutbound({ threadId, body: 'got it', messageGuid: 'o2' });
+    await repo.insertInboundMessage({ threadId, senderUserId: owner, type: 'text', body: 'and aldi', messageGuid: 'g3' });
+
+    const all = await repo.loadRecentMessages(threadId, 20);
+    expect(all.map((m) => m.body)).toEqual(['hi', 'hey there', 'we shop at kroger', 'got it', 'and aldi']);
+    expect(all.map((m) => m.direction)).toEqual(['inbound', 'outbound', 'inbound', 'outbound', 'inbound']);
+
+    // The limit keeps the LAST N, still chronological.
+    const last3 = await repo.loadRecentMessages(threadId, 3);
+    expect(last3.map((m) => m.body)).toEqual(['we shop at kroger', 'got it', 'and aldi']);
+  });
+});
 
 describe('ObjectiveRepository', () => {
   it('loadActive returns the active objective + only its non-terminal tasks, else null (AC-1)', async () => {

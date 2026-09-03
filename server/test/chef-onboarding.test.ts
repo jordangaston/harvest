@@ -11,6 +11,7 @@ import {
   ONBOARDING_CLOSE,
 } from '../src/chef/objectives/onboarding.js';
 import { SameKitchenFlow } from '../src/chef/objectives/onboarding-identity.js';
+import { HouseholdRepository } from '../src/repositories/household-repository.js';
 
 let db: Database;
 let cleanup: () => void;
@@ -25,11 +26,25 @@ async function seedUser(handle: string): Promise<string> {
   return u!.id;
 }
 
-/** A fresh thread owned by a fresh user. */
+/** A fresh thread owned by a fresh user, with its household created + linked (as the webhook does). */
 async function seedThread(): Promise<string> {
   const owner = await seedUser(`+1555${Math.random().toString().slice(2, 9)}`);
   const [t] = await db.insert(threads).values({ chatGuid: `chat-${Math.random()}`, ownerUserId: owner }).returning({ id: threads.id });
+  const household = await HouseholdRepository.create(db).createHousehold({ ownerUserId: owner });
+  await db.update(threads).set({ householdId: household.id }).where(eq(threads.id, t!.id));
   return t!.id;
+}
+
+/** The household id linked to a thread (every thread has one once seeded). */
+async function householdOf(threadId: string): Promise<string> {
+  const [t] = await db.select({ h: threads.householdId }).from(threads).where(eq(threads.id, threadId));
+  return t!.h!;
+}
+
+/** The thread's owner user id (the person texting — the initiator add_members names first). */
+async function ownerOf(threadId: string): Promise<string> {
+  const [t] = await db.select({ o: threads.ownerUserId }).from(threads).where(eq(threads.id, threadId));
+  return t!.o!;
 }
 
 /** Seeds the onboarding objective (household slots) on a fresh thread, returns its id. */
@@ -104,7 +119,7 @@ describe('onboarding definition', () => {
   });
 
   it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe']);
+    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'add_members', 'import_recipe']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();
@@ -129,103 +144,91 @@ describe('onboarding definition', () => {
   });
 });
 
-describe('same-kitchen identity flow', () => {
-  it('creates users, household, memberships, and stamps the thread (AC-4)', async () => {
+describe('same-kitchen roster flow', () => {
+  it('adds members, names the texter own user first, marks the roster slots (AC-4)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
+    const householdId = await householdOf(threadId);
+    const ownerId = await ownerOf(threadId);
 
-    const { householdId, memberUserIds } = await SameKitchenFlow.create(db).establish({
-      threadId,
+    const { results, addedUserIds } = await SameKitchenFlow.create(db).addMembers({
+      householdId,
+      initiatorUserId: ownerId,
       objectiveId: objId,
-      participants: [
-        { handle: '+15551110001', name: 'Priya' },
-        { handle: '+15551110002', name: 'Sam' },
-      ],
+      names: ['Priya', 'Sam'],
     });
+    expect(results.map((r) => r.status)).toEqual(['added', 'added']);
 
-    const priya = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110001')))[0]!;
-    const sam = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110002')))[0]!;
-    expect(priya.name).toBe('Priya');
-    expect(sam.name).toBe('Sam');
-
-    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
-    expect(thread!.householdId).toBe(householdId);
+    // The first name claims the texter's own (owner) user; the second is a name-only proxy.
+    const owner = (await db.select().from(users).where(eq(users.id, ownerId)))[0]!;
+    expect(owner.name).toBe('Priya');
+    const sam = (await db.select().from(users).where(eq(users.name, 'Sam')))[0]!;
+    expect(sam.id).not.toBe(ownerId);
 
     const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
-    expect(members.map((m) => m.userId).sort()).toEqual(memberUserIds.sort());
+    expect(members.map((m) => m.userId).sort()).toEqual([...addedUserIds].sort());
     expect(members).toHaveLength(2);
 
-    // owner = initiator (first participant, Priya)
-    const owner = (await db.select().from(users).where(eq(users.id, priya.id)))[0]!;
-    expect(owner.id).toBe(priya.id);
-
-    // same_household slot filled
     const [sh] = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.fact, 'household.same_household')));
     expect(sh!.status).toBe('filled');
-
-    // household_size filled deterministically (the roster count lives in the domain table now)
     const [hs] = await db.select().from(tasksTable).where(and(eq(tasksTable.objectiveId, objId), eq(tasksTable.fact, 'household.household_size')));
     expect(hs!.status).toBe('filled');
   });
 
-  it('an un-named participant blocks only their own membership + member slots (AC-4)', async () => {
+  it('rejects a duplicate name so the chef can ask for a nickname (idempotent by name)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
+    const householdId = await householdOf(threadId);
+    const ownerId = await ownerOf(threadId);
+    const flow = SameKitchenFlow.create(db);
 
-    const { householdId } = await SameKitchenFlow.create(db).establish({
-      threadId,
-      objectiveId: objId,
-      participants: [
-        { handle: '+15551110001', name: 'Priya' },
-        { handle: '+15551110009' }, // Sam not yet named
-      ],
-    });
+    await flow.addMembers({ householdId, initiatorUserId: ownerId, objectiveId: objId, names: ['Jordan'] });
+    const { results, addedUserIds } = await flow.addMembers({ householdId, initiatorUserId: ownerId, objectiveId: objId, names: ['Jordan'] });
 
-    // Sam's user row exists (name nullable), but no membership and no member slots for him.
-    const sam = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110009')))[0]!;
-    expect(sam.name).toBeNull();
-
+    expect(addedUserIds).toHaveLength(0);
+    expect(results[0]!.status).toBe('rejected');
+    expect(results[0]!.reason).toMatch(/nickname/i);
+    // Still exactly one member named Jordan — the re-add did not duplicate.
     const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
     expect(members).toHaveLength(1);
-
-    const samSlots = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, sam.id));
-    expect(samSlots).toHaveLength(0);
   });
 
-  it('instantiates the member-scoped slots for each identified member (AC-6)', async () => {
+  it('adds a later joiner as a proxy without disturbing the texter (AC-4)', async () => {
     const threadId = await seedThread();
     const objId = await seedOnboarding(threadId);
+    const householdId = await householdOf(threadId);
+    const ownerId = await ownerOf(threadId);
+    const flow = SameKitchenFlow.create(db);
 
-    await SameKitchenFlow.create(db).establish({
-      threadId,
+    await flow.addMembers({ householdId, initiatorUserId: ownerId, objectiveId: objId, names: ['Priya'] });
+    await flow.addMembers({ householdId, initiatorUserId: ownerId, objectiveId: objId, names: ['Alex'] });
+
+    // The owner stays Priya; Alex is a distinct proxy user, never the texter.
+    const owner = (await db.select().from(users).where(eq(users.id, ownerId)))[0]!;
+    expect(owner.name).toBe('Priya');
+    const alex = (await db.select().from(users).where(eq(users.name, 'Alex')))[0]!;
+    expect(alex.id).not.toBe(ownerId);
+
+    const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
+    expect(members).toHaveLength(2);
+  });
+
+  it('instantiates the member-scoped slots for each added member (AC-6)', async () => {
+    const threadId = await seedThread();
+    const objId = await seedOnboarding(threadId);
+    const ownerId = await ownerOf(threadId);
+
+    await SameKitchenFlow.create(db).addMembers({
+      householdId: await householdOf(threadId),
+      initiatorUserId: ownerId,
       objectiveId: objId,
-      participants: [{ handle: '+15551110001', name: 'Priya' }],
+      names: ['Priya'],
     });
-    const priya = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110001')))[0]!;
 
-    const rows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, priya.id));
+    const rows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, ownerId));
     expect(rows.every((r) => r.scope === 'member')).toBe(true);
     expect(rows.map((r) => r.fact).sort()).toEqual(['name', 'allergens', 'diets', 'food_preferences', 'skill_level'].sort());
     expect(rows.filter((r) => r.required).map((r) => r.fact).sort()).toEqual(['allergens', 'name']);
-  });
-
-  it('is idempotent — a re-run converges (no duplicate users, memberships, or slots)', async () => {
-    const threadId = await seedThread();
-    const objId = await seedOnboarding(threadId);
-    const input = {
-      threadId,
-      objectiveId: objId,
-      participants: [{ handle: '+15551110001', name: 'Priya' }],
-    };
-    await SameKitchenFlow.create(db).establish(input);
-    const { householdId } = await SameKitchenFlow.create(db).establish(input);
-
-    const priya = (await db.select().from(users).where(eq(users.imessageHandle, '+15551110001')))[0]!;
-    const members = await db.select().from(householdMembers).where(eq(householdMembers.householdId, householdId));
-    // addMember is unique on user_id, so the second household's re-add is a no-op for the member.
-    expect(members.filter((m) => m.userId === priya.id)).toHaveLength(1);
-    const memberRows = await db.select().from(tasksTable).where(eq(tasksTable.memberUserId, priya.id));
-    expect(memberRows).toHaveLength(memberTaskSpecs(priya.id).length);
   });
 });
 
@@ -236,7 +239,7 @@ describe('completion + close', () => {
     const store = ObjectiveRepository.create(db);
 
     // Add one identified member so member-required slots exist too.
-    await SameKitchenFlow.create(db).establish({ threadId, objectiveId: objId, participants: [{ handle: '+15551110001', name: 'Priya' }] });
+    await SameKitchenFlow.create(db).addMembers({ householdId: await householdOf(threadId), initiatorUserId: await ownerOf(threadId), objectiveId: objId, names: ['Priya'] });
 
     // Fill/​default every required task except the member's allergens (leave it asked). The close
     // emit + explainer-ack are required too — default them here.

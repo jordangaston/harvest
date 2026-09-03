@@ -52,9 +52,11 @@ export class UpdateTasksTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Fill the objective tasks you now have answers for. Address each by the [id] in the briefing: ' +
-        'updates:[{ task_id, value }]. Batch every task you can answer this turn into one call — except ' +
-        'a task marked solo, which must be sent by itself. Returns per-task status and objectiveComplete.',
+        'Fill the objective tasks you now have answers for, each by its [id] from the briefing. Batch ' +
+        'every task you can answer this turn into one call — except a task marked (solo), which must go ' +
+        'alone (a batch with one is rejected). For something the household mentions that no task asks ' +
+        'about, use update_facts instead. Returns each task filled/rejected (with the reason and ' +
+        'closest valid values) and whether the objective is now complete.',
       inputSchema,
       execute: async ({ updates }) => this.run(updates),
     });

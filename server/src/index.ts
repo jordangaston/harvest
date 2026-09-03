@@ -6,6 +6,7 @@ import { toPublicUser } from "./models/user.js";
 import { ImportService } from "./import-service.js";
 import { renderRecipePage } from "./recipe-page.js";
 import { ThreadRepository } from "./repositories/thread-repository.js";
+import { HouseholdRepository } from "./repositories/household-repository.js";
 import { verifyWebhook } from "./imessage/webhook-verify.js";
 import { parseInbound } from "./imessage/inbound.js";
 import { INBOUND_TOPIC } from "./imessage/doorbell.js";
@@ -71,6 +72,7 @@ export function buildApp(db: Database) {
   const tasteOptions = TasteOptionsService.create(db);
   const tasteIngredients = TasteIngredientRepository.create(db);
   const threads = ThreadRepository.create(db);
+  const households = HouseholdRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -372,6 +374,13 @@ app.post("/spectrum/webhook", async (c) => {
   const threadId = await db.transaction(async (tx) => {
     const userId = await threads.upsertUserByHandle(inbound.handle, tx);
     const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
+    // A thread implies a household (one kitchen per chat), so create + link it here — owned by the
+    // thread's initiator — rather than gating its existence on the chef calling a tool. The roster
+    // (who else cooks together) is filled later by `add_members`; this just guarantees the row.
+    if (!thread.householdId) {
+      const household = await households.createHousehold({ ownerUserId: thread.ownerUserId }, tx);
+      await threads.linkHousehold(thread.id, household.id, tx);
+    }
     await threads.insertInboundMessage(
       {
         threadId: thread.id,

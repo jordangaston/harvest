@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { users, threads, threadMessages } from '../schema.js';
 import { ThreadSchema, type Thread } from '../models/thread.js';
@@ -104,6 +104,21 @@ export class ThreadRepository {
       )
       .orderBy(asc(threadMessages.createdAt), asc(threadMessages.id));
     return pendingPast(rows.map((row) => ThreadMessageSchema.parse(row)), cursor);
+  }
+
+  /**
+   * The last `limit` answerable messages (`text`/`reply`, both directions) in chronological order —
+   * the conversation window the briefing shows for context. Ordered by `rowid` (true insertion
+   * order; `created_at` is second-granularity so a turn's bubbles would tie).
+   */
+  async loadRecentMessages(threadId: string, limit: number): Promise<ThreadMessage[]> {
+    const rows = await this.db
+      .select()
+      .from(threadMessages)
+      .where(and(eq(threadMessages.threadId, threadId), inArray(threadMessages.type, ['text', 'reply'])))
+      .orderBy(desc(sql`rowid`))
+      .limit(limit);
+    return rows.reverse().map((row) => ThreadMessageSchema.parse(row));
   }
 
   /** Finds a message in a thread by its Spectrum platform id — the `external_id` a reply/reaction

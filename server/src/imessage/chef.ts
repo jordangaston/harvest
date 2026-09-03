@@ -9,7 +9,8 @@ import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
 
-const MAX_TURN_TRANSCRIPT = 12;
+/** How many recent messages (both sides) the briefing shows as conversation context. */
+const CONVERSATION_WINDOW = 20;
 /** Cap the replied-to parent to a snippet — a Chef menu can be long, and only the referent matters. */
 const MAX_REPLY_PARENT_SNIPPET = 280;
 
@@ -101,6 +102,7 @@ export class RealChef implements Chef {
         briefing: turn.briefing,
         ctx: turn.turnCtx,
         triggerExternalId: turn.triggerExternalId,
+        messageTargets: turn.messageTargets,
         send: async (event) => {
           delivered = true;
           await sink.send(event);
@@ -130,8 +132,22 @@ export class RealChef implements Chef {
 
     const members = householdId ? await this.households.loadMembers(householdId) : [];
     const briefingMembers = members.map((m) => ({ userId: m.userId, name: m.name ?? m.imessageHandle ?? '', handle: m.imessageHandle ?? '' }));
-    const transcriptWindow = pending.map((m) => m.body ?? '');
-    const transcript: TranscriptLine[] = transcriptWindow.map((text) => ({ role: 'household', text }));
+    // Show the recent conversation (both sides) for context, but tag only THIS turn's new household
+    // messages [m#] — they're what to answer, and the only tapback-targetable ones. The [m#] → platform
+    // id map lets a tapback ground on any of them without the model ever touching a raw id.
+    const recent = await this.threads.loadRecentMessages(threadId, CONVERSATION_WINDOW);
+    const pendingIds = new Set(pending.map((m) => m.id));
+    const messageTargets: Record<string, string> = {};
+    let tag = 0;
+    const transcript: TranscriptLine[] = recent.map((m) => {
+      const role: TranscriptLine['role'] = m.direction === 'inbound' ? 'household' : 'chef';
+      if (role === 'household' && pendingIds.has(m.id)) {
+        const handle = `m${(tag += 1)}`;
+        if (m.externalId) messageTargets[handle] = m.externalId;
+        return { role, text: m.body ?? '', handle };
+      }
+      return { role, text: m.body ?? '' };
+    });
 
     // A threaded reply (the trigger carries a parent guid) shows the model the message it answers.
     const trigger = pending[pending.length - 1]!;
@@ -143,8 +159,8 @@ export class RealChef implements Chef {
       objective: active.objective,
       tasks: active.tasks,
       members: briefingMembers,
-      transcript: transcript.slice(-MAX_TURN_TRANSCRIPT),
-      trigger: transcriptWindow.join('\n'),
+      transcript,
+      trigger: pending.map((m) => m.body ?? '').join('\n'),
       replyingTo: parent?.body ? parent.body.slice(0, MAX_REPLY_PARENT_SNIPPET) : undefined,
     };
     const turnCtx: TurnContext = {
@@ -161,7 +177,7 @@ export class RealChef implements Chef {
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
     // status in-loop, so they never appear here.
     const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
-    return { briefing, turnCtx, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
+    return { briefing, turnCtx, triggerExternalId: trigger.externalId, messageTargets, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
   }
 }
 

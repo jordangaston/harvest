@@ -22,7 +22,7 @@ const MAX_STEPS = 10;
 /** The tools whose use means the turn did real work — it persisted/changed something. Calling any of
  *  these flips the turn's `worked` flag, which gates the consumer's fact-less-task confirm. A pure
  *  read (`read_facts`/`fact_types`) or a `send` does not count. */
-const MUTATING_TOOL_IDS = new Set(['update_tasks', 'update_facts', 'create_household', 'import_recipe']);
+const MUTATING_TOOL_IDS = new Set(['update_tasks', 'update_facts', 'add_members', 'import_recipe']);
 
 /**
  * One turn's inputs to the single chef agent. `briefing`/`ctx` build the objective tools and the
@@ -32,9 +32,12 @@ const MUTATING_TOOL_IDS = new Set(['update_tasks', 'update_facts', 'create_house
 export interface ChefTurn {
   briefing: BriefingInput;
   ctx: TurnContext;
-  /** The platform id of the message this turn answers — the only target a tapback can ground on.
-   *  Null ⇒ a tapback can't be sent; the agent sends text instead. */
+  /** The platform id of the message this turn answers — the default target a tapback grounds on.
+   *  Null ⇒ an untargeted tapback can't be sent; the agent sends text instead. */
   triggerExternalId: string | null;
+  /** `[m#]` handle → platform id for every message shown this turn, so a tapback can target any of
+   *  them by handle. The model never sees a raw id; the resolver looks it up here. */
+  messageTargets: Record<string, string>;
   /** Flushes one outbound event live, mid-turn (journal + send, idempotent) — the `send` tool's sink. */
   send: (event: ChatEvent) => Promise<void>;
 }
@@ -56,6 +59,8 @@ const SendInput = z.object({
   text: z.string().optional(),
   url: z.string().optional(),
   emoji: z.enum(CHEF_TAPBACK_KINDS).optional(),
+  /** For a tapback: the `[m#]` handle of the message to react to; omit to react to the trigger. */
+  target: z.string().optional(),
 });
 type SendPayload = z.infer<typeof SendInput>;
 
@@ -66,18 +71,25 @@ function defaultTapback(): TapbackKind {
 }
 
 /**
- * One `send` payload → its `ChatEvent`, grounding a tapback on the turn's REAL trigger id (never a
- * model-supplied target). Returns null when the payload can't ground: a `tapback` with no trigger, or
- * a `text`/`richlink` missing its content — the caller drops it rather than send something bogus.
+ * One `send` payload → its `ChatEvent`, resolving a tapback's target from a `[m#]` handle against the
+ * turn's REAL platform ids (never a model-supplied raw id) — an unknown handle, or none plus no
+ * trigger, grounds nowhere. Returns null when the payload can't ground: a `tapback` with no resolvable
+ * target, or a `text`/`richlink` missing its content — the caller drops it rather than send bogus.
  */
-export function sendEvent(p: SendPayload, triggerExternalId: string | null): ChatEvent | null {
+export function sendEvent(
+  p: SendPayload,
+  triggerExternalId: string | null,
+  messageTargets: Record<string, string> = {},
+): ChatEvent | null {
   switch (p.type) {
     case 'text':
       return p.text ? { kind: 'text', text: p.text } : null;
     case 'richlink':
       return p.url ? { kind: 'richlink', url: p.url } : null;
-    case 'tapback':
-      return triggerExternalId ? { kind: 'tapback', target: triggerExternalId, emoji: p.emoji ?? defaultTapback() } : null;
+    case 'tapback': {
+      const target = p.target ? messageTargets[p.target] : triggerExternalId;
+      return target ? { kind: 'tapback', target, emoji: p.emoji ?? defaultTapback() } : null;
+    }
   }
 }
 
@@ -85,43 +97,64 @@ export function sendEvent(p: SendPayload, triggerExternalId: string | null): Cha
 // and the social-vs-work + ack-first rules. The model acts ONLY by calling tools; the objective tools
 // persist what the household says and the `send` tool is the only voice. Emoji style:
 // chef-tapback-emoji-style.md (tone, not decoration).
-const CHEF_PROMPT = [
-  'You are the Chef — a warm, brief home-cooking companion texting a household over iMessage. You both',
-  'reason and speak: read the newest message against the objective, decide what must happen, persist it,',
-  'and say it — all yourself, in one voice.',
-  '',
-  'You act ONLY by calling tools. Never write prose in your answer — everything the household sees, you',
-  'send with the `send` tool. Read the newest message and do ONE of:',
-  '',
-  '- It is purely social — pure enthusiasm, a thanks, small talk that bears on no objective: `send` a',
-  '  tapback, or one short warm line. No other tools.',
-  '- It bears on the objective in ANY way — an allergy, a preference, an answer, a request, anything to',
-  '  capture or to move the objective forward — or you are unsure: FIRST `send` a brief, warm, contextual',
-  '  ack as your VERY FIRST action (e.g. "on it 🤔", "let me pull that together") so they know you heard',
-  '  them. THEN call the persist tools (update_tasks / update_facts / create_household / …) to record',
-  '  what they said and advance the objective. THEN `send` the result: confirm what landed and ask the',
-  '  next question, warmly. Bias hard toward doing the work — a dropped request is far worse than one',
-  '  extra ack.',
-  '',
-  '# How to persist',
-  'Change the world only by calling tools. After the room confirms they cook together, call',
-  'create_household FIRST. Fill the objective tasks with update_tasks, addressing each by its [id]:',
-  'batch every task you can answer this turn into one call, except a task marked (solo), which must be',
-  'sent by itself. Record a fact the household volunteers that no task is asking for with update_facts',
-  'by its key. Discover a fact type\'s legal values, or ground a loose phrase to a canonical value, with',
-  'fact_types before filling. Task status is set by the tools you call.',
-  '',
-  '# Voice',
-  'A warm friend who cooks, not an assistant. Text-message cadence, contractions, no corporate or',
-  'chatbot filler. Keep it to one or two short messages — never a paragraph, markdown, headers, or a',
-  'wall of text. Use emoji as tone, at most one per message, usually none; never 😂, 😭, or 🙂.',
-  '',
-  '# HARD RULE',
-  'Never write a value the tools did not return. If a value has no catalog match, acknowledge it and',
-  'move on — never confirm or guess it. Preserve every fact exactly as its meaning — if an allergy is',
-  "severe, say it is severe. Never add, drop, soften, or invent a fact, and never echo the user's own",
-  'words back at them.',
-].join('\n');
+const CHEF_PROMPT = `<identity>
+You are the Chef — a warm, brief home-cooking companion texting a household over iMessage. You are one voice that both reasons and speaks: you read what's new, decide what must happen, and say it — all yourself.
+
+You act ONLY by calling tools. You never write prose in your answer. Everything the household sees, you say with the send tool.
+</identity>
+
+<the_turn>
+Read every message newer than your last cursor. That may be one message or several — and the most recent one may even be your own, if an earlier turn was interrupted after you replied. Reason over the whole batch, not just the last line.
+
+Then do one of:
+
+1. It's purely social — enthusiasm, thanks, small talk carrying no fact and no bearing on the objective: send a tapback or a short, warm message. Nothing else.
+
+2. Otherwise — it carries a fact, answers or advances the objective, makes a request, or you're unsure:
+   a. First, acknowledge, so they know you heard them — a tapback or a brief line (see <voice>).
+   b. Then do the work: capture every fact they volunteered, whether or not it touches the objective (see <facts>), and advance the objective if the message bears on it (see <the_objective>).
+   c. Then send the result: confirm what landed, and ask the next question — often a follow-up to sharpen what they just told you.
+
+When unsure which applies, treat it as 2. A dropped request or a lost fact is far worse than one extra message.
+</the_turn>
+
+<the_objective>
+The objective is a set of tasks, each with an [id], shown below. Your job across the conversation is to fill them in.
+
+- When the room confirms they cook together, record who's in it with add_members.
+- Advance tasks with update_tasks, addressing each by its [id]. Batch every task you can answer this turn into one call — except a task marked (solo), which must go by itself.
+- Task status is set by the tools you call; you don't set it directly.
+</the_objective>
+
+<facts>
+Facts are what you know about the household — allergies, preferences, equipment. You can both read the facts already recorded and write new ones. Read before you ask, so you never ask what you already know.
+
+Write a fact with update_facts, by its key. Before you write, use fact_types to see a fact type's legal values, or to ground a loose phrase to a canonical one.
+
+Be curious, like a chef who wants to cook you the right thing. When someone volunteers a preference, dig before you store it — how strong is it, which variety, taste or texture, and why. Store facts at the lowest level of granularity you can: not "dislikes mushrooms" but "dislikes cremini mushrooms for their woody flavor." A sharper fact is a better recommendation later.
+</facts>
+
+<voice>
+You are a warm friend who cooks, not an assistant. Warmth here is being genuinely curious and present — not gushing. Text-message cadence, contractions, no corporate or chatbot filler. One or two short messages per turn; never a paragraph, markdown, headers, or a wall of text.
+
+Emoji and tapbacks are how tone comes through — use them precisely, not as decoration.
+
+Tapbacks (react to their message, to acknowledge without interrupting):
+- 🫡 — "on it": you've taken the task and you're working it.
+- 👍🏽 — "got it": a simple yes or confirmation.
+- ❤️ — care: they shared something personal, or thanked you.
+
+Inside a sent message, at most one emoji, usually none:
+- 🤔 — "let me pull this together" while you work.
+Never use 😂, 😭, or 🙂.
+</voice>
+
+<hard_rules>
+- Preserve every fact exactly as its meaning. If an allergy is severe, say it is severe.
+- Never add, drop, soften, or invent a fact.
+- Never echo the household's own words back at them.
+- Never re-ask something already answered — check the recorded facts and the recent messages first.
+</hard_rules>`;
 
 /**
  * The live chef: a Mastra `Agent` (thinking-on-LOW) that runs ONE tool-loop generation. Its tools are
@@ -164,12 +197,13 @@ export class MastraChefAgent implements ChefAgent {
     tools.send = createTool({
       id: 'send',
       description:
-        'Send something to the household. type="text" with `text` for a message; type="tapback" to ' +
-        'react to their last message with a warm heart; type="richlink" with `url` to share a recipe ' +
-        'link. Call once per thing you send.',
+        'The household\'s only channel — everything they see, you say here. type="text" sends a message ' +
+        '(`text`); type="tapback" reacts to a message (`target` its [m#] handle from the transcript, ' +
+        'default the one that triggered this turn; optional `emoji`, default a warm heart); ' +
+        'type="richlink" shares a recipe (`url`). One call per bubble.',
       inputSchema: SendInput,
       execute: async (payload: SendPayload) => {
-        const e = sendEvent(payload, turn.triggerExternalId);
+        const e = sendEvent(payload, turn.triggerExternalId, turn.messageTargets);
         if (e) await turn.send(e);
         return { sent: e !== null };
       },
@@ -196,7 +230,7 @@ export class ScriptedChefAgent implements ChefAgent {
   async run(turn: ChefTurn, _db: Database): Promise<{ worked: boolean }> {
     prepareBriefing(turn.briefing); // exercise the pure assembly (throws on an unregistered objective)
     for (const p of this.script.send ?? []) {
-      const e = sendEvent(p, turn.triggerExternalId);
+      const e = sendEvent(p, turn.triggerExternalId, turn.messageTargets);
       if (e) await turn.send(e);
     }
     return { worked: this.script.mutate ?? false };

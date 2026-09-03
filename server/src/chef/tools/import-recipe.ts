@@ -36,9 +36,10 @@ export class ImportRecipeTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Start importing a recipe from a link the household dropped (Instagram/TikTok/YouTube/a recipe ' +
-        "website). Pass the URL. On success, acknowledge briefly (\"On it — reading that recipe…\"); if it " +
-        "isn't a recipe link, tell them so.",
+        'Start importing a recipe from a link the household dropped — Instagram, TikTok, YouTube, or a ' +
+        'recipe site. Pass the `url`. It runs in the background and replies when it is done, so just ' +
+        'acknowledge you are on it. Works anytime, not only during onboarding. Returns a job_id, or a ' +
+        'rejection if the link is not a recipe.',
       inputSchema,
       execute: async ({ url }) => this.run(url),
     });

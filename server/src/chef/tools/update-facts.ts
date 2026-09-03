@@ -54,9 +54,10 @@ export class UpdateFactsTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Record a fact the household mentioned that no current objective task is asking for. Pass ' +
-        'updates:[{ key, value, member_user_id? }] (member_user_id for a member-scoped fact). Advances ' +
-        'no task. Use `update_tasks` instead for anything the active objective is asking about.',
+        'Record a fact the household volunteers that no active task is asking for — a member\'s allergy, ' +
+        'a store they like. `member_user_id` targets a member-scoped fact (omit it when there is only one ' +
+        'member). Advances no task; for anything a task is asking about, use update_tasks. Returns ' +
+        'filled/rejected per key, with the reason and closest valid values.',
       inputSchema,
       execute: async ({ updates }) => this.run(updates),
     });

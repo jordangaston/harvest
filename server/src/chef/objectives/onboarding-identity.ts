@@ -1,42 +1,40 @@
 import type { Database } from '../../db.js';
-import { ThreadRepository } from '../../repositories/thread-repository.js';
 import { HouseholdRepository } from '../../repositories/household-repository.js';
 import { UserRepository } from '../../repositories/user-repository.js';
 import { ObjectiveRepository } from '../objective-repository.js';
 import { memberTaskSpecs } from './onboarding.js';
 
-/** A drizzle transaction client — the type each write takes inside the identity transaction. */
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
-
-/** One participant in the "same kitchen" answer. The initiator has a handle (they texted);
- *  a proxy member named by someone else may have only a name (no handle yet). */
-export interface Participant {
-  handle?: string;
-  name?: string;
+export interface AddMembersInput {
+  /** The household the members join — created with the thread on first inbound. */
+  householdId: string;
+  /** The thread owner (the person texting) — named as the first member of a brand-new household. */
+  initiatorUserId: string;
+  objectiveId: string;
+  /** The member names to add this call — new people only; a name already present is rejected. */
+  names: string[];
 }
 
-export interface SameKitchenInput {
-  threadId: string;
-  objectiveId: string;
-  /** Every participant; the first is the initiator (recorded as the household owner). */
-  participants: Participant[];
+/** One name's verdict: added (with the user it became) or rejected (with why). */
+export interface MemberAddResult {
+  name: string;
+  status: 'added' | 'rejected';
+  reason?: string;
+  userId?: string;
 }
 
 /**
- * The "same kitchen" identity flow (F-01): turns a room into a household in one transaction.
- * Creates one `users` row per participant keyed by `imessage_handle` (possession proven by the
- * inbound — no OTP), a `households` row owned by the initiator, a `household_members` link and
- * member-scoped slots per *identified* member (one whose name is known), links the thread to the
- * household, and fills the `household.same_household`/`household_size` slots.
+ * The "same kitchen" roster flow (F-01): adds named members to the thread's household. Names are
+ * unique within a household (app-level, checked at this single chokepoint) — a duplicate is rejected
+ * so the chef can ask for a nickname. The first member of a brand-new household names the texter's
+ * own `users` row (which already carries their handle from the inbound); every later member is a
+ * name-only proxy row (until they text and identity-link, increment 2). Each added member gets its
+ * member-scoped slots; the first successful add fills `household.same_household`/`household_size`.
  *
- * No mid-flow synchronization: an un-named participant still gets a `users` row (name nullable)
- * but blocks only their own membership + member slots — everything else writes through now.
- * Idempotent — a re-run converges (users/memberships/slots all upsert on their unique keys).
+ * Idempotent by name: re-adding an existing member is a no-op rejection, not a duplicate.
  */
 export class SameKitchenFlow {
   private constructor(
     private readonly db: Database,
-    private readonly threads: ThreadRepository,
     private readonly households: HouseholdRepository,
     private readonly users: UserRepository,
     private readonly objectives: ObjectiveRepository,
@@ -45,7 +43,6 @@ export class SameKitchenFlow {
   static create(db: Database): SameKitchenFlow {
     return new SameKitchenFlow(
       db,
-      ThreadRepository.create(db),
       HouseholdRepository.create(db),
       UserRepository.create(db),
       ObjectiveRepository.create(db),
@@ -53,43 +50,47 @@ export class SameKitchenFlow {
   }
 
   /**
-   * Establishes the household from a "same kitchen" answer.
-   * @returns The household id and the member user ids that were linked (the identified ones).
+   * Adds the given names to the household as members.
+   * @returns Each name's verdict and the user ids that were added this call.
    */
-  async establish(input: SameKitchenInput): Promise<{ householdId: string; memberUserIds: string[] }> {
+  async addMembers(input: AddMembersInput): Promise<{ results: MemberAddResult[]; addedUserIds: string[] }> {
     return this.db.transaction(async (tx) => {
-      const withIds = await Promise.all(
-        input.participants.map(async (p) => ({ ...p, userId: await this.resolveUser(tx, p) })),
-      );
-      const initiator = withIds[0]!;
+      const taken = new Set((await this.households.memberNames(input.householdId, tx)).map((n) => n.toLowerCase()));
+      // The texter claims their own (handle-bearing) user only on a brand-new household, listing
+      // themselves first; after that every name is a proxy — so a late joiner never takes the handle.
+      let ownerUnclaimed = taken.size === 0;
 
-      // Find-or-create the initiator's household so a re-run converges rather than orphaning one.
-      let householdId = await this.households.findHouseholdIdForUser(initiator.userId, tx);
-      if (!householdId) householdId = (await this.households.createHousehold({ ownerUserId: initiator.userId }, tx)).id;
-      await this.threads.linkHousehold(input.threadId, householdId, tx);
+      const results: MemberAddResult[] = [];
+      const addedUserIds: string[] = [];
+      for (const raw of input.names) {
+        const name = raw.trim();
+        if (taken.has(name.toLowerCase())) {
+          results.push({ name, status: 'rejected', reason: `already a member named ${name} — try a nickname` });
+          continue;
+        }
 
-      // Only identified members (name known) get a membership + slots — both bulk-inserted, no N+1.
-      const identified = withIds.filter((p) => p.name);
-      await this.households.addMembers(householdId, identified.map((p) => p.userId), tx);
-      await this.objectives.instantiateMemberTasks(input.objectiveId, identified.flatMap((p) => memberTaskSpecs(p.userId)), tx);
+        let userId: string;
+        if (ownerUnclaimed) {
+          await this.users.setName(input.initiatorUserId, name, tx);
+          userId = input.initiatorUserId;
+          ownerUnclaimed = false;
+        } else {
+          userId = (await this.users.insert({ name, jwtPrivateKey: '', jwtPublicKey: '' }, tx)).id;
+        }
+        await this.households.addMember({ householdId: input.householdId, userId }, tx);
+        await this.objectives.instantiateMemberTasks(input.objectiveId, memberTaskSpecs(userId), tx);
+        taken.add(name.toLowerCase());
+        results.push({ name, status: 'added', userId });
+        addedUserIds.push(userId);
+      }
 
-      await this.objectives.markTaskFilled(input.objectiveId, 'household.same_household', tx);
-      // household_size is the roster count — derivable here, so fill it deterministically rather
-      // than leaving the model to volunteer a taskUpdate for a task no tool grounds.
-      await this.objectives.markTaskFilled(input.objectiveId, 'household.household_size', tx);
-      return { householdId, memberUserIds: identified.map((p) => p.userId) };
+      if (addedUserIds.length > 0) {
+        await this.objectives.markTaskFilled(input.objectiveId, 'household.same_household', tx);
+        // household_size is the roster count — derivable, so fill it here rather than leaving the
+        // model to volunteer a taskUpdate for a task no tool grounds.
+        await this.objectives.markTaskFilled(input.objectiveId, 'household.household_size', tx);
+      }
+      return { results, addedUserIds };
     });
-  }
-
-  /** A participant's user id: by handle if they've texted (name refreshed), else a fresh proxy row
-   *  whose id the database assigns — no hand-rolled uuid, the column default + `returning()` supply it. */
-  private async resolveUser(tx: Tx, p: Participant): Promise<string> {
-    if (p.handle) {
-      const userId = await this.threads.upsertUserByHandle(p.handle, tx);
-      if (p.name) await this.users.setName(userId, p.name, tx);
-      return userId;
-    }
-    const user = await this.users.insert({ name: p.name ?? null, jwtPrivateKey: '', jwtPublicKey: '' }, tx);
-    return user.id;
   }
 }
