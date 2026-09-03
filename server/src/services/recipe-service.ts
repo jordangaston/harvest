@@ -162,11 +162,10 @@ export class RecipeService {
   }
 
   /**
-   * Records a swipe and applies its side-effect (WI-RANK-4). Snapshots the pre-tune
-   * score+weights (what produced the card the user saw), then: a `like` files the recipe
-   * into the caller's "Liked" system cookbook; a `save` ("cook this week") files it into
-   * "Saved"; a reasoned `dislike` tunes preferences (bump a weight, or add a food-pref
-   * dislike when a `reasonDetail` names the ingredient).
+   * Records a swipe and applies its side-effect (WI-RANK-4). Snapshots the score that produced
+   * the card the user saw, then: a `like` files the recipe into the caller's "Liked" system
+   * cookbook; a `save` ("cook this week") files it into "Saved"; a reasoned `dislike` tunes
+   * preferences (adds a food-pref dislike when a `reasonDetail` names the ingredient).
    * @param userId - The caller.
    * @param recipeId - The swiped recipe (must be visible to the caller).
    * @param input - Direction + optional dislike reason and its detail.
@@ -183,7 +182,7 @@ export class RecipeService {
     const prefs = await this.preferences.getPreferences(userId);
     const score = round1(RankingEngine.create().rank([rankable], prefs)[0]!.score * 100);
     const reason = input.reason ?? null;
-    await this.swipes.upsert(userId, { recipeId, direction: input.direction, reason, score, weights: prefs.weights });
+    await this.swipes.upsert(userId, { recipeId, direction: input.direction, reason, score });
 
     if (input.direction === "like" || input.direction === "save") {
       const [slug, name] = input.direction === "like" ? ["liked", "Liked"] : ["saved", "Saved"];
@@ -210,11 +209,10 @@ export class RecipeService {
     }
   }
 
-  /** Tunes preferences for a reasoned dislike: bump a weight, add a food-pref dislike, or nothing. */
+  /** Tunes preferences for a reasoned dislike: add a food-pref dislike, or nothing. */
   private async applyDislikeTuning(userId: string, reason: SwipeReason, reasonDetail?: string): Promise<void> {
     const action = tuneActionFor(reason);
-    if (action.kind === "weight") await this.preferences.bumpWeight(userId, action.signal);
-    else if (action.kind === "dislike" && reasonDetail) await this.preferences.addDislike(userId, "primary_ingredient", reasonDetail);
+    if (action.kind === "dislike" && reasonDetail) await this.preferences.addDislike(userId, "primary_ingredient", reasonDetail);
   }
 
   /**

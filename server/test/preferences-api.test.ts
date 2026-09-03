@@ -52,13 +52,13 @@ const VALID = {
   weekly_budget_cents: 12000,
   time_budget_minutes: 45,
   weekly_meals: { breakfast: 3, lunch: 0, dinner: 5, snack: 2, kids: 0 },
-  // Unified array: a taste like, a taste dislike, a pure moderation, and a combined taste+intent.
+  // Directive array: taste likes, a taste dislike, a positive-target intent, and a moderation with reason.
   food_prefs: [
-    { facet: "cuisine", value: "italian", sentiment: "like" },
-    { facet: "dish_type", value: "bowls", sentiment: "like" },
-    { facet: "ingredient", value: LIVER_ID, sentiment: "dislike" },
-    { facet: "food_category", value: "seafood", target: 0.8 },
-    { facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" },
+    { dimension: "cuisine", value: "italian", direction: "more" },
+    { dimension: "dish_type", value: "bowls", direction: "more" },
+    { dimension: "ingredient", value: LIVER_ID, direction: "less" },
+    { dimension: "food_category", value: "seafood", direction: "more", target: 0.8 },
+    { dimension: "food_category", value: "red_meat", direction: "less", strength: "firm", target: -0.6, reason: "heart health" },
   ],
   allergens: [{ allergen: "peanut", severity: "severe" }],
   diets: [{ diet: "pescatarian", strictness: "flexible" }],
@@ -100,10 +100,10 @@ describe("preferences API (WI-1)", () => {
     // Every axis of every food-pref round-trips (AC 11): taste like, taste dislike, pure
     // moderation (target only), and the combined taste+intent element.
     const fp = body.preferences.food_prefs;
-    expect(fp).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
-    expect(fp).toContainEqual({ facet: "ingredient", value: LIVER_ID, sentiment: "dislike", target: null, reason: null });
-    expect(fp).toContainEqual({ facet: "food_category", value: "seafood", sentiment: null, target: 0.8, reason: null });
-    expect(fp).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" });
+    expect(fp).toContainEqual({ dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
+    expect(fp).toContainEqual({ dimension: "ingredient", value: LIVER_ID, scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
+    expect(fp).toContainEqual({ dimension: "food_category", value: "seafood", scope: "recipe", direction: "more", strength: "soft", target: 0.8, unit: null, reason: null });
+    expect(fp).toContainEqual({ dimension: "food_category", value: "red_meat", scope: "recipe", direction: "less", strength: "firm", target: -0.6, unit: null, reason: "heart health" });
     // Response carries no legacy likes/dislikes keys.
     expect(body.preferences.likes).toBeUndefined();
     expect(body.preferences.dislikes).toBeUndefined();
@@ -117,10 +117,10 @@ describe("preferences API (WI-1)", () => {
 
   it("rejects an ingredient pref whose value is not a known base_ingredient_id with 422", async () => {
     const token = await mintToken();
-    const bad = await putPrefs(token, { ...VALID, food_prefs: [{ facet: "ingredient", value: "not-a-real-id", sentiment: "dislike" }] });
+    const bad = await putPrefs(token, { ...VALID, food_prefs: [{ dimension: "ingredient", value: "not-a-real-id", direction: "less" }] });
     expect(bad.status).toBe(422);
     // Cuisine/dish_type values are code-vocab, not DB-checked here — an unknown one is accepted.
-    const okCuisine = await putPrefs(token, { ...VALID, food_prefs: [{ facet: "cuisine", value: "anything", sentiment: "like" }] });
+    const okCuisine = await putPrefs(token, { ...VALID, food_prefs: [{ dimension: "cuisine", value: "anything", direction: "more" }] });
     expect(okCuisine.status).toBe(200);
   });
 

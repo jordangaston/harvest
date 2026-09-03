@@ -2,17 +2,17 @@ import type { SWIPE_REASONS } from '../schema.js';
 
 type SwipeReason = (typeof SWIPE_REASONS)[number];
 
-/** The weight signal a reason nudges (the `user_preferences` column). */
-export type TuneSignal = 'cost' | 'difficulty' | 'time' | 'nutrition';
-
-/** What a dislike reason does: bump a weight, add a food-pref dislike, or nothing. */
-export type TuneAction = { kind: 'weight'; signal: TuneSignal } | { kind: 'dislike' } | { kind: 'none' };
+/** What a dislike reason does: add a food-pref dislike, or nothing. The cost/time/difficulty/
+ * nutrition reasons bumped the retired weight vector (WI-3); with no cost/time/difficulty/nutrient
+ * *recipe-scope* directive dimension yet, they have no home this milestone and record only. They
+ * become a directive nudge when WI-4 adds those dimensions. */
+export type TuneAction = { kind: 'dislike' } | { kind: 'none' };
 
 const REASON_ACTIONS: Record<SwipeReason, TuneAction> = {
-  too_expensive: { kind: 'weight', signal: 'cost' },
-  too_hard: { kind: 'weight', signal: 'difficulty' },
-  too_slow: { kind: 'weight', signal: 'time' },
-  not_nutritious: { kind: 'weight', signal: 'nutrition' },
+  too_expensive: { kind: 'none' },
+  too_hard: { kind: 'none' },
+  too_slow: { kind: 'none' },
+  not_nutritious: { kind: 'none' },
   disliked_ingredient: { kind: 'dislike' },
   other: { kind: 'none' },
 };

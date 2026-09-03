@@ -1,15 +1,18 @@
 import { z } from 'zod';
-import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES, AFFINITY_FACETS, SENTIMENTS } from './schema.js';
+import { MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIFFICULTY_BANDS, DIET_STRICTNESS, EQUIPMENT_TYPES, GROCERY_STORES, DIRECTIVE_DIMENSIONS, DIRECTIVE_SCOPES, DIRECTIONS, STRENGTHS } from './schema.js';
 import { WeeklyMealsSchema, TimeByMealSchema, type UserPreferences, type PreferencesUpdate } from './models/user-preferences.js';
 
-// One unified food-pref carries both orthogonal axes over the wire (snake_case), each axis
-// optional so a caller sends only what applies. `facet` spans every affinity facet incl.
-// `food_category` (moderation) and `ingredient` (value = a base_ingredient_id uuid).
+// One food directive over the wire (snake_case) — { dimension, value, scope, direction, strength,
+// target?, unit?, reason? }. `scope`/`strength` default so a caller can send just a recipe-scope
+// like. `dimension` spans every food attribute incl. `nutrient` and `food_category`.
 const foodPrefBody = z.object({
-  facet: z.enum(AFFINITY_FACETS),
+  dimension: z.enum(DIRECTIVE_DIMENSIONS),
   value: z.string(),
-  sentiment: z.enum(SENTIMENTS).nullish(),
-  target: z.number().min(-1).max(1).nullish(),
+  scope: z.enum(DIRECTIVE_SCOPES).default('recipe'),
+  direction: z.enum(DIRECTIONS),
+  strength: z.enum(STRENGTHS).default('soft'),
+  target: z.number().nullish(),
+  unit: z.string().nullish(),
   reason: z.string().nullish(),
 });
 
@@ -33,7 +36,7 @@ export const preferencesBodySchema = z.object({
 export type PreferencesBody = z.infer<typeof preferencesBodySchema>;
 
 /** Domain model → wire DTO. The resolved `foodPrefs` array maps 1:1 to `food_prefs` — every
- * axis (sentiment/target/reason) carried through, so GET and PUT finally share one shape. */
+ * directive field carried through, so GET and PUT share one shape. */
 export function toPreferencesDTO(p: UserPreferences) {
   return {
     skill_level: p.skillLevel,
@@ -41,7 +44,7 @@ export function toPreferencesDTO(p: UserPreferences) {
     time_budget_minutes: p.timeBudgetMinutes,
     time_by_meal: p.timeByMeal,
     weekly_meals: p.weeklyMeals,
-    food_prefs: p.foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment, target: f.target, reason: f.reason })),
+    food_prefs: p.foodPrefs.map((f) => ({ dimension: f.dimension, value: f.value, scope: f.scope, direction: f.direction, strength: f.strength, target: f.target, unit: f.unit, reason: f.reason })),
     allergens: p.allergens,
     diets: p.diets.map((d) => ({ diet: d.dietId, strictness: d.strictness })),
     owned_equipment: p.ownedEquipment,
@@ -52,8 +55,8 @@ export function toPreferencesDTO(p: UserPreferences) {
   };
 }
 
-/** Wire DTO → the repository's editable-subset input. The unified `food_prefs` array passes
- * through 1:1 (the domain schema re-validates the ≥1-axis invariant). */
+/** Wire DTO → the repository's editable-subset input. The `food_prefs` directive array passes
+ * through 1:1 (the body schema already defaulted scope/strength). */
 export function fromPreferencesDTO(b: PreferencesBody): PreferencesUpdate {
   return {
     skillLevel: b.skill_level,

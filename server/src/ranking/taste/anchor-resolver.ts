@@ -43,7 +43,7 @@ export class AnchorResolver {
     for (const p of prefs) {
       const profile = profiles.get(`${p.facet}:${p.value}`)!;
       if (Object.keys(profile).length === 0) continue;
-      if (p.sentiment === 'dislike') set.dislikes.push(profile);
+      if (p.direction === 'less') set.dislikes.push(profile);
       else set.anchors.push({ profile, weight: WEIGHT.facet });
     }
   }

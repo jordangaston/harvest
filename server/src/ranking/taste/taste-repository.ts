@@ -1,7 +1,7 @@
 import { eq, and, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { type Database } from '../../db.js';
-import { recipeTasteProfiles, recipeCategories, recipeSwipes, userFoodPrefs, AFFINITY_FACETS } from '../../schema.js';
+import { recipeTasteProfiles, recipeCategories, recipeSwipes, userFoodPrefs, AFFINITY_FACETS, type Direction } from '../../schema.js';
 import type { TasteProfile } from './taste-profile.js';
 
 /** The facets a user can state a like/dislike on. */
@@ -64,11 +64,14 @@ export class TasteRepository {
       .where(eq(recipeSwipes.userId, userId));
   }
 
-  /** A user's stated food prefs; `facet`/`sentiment` are their enums. */
-  async userFoodPrefs(userId: string) {
-    return this.db
-      .select({ facet: userFoodPrefs.facet, value: userFoodPrefs.value, sentiment: userFoodPrefs.sentiment })
+  /** A user's stated recipe-scope taste directives; `dimension`/`direction` are their enums. The
+   * dimension is aliased to `facet` (an AffinityFacet) for the taste-profile lookup — a non-taste
+   * dimension (nutrient) just resolves to an empty profile and is skipped. */
+  async userFoodPrefs(userId: string): Promise<{ facet: AffinityFacet; value: string; direction: Direction }[]> {
+    const rows = await this.db
+      .select({ facet: userFoodPrefs.dimension, value: userFoodPrefs.value, direction: userFoodPrefs.direction })
       .from(userFoodPrefs)
-      .where(eq(userFoodPrefs.userId, userId));
+      .where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.scope, 'recipe')));
+    return rows as { facet: AffinityFacet; value: string; direction: Direction }[];
   }
 }

@@ -1,6 +1,7 @@
 import { GROCERY_STORES, MAJOR_ALLERGENS, EQUIPMENT_TYPES } from '../../schema.js';
 import { DIET_RULES } from '../../diet/diet-rules.js';
 import { FOOD_CLASSES } from '../../diet/food-class-map.js';
+import { NUTRIENT_IDS } from '../../nutrition/nutrient-catalog.js';
 
 /** A grounded catalog candidate: the canonical id and a display label. */
 export interface Candidate {
@@ -34,10 +35,19 @@ const ALIASES: Record<string, string> = {
   nuts: 'tree_nut',
   veggie: 'vegetarian',
   veg: 'vegetarian',
+  // nutrient phrasings that don't slug/prefix straight onto a canonical nutrient id
+  sat_fat: 'saturated_fat',
+  saturated_fats: 'saturated_fat',
+  added_sugar: 'sugar',
+  added_sugars: 'sugar',
+  sugars: 'sugar',
+  salt: 'sodium',
+  carbs: 'carbohydrate',
+  carb: 'carbohydrate',
 };
 
 /** The catalog kinds `fact_types` grounds against. */
-export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen' | 'food_category';
+export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen' | 'food_category' | 'nutrient';
 
 /** The code-tuple catalogs (taste is DB-backed, handled by the tool). */
 const CODE_CATALOG: Record<Exclude<CatalogKind, 'taste'>, readonly string[]> = {
@@ -46,6 +56,7 @@ const CODE_CATALOG: Record<Exclude<CatalogKind, 'taste'>, readonly string[]> = {
   diet: DIET_RULES.map((r) => r.id),
   allergen: MAJOR_ALLERGENS,
   food_category: FOOD_CLASSES,
+  nutrient: NUTRIENT_IDS,
 };
 
 /** The candidate list for a code-backed kind, ids with derived labels. */

@@ -18,7 +18,7 @@ import {
 import type { RankableRecipe } from '../ranking/types.js';
 import type { StructuredIngredient } from '../parse/ingredient.js';
 import type { IngredientMatch } from '../nutrition/nutrition-estimator.js';
-import type { Nutrition } from '../models/label-core.js';
+import type { LabelCoreKey, Nutrition } from '../models/label-core.js';
 import type { Allergen, RecipeAllergens } from '../allergen/allergen.js';
 import type { DietCompat } from '../diet/diet.js';
 import type { RecipeCost } from '../price/cost-estimator.js';
@@ -85,6 +85,26 @@ function macrosFrom(r: {
   const num = (s: string | null) => (s == null ? null : Number(s));
   if (r.calories == null) return null;
   return { calories: num(r.calories), proteinG: num(r.gramsOfProtein), carbsG: num(r.gramsOfCarbohydrate), fatG: num(r.gramsOfFat) };
+}
+
+/** The per-serving nutrition panel a `nutrient` directive budgets against (WI-3), keyed by
+ * label-core column; each numeric-text macro is coerced, a genuinely-absent one stays null. */
+function nutritionPanelFrom(r: {
+  calories: string | null; gramsOfFat: string | null; gramsOfSaturatedFat: string | null;
+  gramsOfCarbohydrate: string | null; gramsOfFiber: string | null; gramsOfSugar: string | null;
+  gramsOfProtein: string | null; milligramsOfSodium: string | null;
+}): Record<LabelCoreKey, number | null> {
+  const num = (s: string | null) => (s == null ? null : Number(s));
+  return {
+    calories: num(r.calories),
+    grams_of_fat: num(r.gramsOfFat),
+    grams_of_saturated_fat: num(r.gramsOfSaturatedFat),
+    grams_of_carbohydrate: num(r.gramsOfCarbohydrate),
+    grams_of_fiber: num(r.gramsOfFiber),
+    grams_of_sugar: num(r.gramsOfSugar),
+    grams_of_protein: num(r.gramsOfProtein),
+    milligrams_of_sodium: num(r.milligramsOfSodium),
+  };
 }
 
 export class RecipeRepository {
@@ -495,6 +515,7 @@ export class RecipeRepository {
           difficultyBand: recipe.difficultyBand,
           mealPrepFit: recipe.mealPrepFit,
           nrfScore: nrf,
+          nutrition: nutritionPanelFrom(recipe),
           totalMinutes: recipe.totalMinutes,
           mealTypes: mealTypes.get(recipe.id) ?? [],
           categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },

@@ -78,10 +78,16 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
     member(
       'food_preferences',
       false,
-      'Capture the member\'s likes, dislikes, and foods to eat less of. Ground each value with ' +
-        'fact_types(FOOD_PREFERENCE, "<phrase>"), then write it: set sentiment (like/dislike) for a taste, ' +
-        'or a negative target for a food_category they want less of. If a like is broad ("anything with ' +
-        'chicken"), drill down (fajitas / creamy pasta / stir-fry?) before writing.',
+      'Capture the member\'s food directives — likes, dislikes, and any limits or targets. Ground each ' +
+        'value with fact_types(SET_DIRECTIVE, "<phrase>"), then write it via update_facts as a directive ' +
+        '{ dimension, value, direction, strength, scope, target?, unit? }. direction: more for a like, ' +
+        'less for a dislike or something to cut back. strength: soft (a mild lean), firm (a strong ' +
+        'preference), strict (a hard rule they never break) — infer it ("hate"/"never" → firm/strict, ' +
+        '"prefer"/"a bit" → soft). scope defaults to recipe; use a meal slot for a per-meal rule ("veg ' +
+        'with every dinner" → scope:dinner), or day/week with a target for a limit ("red meat no more ' +
+        'than 3x a week" → scope:week, target:3, unit:count; "120g protein a day" → scope:day, ' +
+        'target:120, unit:grams). If a like is broad ("anything with chicken"), drill down (fajitas / ' +
+        'creamy pasta / stir-fry?) before writing.',
     ),
     member('skill_level'),
   ].map((t) => ({ ...t, memberUserId }));

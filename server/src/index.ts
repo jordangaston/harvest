@@ -448,9 +448,9 @@ function toAppError(error: unknown): AppError {
  */
 async function assertKnownIngredients(
   repo: TasteIngredientRepository,
-  selections: { facet: string; value: string }[],
+  selections: { dimension: string; value: string }[],
 ): Promise<void> {
-  const picked = selections.filter((s) => s.facet === "ingredient").map((s) => s.value);
+  const picked = selections.filter((s) => s.dimension === "ingredient").map((s) => s.value);
   if (picked.length === 0) return;
   const known = new Set((await repo.ingredients()).map((i) => i.value));
   if (picked.some((v) => !known.has(v)))

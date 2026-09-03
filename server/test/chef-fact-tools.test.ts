@@ -5,7 +5,7 @@ import { type Database } from '../src/db.js';
 import { UserRepository } from '../src/repositories/user-repository.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { AuthService } from '../src/services/auth-service.js';
-import { householdPreferences, userAllergens, threads, objectives as objectivesTable, tasks as tasksRaw } from '../src/schema.js';
+import { householdPreferences, userAllergens, userFoodPrefs, threads, objectives as objectivesTable, tasks as tasksRaw } from '../src/schema.js';
 import { TaskSchema } from '../src/models/task.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository, type TaskSpec } from '../src/chef/objective-repository.js';
@@ -139,6 +139,27 @@ describe('update_facts (TC-3)', () => {
     const res = await UpdateFactsTool.create(ctx, db).run([{ key: 'household.household_size', value: 4 }]);
     expect(res.results[0]!.status).toBe('rejected');
     expect(res.results[0]!.reason).toMatch(/derived/);
+  });
+});
+
+describe('food directive via update_facts → SET_DIRECTIVE', () => {
+  it('grounds + persists a composite nutrient directive', async () => {
+    const { ctx, memberId } = await seedTurn([]);
+    const res = await UpdateFactsTool.create(ctx, db).run([
+      { key: 'food_preferences', value: { dimension: 'nutrient', value: 'saturated fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }, member_user_id: memberId },
+    ]);
+    expect(res.results[0]!.status).not.toBe('rejected');
+    const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
+    expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'nutrient', value: 'saturated_fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }));
+  });
+
+  it('rejects an illegal scope with an instructive reason, writing nothing', async () => {
+    const { ctx, memberId } = await seedTurn([]);
+    const res = await UpdateFactsTool.create(ctx, db).run([
+      { key: 'food_preferences', value: { dimension: 'nutrient', value: 'sodium', direction: 'less', scope: 'fortnight' }, member_user_id: memberId },
+    ]);
+    expect(res.results[0]!.status).toBe('rejected');
+    expect(res.results[0]!.reason).toMatch(/scope/i);
   });
 });
 

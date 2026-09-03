@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,27 +59,45 @@ describe("drizzle migrator", () => {
   });
 });
 
-describe("food-moderation migration is additive (AC 10 / Test Case 9)", () => {
+describe("food-directive migration backfills every legacy row (WI-1 Test Case 1)", () => {
   const DRIZZLE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
+  const DIRECTIVE_TAG = "0036_food_directive";
 
-  it("a legacy-shaped user_food_prefs row (sentiment only) survives with target/reason null", async () => {
-    const fresh = createClient({ url: `file:${join(dir, "real.db")}` });
+  /** Copy the real drizzle dir into a temp folder, keeping only journal entries strictly BEFORE the
+   *  WI-1 directive migration — a true prefix, so the migrator stops at the pre-WI-1
+   *  (facet/sentiment) schema. (Filtering out just the directive tag would leave later migrations in
+   *  the chain and apply them out of order.) */
+  function drizzleDirBeforeDirective(into: string): void {
+    const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf8"));
+    const directiveIdx = journal.entries.find((e: { tag: string }) => e.tag === DIRECTIVE_TAG).idx;
+    const before = journal.entries.filter((e: { idx: number }) => e.idx < directiveIdx);
+    mkdirSync(join(into, "meta"), { recursive: true });
+    cpSync(join(DRIZZLE_DIR, "meta"), join(into, "meta"), { recursive: true });
+    for (const e of before) cpSync(join(DRIZZLE_DIR, `${e.tag}.sql`), join(into, `${e.tag}.sql`));
+    writeFileSync(join(into, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: before }));
+  }
+
+  it("maps facet/sentiment/target legacy rows to dimension/direction, scope=recipe, strength=soft", async () => {
+    const beforeDir = join(dir, "before");
+    drizzleDirBeforeDirective(beforeDir);
+    const client2 = createClient({ url: `file:${join(dir, "real.db")}` });
     try {
-      await migrate(drizzle(fresh), { migrationsFolder: DRIZZLE_DIR });
-      // Seed a pre-feature food-pref row that carries only a sentiment (no target/reason) — the shape
-      // every existing prod row has. The relaxed-nullable schema must accept and preserve it. FK
-      // enforcement off so we don't need a full users row (the survival property is on user_food_prefs).
-      await fresh.execute("PRAGMA foreign_keys=OFF");
-      await fresh.execute({
-        sql: "INSERT INTO user_food_prefs (user_id, facet, value, sentiment) VALUES (?,?,?,?)",
-        args: ["u-legacy", "cuisine", "thai", "like"],
-      });
-      const [row] = (await fresh.execute("SELECT sentiment, target, reason FROM user_food_prefs")).rows;
-      expect(row.sentiment).toBe("like");
-      expect(row.target).toBeNull();
-      expect(row.reason).toBeNull();
+      // Migrate to the pre-WI-1 schema (facet/sentiment columns), then seed the three legacy shapes.
+      await migrate(drizzle(client2), { migrationsFolder: beforeDir });
+      await client2.execute("PRAGMA foreign_keys=OFF");
+      await client2.execute({ sql: "INSERT INTO user_food_prefs (user_id, facet, value, sentiment) VALUES (?,?,?,?)", args: ["u", "cuisine", "thai", "like"] });
+      await client2.execute({ sql: "INSERT INTO user_food_prefs (user_id, facet, value, sentiment) VALUES (?,?,?,?)", args: ["u", "primary_ingredient", "liver", "dislike"] });
+      await client2.execute({ sql: "INSERT INTO user_food_prefs (user_id, facet, value, target) VALUES (?,?,?,?)", args: ["u", "food_category", "red_meat", -0.9] });
+
+      // Apply the WI-1 directive migration (the only pending one against the full drizzle dir).
+      await migrate(drizzle(client2), { migrationsFolder: DRIZZLE_DIR });
+
+      const rows = (await client2.execute("SELECT dimension, value, scope, direction, strength, target FROM user_food_prefs ORDER BY value")).rows;
+      expect(rows).toContainEqual(expect.objectContaining({ dimension: "cuisine", value: "thai", scope: "recipe", direction: "more", strength: "soft" }));
+      expect(rows).toContainEqual(expect.objectContaining({ dimension: "primary_ingredient", value: "liver", direction: "less" }));
+      expect(rows).toContainEqual(expect.objectContaining({ dimension: "food_category", value: "red_meat", direction: "less", target: -0.9 }));
     } finally {
-      fresh.close();
+      client2.close();
     }
   });
 });

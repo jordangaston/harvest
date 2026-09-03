@@ -30,16 +30,14 @@ async function makeRecipe(userId: string): Promise<string> {
   return row.id;
 }
 
-const WEIGHTS = { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 };
-
 describe("SwipeRepository (WI-RANK-4)", () => {
   it("upsert overwrites the row on a re-swipe", async () => {
     const userId = await makeUser();
     const recipeId = await makeRecipe(userId);
     const repo = SwipeRepository.create(db);
 
-    await repo.upsert(userId, { recipeId, direction: "dislike", reason: "too_slow", score: 40, weights: WEIGHTS });
-    const second = await repo.upsert(userId, { recipeId, direction: "like", score: 80, weights: WEIGHTS });
+    await repo.upsert(userId, { recipeId, direction: "dislike", reason: "too_slow", score: 40 });
+    const second = await repo.upsert(userId, { recipeId, direction: "like", score: 80 });
 
     expect(second.direction).toBe("like");
     expect(second.reason).toBeNull();
@@ -56,10 +54,10 @@ describe("SwipeRepository (WI-RANK-4)", () => {
     const now = new Date();
     const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    await repo.upsert(userId, { recipeId: liked, direction: "like", score: 90, weights: WEIGHTS });
-    await repo.upsert(userId, { recipeId: saved, direction: "save", score: 85, weights: WEIGHTS });
-    await repo.upsert(userId, { recipeId: recentDislike, direction: "dislike", reason: "too_hard", score: 20, weights: WEIGHTS });
-    await repo.upsert(userId, { recipeId: oldDislike, direction: "dislike", reason: "too_hard", score: 20, weights: WEIGHTS });
+    await repo.upsert(userId, { recipeId: liked, direction: "like", score: 90 });
+    await repo.upsert(userId, { recipeId: saved, direction: "save", score: 85 });
+    await repo.upsert(userId, { recipeId: recentDislike, direction: "dislike", reason: "too_hard", score: 20 });
+    await repo.upsert(userId, { recipeId: oldDislike, direction: "dislike", reason: "too_hard", score: 20 });
     // Backdate the old dislike AND the save past the cooldown cutoff — likes/saves are permanent.
     const stale = new Date(cutoff.getTime() - 60_000);
     await db.update(recipeSwipes).set({ createdAt: stale }).where(eq(recipeSwipes.recipeId, oldDislike));
@@ -77,7 +75,7 @@ describe("SwipeRepository (WI-RANK-4)", () => {
     const recipeId = await makeRecipe(userId);
     const repo = SwipeRepository.create(db);
 
-    await repo.upsert(userId, { recipeId, direction: "like", score: 90, weights: WEIGHTS });
+    await repo.upsert(userId, { recipeId, direction: "like", score: 90 });
     const removed = await repo.delete(userId, recipeId);
     expect(removed?.direction).toBe("like");
     expect(await db.select().from(recipeSwipes).where(eq(recipeSwipes.userId, userId))).toHaveLength(0);

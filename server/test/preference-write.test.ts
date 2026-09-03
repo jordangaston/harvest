@@ -4,7 +4,7 @@ import { type Database } from "../src/db.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { PreferenceRepository } from "../src/repositories/preference-repository.js";
 import { AuthService } from "../src/services/auth-service.js";
-import { userPreferences, userFoodPrefs } from "../src/schema.js";
+import { userFoodPrefs } from "../src/schema.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 import type { NewUser } from "../src/schema.js";
 
@@ -26,46 +26,18 @@ async function makeUser(extra: Partial<NewUser> = {}): Promise<string> {
   return user.id;
 }
 
-async function weightRow(userId: string) {
-  const [row] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
-  return row;
-}
-
 describe("PreferenceRepository write-path (WI-RANK-4)", () => {
-  it("bumpWeight materializes cold-start defaults then +1 on a cold-start user", async () => {
-    const userId = await makeUser({ goals: ["eat_healthier"] }); // nutrition cold-starts at 3
-    const repo = PreferenceRepository.create(db);
-
-    await repo.bumpWeight(userId, "cost");
-
-    const row = await weightRow(userId);
-    expect(row.weightCost).toBe(2); // cold-start 1 → 2
-    expect(row.weightNutrition).toBe(3); // goal-derived default preserved
-    expect(row.weightDifficulty).toBe(1);
-  });
-
-  it("bumpWeight caps at 3", async () => {
-    const userId = await makeUser();
-    const repo = PreferenceRepository.create(db);
-
-    await repo.bumpWeight(userId, "cost"); // 1→2
-    await repo.bumpWeight(userId, "cost"); // 2→3
-    await repo.bumpWeight(userId, "cost"); // capped
-
-    expect((await weightRow(userId)).weightCost).toBe(3);
-  });
-
   it("addDislike inserts a dislike and flips an existing like", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
-    await db.insert(userFoodPrefs).values({ userId, facet: "primary_ingredient", value: "liver", sentiment: "like" });
+    await db.insert(userFoodPrefs).values({ userId, dimension: "primary_ingredient", value: "liver", direction: "more" });
 
     await repo.addDislike(userId, "primary_ingredient", "liver"); // flip
     await repo.addDislike(userId, "cuisine", "thai"); // insert
 
     const rows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
-    expect(rows).toContainEqual({ userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
-    expect(rows).toContainEqual({ userId, facet: "cuisine", value: "thai", sentiment: "dislike", target: null, reason: null });
+    expect(rows).toContainEqual({ userId, dimension: "primary_ingredient", value: "liver", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
+    expect(rows).toContainEqual({ userId, dimension: "cuisine", value: "thai", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
   });
 
   it("savePreferences removes an un-selected like but keeps a dislike-loop primary_ingredient dislike", async () => {
@@ -82,8 +54,8 @@ describe("PreferenceRepository write-path (WI-RANK-4)", () => {
     await repo.savePreferences(userId, {
       ...base,
       foodPrefs: [
-        { facet: "cuisine", value: "thai", sentiment: "like" },
-        { facet: "cuisine", value: "italian", sentiment: "like" },
+        { dimension: "cuisine", value: "thai", scope: "recipe", direction: "more", strength: "soft" },
+        { dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft" },
       ],
     });
     await repo.addDislike(userId, "primary_ingredient", "liver");
@@ -91,17 +63,17 @@ describe("PreferenceRepository write-path (WI-RANK-4)", () => {
     // Re-save with `italian` un-selected — the picker resends only what remains.
     const saved = await repo.savePreferences(userId, {
       ...base,
-      foodPrefs: [{ facet: "cuisine", value: "thai", sentiment: "like" }],
+      foodPrefs: [{ dimension: "cuisine", value: "thai", scope: "recipe", direction: "more", strength: "soft" }],
     });
 
-    const cuisines = saved.foodPrefs.filter((f) => f.facet === "cuisine").map((f) => f.value);
+    const cuisines = saved.foodPrefs.filter((f) => f.dimension === "cuisine").map((f) => f.value);
     expect(cuisines).toContain("thai");
     expect(cuisines).not.toContain("italian"); // un-selecting a like removes it (no lingering row)
     // the loop-authored dislike survives the settings write
-    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ dimension: "primary_ingredient", value: "liver", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
   });
 
-  it("Test Case 4: round-trips both axes + reason, a pure-intent row, and rejects a neither-axis element", async () => {
+  it("Test Case 4: round-trips a directive with target + reason and a bare directive", async () => {
     const repo = PreferenceRepository.create(db);
     const base = {
       skillLevel: "advanced" as const, weeklyBudgetCents: null, timeBudgetMinutes: null, timeByMeal: null,
@@ -110,26 +82,20 @@ describe("PreferenceRepository write-path (WI-RANK-4)", () => {
       household: { adults: 2, kids: 0 }, eatsLeftovers: true,
     };
 
-    // Both axes + reason (the steak case).
+    // A moderation directive carrying a target + reason.
     const u1 = await makeUser();
     const saved1 = await repo.savePreferences(u1, {
       ...base,
-      foodPrefs: [{ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" }],
+      foodPrefs: [{ dimension: "food_category", value: "red_meat", scope: "recipe", direction: "less", strength: "firm", target: -0.6, reason: "heart health" }],
     });
-    expect(saved1.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: "like", target: -0.6, reason: "heart health" });
+    expect(saved1.foodPrefs).toContainEqual({ dimension: "food_category", value: "red_meat", scope: "recipe", direction: "less", strength: "firm", target: -0.6, unit: null, reason: "heart health" });
 
-    // Pure intent — no sentiment.
+    // A bare directive — just a direction, defaulting scope/strength.
     const u2 = await makeUser();
     const saved2 = await repo.savePreferences(u2, {
       ...base,
-      foodPrefs: [{ facet: "food_category", value: "red_meat", target: -0.9 }],
+      foodPrefs: [{ dimension: "food_category", value: "red_meat", scope: "recipe", direction: "less", strength: "soft" }],
     });
-    expect(saved2.foodPrefs).toContainEqual({ facet: "food_category", value: "red_meat", sentiment: null, target: -0.9, reason: null });
-
-    // Neither axis → rejected at the repo boundary.
-    const u3 = await makeUser();
-    await expect(
-      repo.savePreferences(u3, { ...base, foodPrefs: [{ facet: "food_category", value: "red_meat" }] }),
-    ).rejects.toThrow();
+    expect(saved2.foodPrefs).toContainEqual({ dimension: "food_category", value: "red_meat", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
   });
 });

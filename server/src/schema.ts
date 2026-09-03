@@ -68,6 +68,14 @@ export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 // value is a `taste_ingredients.id` (uuid) — finer than `primary_ingredient`.
 export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient', 'food_category'] as const;
 export const SENTIMENTS = ['like', 'dislike'] as const;
+// Food-directive model (WI-1): one scoped directive over every food attribute. `dimension` widens
+// AFFINITY_FACETS with `nutrient`; `direction` replaces `sentiment`; `scope` drives enforcement
+// (recipe → rank/filter, meal-slot → plate rule, day/week → aggregate); `strength` is the semantic
+// weight. See docs/food-preference-model-design.md.
+export const DIRECTIVE_DIMENSIONS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient', 'food_category', 'nutrient'] as const;
+export const DIRECTIVE_SCOPES = ['recipe', 'breakfast', 'lunch', 'dinner', 'snack', 'day', 'week'] as const;
+export const DIRECTIONS = ['more', 'less'] as const;
+export const STRENGTHS = ['soft', 'firm', 'strict'] as const;
 // The FoodMatch confidence tier persisted on a matched ingredient (`FoodMatch.quality`).
 export const MATCH_QUALITIES = ['high', 'medium', 'low'] as const;
 // Equipment signal (#9, WI-EQ-1): the controlled vocab of notable appliances (baseline
@@ -632,15 +640,6 @@ export const userPreferences = sqliteTable('user_preferences', {
   timeBreakfastMinutes: integer('time_breakfast_minutes'),
   timeLunchMinutes: integer('time_lunch_minutes'),
   timeDinnerMinutes: integer('time_dinner_minutes'),
-  weightCost: integer('weight_cost').notNull().default(1),
-  weightDifficulty: integer('weight_difficulty').notNull().default(1),
-  weightNutrition: integer('weight_nutrition').notNull().default(1),
-  weightAffinity: integer('weight_affinity').notNull().default(1),
-  weightTime: integer('weight_time').notNull().default(1),
-  weightPopularity: integer('weight_popularity').notNull().default(0),
-  // Meal-prep signal weight (signal #10): 0–3, seeded to 3 by the `meal_prepping`
-  // goal at cold-start, else the uniform baseline 1 (design Q-MP1).
-  weightMealPrep: integer('weight_meal_prep').notNull().default(1),
   // Equipment signal (WI-EQ-1): gates the equipment filter — true once the user reviews
   // their kitchen (onboarding/settings), even if they own nothing. Inert until then, the
   // same "no data → no filter" stance as allergens.
@@ -680,21 +679,27 @@ export const userDiets = sqliteTable(
   (t) => [primaryKey({ columns: [t.userId, t.dietId] })],
 );
 
+// Food-directive model (WI-1): one scoped directive per row —
+// `{ dimension, value, scope, direction, strength, target?, unit? }`. `scope` decides enforcement
+// (recipe → rank/filter, meal-slot → plate rule, day/week → aggregate). `direction`+`strength`
+// replace the old `sentiment`+weight vector; `target`/`unit` are aggregate-scope only. The scope
+// joins the PK so the same value can carry a recipe-scope taste and an aggregate-scope budget.
 export const userFoodPrefs = sqliteTable(
   'user_food_prefs',
   {
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    facet: text('facet', { enum: AFFINITY_FACETS }).notNull(),
+    dimension: text('dimension', { enum: DIRECTIVE_DIMENSIONS }).notNull(),
     value: text('value').notNull(),
-    // Two orthogonal axes on one row: sentiment = taste (nullable now — a pure "eat less"
-    // intent carries no taste), target = intent (−1 less … +1 more), reason = the "why" blurb.
-    sentiment: text('sentiment', { enum: SENTIMENTS }),
+    scope: text('scope', { enum: DIRECTIVE_SCOPES }).notNull().default('recipe'),
+    direction: text('direction', { enum: DIRECTIONS }).notNull(),
+    strength: text('strength', { enum: STRENGTHS }).notNull().default('soft'),
     target: real('target'),
+    unit: text('unit'),
     reason: text('reason'),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
+  (t) => [primaryKey({ columns: [t.userId, t.dimension, t.value, t.scope] })],
 );
 
 // Equipment signal (WI-EQ-1): the recipe's rolled-up equipment set — the set the filter
@@ -728,9 +733,9 @@ export const userEquipment = sqliteTable(
 );
 
 // Swipe deck (WI-RANK-4): one row per (user, recipe) swipe — the feedback capture that
-// drives the deck (don't re-show) and is labeled data for later ranking. `score`/`weights`
-// snapshot the card the user saw (the pre-tune weights that produced it). Composite pk
-// (user, recipe) so a re-swipe overwrites; both fks cascade on delete.
+// drives the deck (don't re-show) and is labeled data for later ranking. `score` snapshots
+// the card the user saw. Composite pk (user, recipe) so a re-swipe overwrites; both fks
+// cascade on delete.
 export const recipeSwipes = sqliteTable(
   'recipe_swipes',
   {
@@ -743,9 +748,6 @@ export const recipeSwipes = sqliteTable(
     direction: text('direction', { enum: SWIPE_DIRECTIONS }).notNull(),
     reason: text('reason', { enum: SWIPE_REASONS }),
     score: real('score').notNull(),
-    weights: text('weights', { mode: 'json' })
-      .$type<{ cost: number; difficulty: number; nutrition: number; affinity: number; time: number; popularity: number; mealPrep: number }>()
-      .notNull(),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -913,6 +915,11 @@ export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
 export type MealPrepFit = (typeof MEAL_PREP_FITS)[number];
 /** Affinity facet union (WI-RANK-1), the food-pref facets. */
 export type AffinityFacet = (typeof AFFINITY_FACETS)[number];
+/** Food-directive unions (WI-1), shared with the domain model. */
+export type DirectiveDimension = (typeof DIRECTIVE_DIMENSIONS)[number];
+export type DirectiveScope = (typeof DIRECTIVE_SCOPES)[number];
+export type Direction = (typeof DIRECTIONS)[number];
+export type Strength = (typeof STRENGTHS)[number];
 /** FoodMatch confidence tier union (taste overhaul), shared with the domain models. */
 export type MatchQuality = (typeof MATCH_QUALITIES)[number];
 /** Equipment vocab + essentiality unions (WI-EQ-1), shared with the domain models. */
