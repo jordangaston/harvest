@@ -9,7 +9,6 @@ import type { ChatEvent } from '../chef/types.js';
 import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
-import { FactTypeRegistry } from '../chef/facts/fact-types.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
@@ -82,7 +81,7 @@ export class RealChef implements Chef {
       const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId);
       if (!turn) return null;
 
-      const reasoning = await this.reasoner.run(turn.briefing, turn.turnCtx);
+      const reasoning = await this.reasoner.run(turn.briefing, turn.turnCtx, this.db);
       const chatEvents = await this.responder.render(reasoning.replyPlan, turn.transcriptWindow, turn.triggerExternalId);
 
       // Interruption barrier: a message that landed while we reasoned discards this render and
@@ -126,7 +125,6 @@ export class RealChef implements Chef {
       replyingTo: parent?.body ? parent.body.slice(0, MAX_REPLY_PARENT_SNIPPET) : undefined,
     };
     const turnCtx: TurnContext = {
-      db: this.db,
       threadId,
       objectiveId: active.objective.id,
       initiatorHandle: await this.threads.handleForUser(ownerUserId),
@@ -135,7 +133,6 @@ export class RealChef implements Chef {
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
       tasks: active.tasks,
-      factTypes: FactTypeRegistry.create(this.db),
     };
     // The fact-less eligible tasks the consumer confirms at send-time: every emit (delivered via the
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own

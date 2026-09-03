@@ -49,7 +49,6 @@ async function seedTurn(specs: TaskSpec[]): Promise<{ ctx: TurnContext; tasks: T
   const loaded = (await objectives.loadActive(threadId))!;
 
   const ctx: TurnContext = {
-    db,
     threadId,
     objectiveId: objective.id,
     initiatorHandle: '',
@@ -58,7 +57,6 @@ async function seedTurn(specs: TaskSpec[]): Promise<{ ctx: TurnContext; tasks: T
     householdId: hh.id,
     members: [{ userId: ownerId }],
     tasks: loaded.tasks,
-    factTypes: FactTypeRegistry.create(db),
   };
   return { ctx, tasks: loaded.tasks, objectiveId: objective.id, householdId: hh.id, memberId: ownerId };
 }
@@ -70,7 +68,7 @@ describe('update_tasks (TC-1)', () => {
   it('fills a grounded store, advances the task, reports objectiveComplete', async () => {
     const { ctx, tasks, householdId } = await seedTurn([storeTask]);
     const task = tasks[0]!;
-    const res = await UpdateTasksTool.create(ctx).run([{ task_id: task.id, value: 'trader joes' }]);
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: task.id, value: 'trader joes' }]);
 
     expect(res.results).toEqual([{ task_id: task.id, status: 'filled' }]);
     expect(res.objectiveComplete).toBe(true); // the only required task is now filled
@@ -85,7 +83,7 @@ describe('update_tasks instructive rejection (TC-2)', () => {
     const { ctx, tasks } = await seedTurnForMember(owner);
     const task = tasks.find((t) => t.factType === 'ALLERGEN')!;
 
-    const res = await UpdateTasksTool.create(ctx).run([{ task_id: task.id, value: { value: 'peanuts' } }]);
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: task.id, value: { value: 'peanuts' } }]);
     expect(res.results[0]!.status).toBe('rejected');
     expect(res.results[0]!.missing).toEqual(['severity', 'confirmed']);
     expect(res.objectiveComplete).toBe(false);
@@ -113,13 +111,13 @@ describe('update_tasks solo-batch rejection', () => {
     // turn's task set from ALL rows to exercise the update_tasks solo-batch guard directly.
     const allTasks = (await db.select().from(tasksRaw).where(eq(tasksRaw.objectiveId, objective.id))).map((r) => TaskSchema.parse(r));
     const ctx: TurnContext = {
-      db, threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
-      triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: allTasks, factTypes: FactTypeRegistry.create(db),
+      threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
+      triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: allTasks,
     };
     const solo = allTasks.find((t) => t.solo)!;
     const other = allTasks.find((t) => !t.solo)!;
 
-    const res = await UpdateTasksTool.create(ctx).run([{ task_id: solo.id, value: 'trader joes' }, { task_id: other.id, value: 3 }]);
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: solo.id, value: 'trader joes' }, { task_id: other.id, value: 3 }]);
     expect(res.results.every((r) => r.status === 'rejected')).toBe(true);
     // neither wrote — objective still incomplete
     const [row] = await db.select().from(householdPreferences).where(eq(householdPreferences.householdId, hh.id));
@@ -130,7 +128,7 @@ describe('update_tasks solo-batch rejection', () => {
 describe('update_facts (TC-3)', () => {
   it('writes an out-of-band member allergen without advancing any task', async () => {
     const { ctx, memberId } = await seedTurn([]); // no tasks
-    const res = await UpdateFactsTool.create(ctx).run([{ key: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true }, member_user_id: memberId }]);
+    const res = await UpdateFactsTool.create(ctx, db).run([{ key: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true }, member_user_id: memberId }]);
     expect(res.results).toEqual([{ key: 'allergens', status: 'filled' }]);
     const rows = await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId));
     expect(rows).toEqual([expect.objectContaining({ allergen: 'peanut', severity: 'severe' })]);
@@ -138,7 +136,7 @@ describe('update_facts (TC-3)', () => {
 
   it('rejects a write to a derived fact', async () => {
     const { ctx } = await seedTurn([]);
-    const res = await UpdateFactsTool.create(ctx).run([{ key: 'household.household_size', value: 4 }]);
+    const res = await UpdateFactsTool.create(ctx, db).run([{ key: 'household.household_size', value: 4 }]);
     expect(res.results[0]!.status).toBe('rejected');
     expect(res.results[0]!.reason).toMatch(/derived/);
   });
@@ -147,7 +145,7 @@ describe('update_facts (TC-3)', () => {
 describe('fact_types 2×2 (TC-4)', () => {
   it('browse → describe → ground → search, each kind-tagged, catalogs paged', async () => {
     const { ctx } = await seedTurn([]);
-    const tool = FactTypesTool.create(ctx);
+    const tool = FactTypesTool.create(ctx, db);
 
     const browse = await tool.run({});
     expect(browse.kind).toBe('browse');
@@ -174,7 +172,7 @@ describe('fact_types 2×2 (TC-4)', () => {
 
   it('pages a large catalog via page_token', async () => {
     const { ctx } = await seedTurn([]);
-    const tool = FactTypesTool.create(ctx);
+    const tool = FactTypesTool.create(ctx, db);
     // OWNED_EQUIPMENT has many values — describe should page.
     const page1 = await tool.run({ fact_type: 'OWNED_EQUIPMENT' });
     if (page1.kind === 'describe' && page1.page_token) {
@@ -187,10 +185,10 @@ describe('fact_types 2×2 (TC-4)', () => {
 describe('read_facts', () => {
   it('reports known and unknown facts after a write', async () => {
     const { ctx, householdId } = await seedTurn([]);
-    const type = ctx.factTypes.get('GROCERY_STORE')!;
+    const type = FactTypeRegistry.create(db).get('GROCERY_STORE')!;
     await type.persist({ scope: 'household', householdId }, 'kroger', db);
 
-    const res = await ReadFactsTool.create(ctx).run(['household.grocery_stores', 'household.weekly_budget_cents']);
+    const res = await ReadFactsTool.create(ctx, db).run(['household.grocery_stores', 'household.weekly_budget_cents']);
     const stores = res.facts.find((f) => f.key === 'household.grocery_stores')!;
     const budget = res.facts.find((f) => f.key === 'household.weekly_budget_cents')!;
     expect(stores.known).toBe(true);
@@ -222,8 +220,8 @@ describe('full scripted onboarding (TC-6)', () => {
     });
     const objectiveId = objective.id;
     const base: TurnContext = {
-      db, threadId, objectiveId, initiatorHandle: '', initiatorUserId: ownerId,
-      triggerExternalId: null, householdId: hh.id, members: [{ userId: ownerId }], tasks: [], factTypes: FactTypeRegistry.create(db),
+      threadId, objectiveId, initiatorHandle: '', initiatorUserId: ownerId,
+      triggerExternalId: null, householdId: hh.id, members: [{ userId: ownerId }], tasks: [],
     };
 
     // Turn 1: only the solo explainer-ack is eligible (everything else is gated after it).
@@ -257,7 +255,7 @@ describe('full scripted onboarding (TC-6)', () => {
       { fact: 'name', value: 'Sam' },
       { fact: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true } },
     ];
-    const updateTasks = UpdateTasksTool.create(ctx);
+    const updateTasks = UpdateTasksTool.create(ctx, db);
     for (const f of fills) {
       const task = byFact.get(f.fact)!;
       const res = await updateTasks.run([{ task_id: task.id, value: f.value }]);
@@ -292,8 +290,8 @@ async function seedTurnForMember(owner: string): Promise<{ ctx: TurnContext; tas
   const objective = await objectives.pushObjective({ threadId, definition: 'onboarding', tasks: [allergenTask(owner)], position: 'top' });
   const loaded = (await objectives.loadActive(threadId))!;
   const ctx: TurnContext = {
-    db, threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
-    triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: loaded.tasks, factTypes: FactTypeRegistry.create(db),
+    threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
+    triggerExternalId: null, householdId: hh.id, members: [{ userId: owner }], tasks: loaded.tasks,
   };
   return { ctx, tasks: loaded.tasks };
 }

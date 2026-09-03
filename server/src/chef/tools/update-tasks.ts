@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { writeFact } from '../facts/write-fact.js';
+import { FactTypeRegistry } from '../facts/fact-types.js';
 import { ObjectiveRepository } from '../objective-repository.js';
 import type { Subject } from '../facts/fact-type.js';
 import type { Task } from '../../models/task.js';
@@ -28,14 +30,18 @@ interface TaskWriteResult {
  */
 export class UpdateTasksTool implements ChefTool {
   readonly id = 'update_tasks';
+  private readonly db: Database;
   private readonly objectives: ObjectiveRepository;
+  private readonly factTypes: FactTypeRegistry;
 
-  private constructor(private readonly ctx: TurnContext) {
-    this.objectives = ObjectiveRepository.create(ctx.db);
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.db = db;
+    this.objectives = ObjectiveRepository.create(db);
+    this.factTypes = FactTypeRegistry.create(db);
   }
 
-  static create(ctx: TurnContext): UpdateTasksTool {
-    return new UpdateTasksTool(ctx);
+  static create(ctx: TurnContext, db: Database): UpdateTasksTool {
+    return new UpdateTasksTool(ctx, db);
   }
 
   canRun(): boolean {
@@ -73,7 +79,7 @@ export class UpdateTasksTool implements ChefTool {
     if (!task) return { task_id: taskId, status: 'rejected', reason: 'not an eligible task this turn' };
     if (task.kind !== 'elicit' || !task.factType) return { task_id: taskId, status: 'rejected', reason: 'not a fillable elicit task' };
 
-    const type = this.ctx.factTypes.get(task.factType);
+    const type = this.factTypes.get(task.factType);
     if (!type) return { task_id: taskId, status: 'rejected', reason: `no fact type "${task.factType}"` };
 
     const subject = this.subjectFor(task);
@@ -83,10 +89,10 @@ export class UpdateTasksTool implements ChefTool {
     // transactions on purpose — a repo-backed persist opens its own tx, so nesting them would
     // deadlock libSQL. Non-atomic but idempotent/retriable: a fill re-runs cleanly if the status
     // set is lost, and the status set is a plain UPDATE by id.
-    const res = await writeFact(type, subject, value, this.ctx.db);
+    const res = await writeFact(type, subject, value, this.db);
     if (!res.ok) return { task_id: taskId, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
 
-    await this.ctx.db.transaction((tx) => this.objectives.applyTaskUpdates([{ taskId, status: 'filled' }], tx));
+    await this.db.transaction((tx) => this.objectives.applyTaskUpdates([{ taskId, status: 'filled' }], tx));
     return { task_id: taskId, status: 'filled' };
   }
 

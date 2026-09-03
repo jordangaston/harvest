@@ -35,12 +35,28 @@ const DEFS: FactDef[] = [
 
 const BY_KEY = new Map(DEFS.map((d) => [d.key, d]));
 
-/** The flat registry of onboarding facts. Flat-file, not a persisted table. */
-export const FactRegistry = {
+/**
+ * The flat registry of onboarding facts — key → definition. Flat-file, not a persisted table.
+ * Tools hold an instance via `static create()` (an instance field, not a static reach); the two
+ * non-tool call sites (`factTypeFor` in the objective definition, the fact-def test) use the static
+ * `get`/`list`, which read the same shared map.
+ */
+export class FactRegistry {
+  static create(): FactRegistry {
+    return new FactRegistry();
+  }
+
   get(key: string): FactDef | undefined {
     return BY_KEY.get(key);
-  },
+  }
   list(): FactDef[] {
     return DEFS;
-  },
-};
+  }
+
+  static get(key: string): FactDef | undefined {
+    return BY_KEY.get(key);
+  }
+  static list(): FactDef[] {
+    return DEFS;
+  }
+}

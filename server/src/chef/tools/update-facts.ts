@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { FactRegistry } from '../facts/registry.js';
+import { FactTypeRegistry } from '../facts/fact-types.js';
 import { writeFact } from '../facts/write-fact.js';
 import type { Subject } from '../facts/fact-type.js';
 import type { ChefTool, TurnContext } from './types.js';
@@ -8,6 +10,9 @@ import type { ChefTool, TurnContext } from './types.js';
 const inputSchema = z.object({
   updates: z.array(z.object({ key: z.string(), value: z.unknown(), member_user_id: z.string().optional() })),
 });
+
+/** One out-of-band fact write: a registry key, its value, and an optional target member. */
+type FactWriteInput = { key: string; value: unknown; member_user_id?: string };
 
 /** One out-of-band write's verdict, echoing the key. */
 interface FactWriteResult {
@@ -27,10 +32,18 @@ interface FactWriteResult {
 export class UpdateFactsTool implements ChefTool {
   readonly id = 'update_facts';
 
-  private constructor(private readonly ctx: TurnContext) {}
+  private readonly db: Database;
+  private readonly factTypes: FactTypeRegistry;
+  private readonly factRegistry: FactRegistry;
 
-  static create(ctx: TurnContext): UpdateFactsTool {
-    return new UpdateFactsTool(ctx);
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.db = db;
+    this.factTypes = FactTypeRegistry.create(db);
+    this.factRegistry = FactRegistry.create();
+  }
+
+  static create(ctx: TurnContext, db: Database): UpdateFactsTool {
+    return new UpdateFactsTool(ctx, db);
   }
 
   canRun(): boolean {
@@ -49,24 +62,24 @@ export class UpdateFactsTool implements ChefTool {
     });
   }
 
-  async run(updates: { key: string; value: unknown; member_user_id?: string }[]): Promise<{ results: FactWriteResult[] }> {
+  async run(updates: FactWriteInput[]): Promise<{ results: FactWriteResult[] }> {
     const results: FactWriteResult[] = [];
     for (const u of updates) results.push(await this.writeOne(u));
     return { results };
   }
 
-  private async writeOne({ key, value, member_user_id }: { key: string; value: unknown; member_user_id?: string }): Promise<FactWriteResult> {
-    const def = FactRegistry.get(key);
+  private async writeOne({ key, value, member_user_id }: FactWriteInput): Promise<FactWriteResult> {
+    const def = this.factRegistry.get(key);
     if (!def) return { key, status: 'rejected', reason: `unknown fact "${key}"` };
     if (def.access === 'derived') return { key, status: 'rejected', reason: `${key} is derived/read-only` };
 
-    const type = this.ctx.factTypes.get(def.factType);
+    const type = this.factTypes.get(def.factType);
     if (!type) return { key, status: 'rejected', reason: `no fact type for "${key}"` };
 
     const subject = this.subjectFor(def.scope, member_user_id);
     if (!subject) return { key, status: 'rejected', reason: `${key} needs a household or member to write to` };
 
-    const res = await writeFact(type, subject, value, this.ctx.db);
+    const res = await writeFact(type, subject, value, this.db);
     if (res.ok) return { key, status: 'filled' };
     return { key, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
   }

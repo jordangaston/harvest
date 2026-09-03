@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { SameKitchenFlow } from '../objectives/onboarding-identity.js';
 import type { ChefTool, SaveResult, TurnContext } from './types.js';
 
@@ -16,10 +17,10 @@ const inputSchema = z.object({
 export class CreateHouseholdTool implements ChefTool {
   readonly id = 'create_household';
 
-  private constructor(private readonly ctx: TurnContext) {}
+  private constructor(private readonly ctx: TurnContext, private readonly db: Database) {}
 
-  static create(ctx: TurnContext): CreateHouseholdTool {
-    return new CreateHouseholdTool(ctx);
+  static create(ctx: TurnContext, db: Database): CreateHouseholdTool {
+    return new CreateHouseholdTool(ctx, db);
   }
 
   canRun(): boolean {
@@ -42,7 +43,7 @@ export class CreateHouseholdTool implements ChefTool {
     const participants = members.map((m, i) =>
       i === 0 ? { handle: this.ctx.initiatorHandle, name: m.name } : { name: m.name },
     );
-    const { householdId, memberUserIds } = await SameKitchenFlow.create(this.ctx.db).establish({
+    const { householdId, memberUserIds } = await SameKitchenFlow.create(this.db).establish({
       threadId: this.ctx.threadId,
       objectiveId: this.ctx.objectiveId,
       participants,

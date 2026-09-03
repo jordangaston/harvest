@@ -1,5 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
+import { FactTypeRegistry } from '../facts/fact-types.js';
 import { score, slugify, type Candidate } from './catalog.js';
 import type { ChefTool, TurnContext } from './types.js';
 
@@ -8,6 +10,9 @@ const inputSchema = z.object({
   query: z.string().optional(),
   page_token: z.string().optional(),
 });
+
+/** The args `fact_types` runs a 2×2 over: an optional type, phrase, and page cursor. */
+type FactTypesArgs = { fact_type?: string; query?: string; page_token?: string };
 
 /** How many enumerated values to return per page before handing back a `page_token`. */
 const PAGE_SIZE = 25;
@@ -30,10 +35,15 @@ type FactTypesResponse = BrowseResponse | DescribeResponse | GroundResponse | Se
 export class FactTypesTool implements ChefTool {
   readonly id = 'fact_types';
 
-  private constructor(private readonly ctx: TurnContext) {}
+  private readonly factTypes: FactTypeRegistry;
 
-  static create(ctx: TurnContext): FactTypesTool {
-    return new FactTypesTool(ctx);
+  private constructor(db: Database) {
+    this.factTypes = FactTypeRegistry.create(db);
+  }
+
+  // `_ctx` is unused: fact_types reads no mutable turn data, only the db-wired registry.
+  static create(_ctx: TurnContext, db: Database): FactTypesTool {
+    return new FactTypesTool(db);
   }
 
   canRun(): boolean {
@@ -53,7 +63,7 @@ export class FactTypesTool implements ChefTool {
     });
   }
 
-  async run({ fact_type, query, page_token }: { fact_type?: string; query?: string; page_token?: string }): Promise<FactTypesResponse> {
+  async run({ fact_type, query, page_token }: FactTypesArgs): Promise<FactTypesResponse> {
     if (fact_type && query) return this.search(fact_type, query, page_token);
     if (fact_type) return this.describe(fact_type, page_token);
     if (query) return this.ground(query);
@@ -61,11 +71,11 @@ export class FactTypesTool implements ChefTool {
   }
 
   private browse(): BrowseResponse {
-    return { kind: 'browse', types: this.ctx.factTypes.list() };
+    return { kind: 'browse', types: this.factTypes.list() };
   }
 
   private describe(name: string, pageToken?: string): DescribeResponse {
-    const type = this.ctx.factTypes.get(name);
+    const type = this.factTypes.get(name);
     if (!type) return { kind: 'describe', name, flavor: 'unknown', description: `no such fact type "${name}"` };
     const doc = type.describe();
     const base = { kind: 'describe' as const, name: doc.name, flavor: doc.flavor, description: doc.description };
@@ -78,8 +88,8 @@ export class FactTypesTool implements ChefTool {
   private ground(query: string): GroundResponse {
     const slug = slugify(query);
     const matches: { value: string; fact_type: string; score: number }[] = [];
-    for (const { name } of this.ctx.factTypes.list()) {
-      const values = this.ctx.factTypes.get(name)?.describe().values;
+    for (const { name } of this.factTypes.list()) {
+      const values = this.factTypes.get(name)?.describe().values;
       if (!values) continue; // scalar type — nothing to ground against
       for (const cand of values) {
         const s = score(slug, cand);
@@ -91,17 +101,27 @@ export class FactTypesTool implements ChefTool {
   }
 
   private async search(name: string, query: string, pageToken?: string): Promise<SearchResponse> {
-    const type = this.ctx.factTypes.get(name);
+    const type = this.factTypes.get(name);
     if (!type?.search) return { kind: 'search', matches: [] };
     const result = await type.search(query, pageToken);
     return { kind: 'search', matches: result.values, page_token: result.pageToken };
   }
 }
 
-/** ponytail: naive offset paging over an in-memory value list — the token is just the next index. */
+/**
+ * ponytail: naive offset paging over an in-memory value list — the token is an opaque base64url
+ * offset. A malformed token decodes to 0 (start over) rather than throwing.
+ */
 function paginate(items: Candidate[], pageToken?: string): { items: Candidate[]; next?: string } {
-  const start = pageToken ? Number.parseInt(pageToken, 10) || 0 : 0;
+  const start = decodeOffset(pageToken);
   const slice = items.slice(start, start + PAGE_SIZE);
   const nextIndex = start + PAGE_SIZE;
-  return { items: slice, next: nextIndex < items.length ? String(nextIndex) : undefined };
+  return { items: slice, next: nextIndex < items.length ? encodeOffset(nextIndex) : undefined };
+}
+
+const encodeOffset = (n: number): string => Buffer.from(String(n)).toString('base64url');
+function decodeOffset(token?: string): number {
+  if (!token) return 0;
+  const n = Number.parseInt(Buffer.from(token, 'base64url').toString(), 10);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
 }

@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
+import type { Database } from '../db.js';
 import { prepareBriefing, type BriefingInput } from './briefing.js';
 import { ReasoningOutputSchema, type ReasoningOutput } from './types.js';
 import { objectiveDefinition } from './objectives/index.js';
@@ -26,7 +27,7 @@ const MAX_ATTEMPTS = 3;
  * inside the `update_tasks`/`update_facts` tools during the loop — the plan carries only the reply.
  */
 export interface Reasoner {
-  run(input: BriefingInput, ctx: TurnContext): Promise<ReasoningOutput>;
+  run(input: BriefingInput, ctx: TurnContext, db: Database): Promise<ReasoningOutput>;
 }
 
 /**
@@ -36,7 +37,7 @@ export interface Reasoner {
 export class ScriptedReasoner implements Reasoner {
   constructor(private readonly plan: ReasoningOutput) {}
 
-  async run(input: BriefingInput, _ctx?: TurnContext): Promise<ReasoningOutput> {
+  async run(input: BriefingInput, _ctx?: TurnContext, _db?: Database): Promise<ReasoningOutput> {
     prepareBriefing(input); // exercise the pure assembly (throws on an unregistered objective)
     return ReasoningOutputSchema.parse(this.plan);
   }
@@ -66,7 +67,7 @@ export class MastraReasoner implements Reasoner {
     return new MastraReasoner(apiKey);
   }
 
-  async run(input: BriefingInput, ctx: TurnContext): Promise<ReasoningOutput> {
+  async run(input: BriefingInput, ctx: TurnContext, db: Database): Promise<ReasoningOutput> {
     const def = objectiveDefinition(input.objective.definition);
     if (!def) throw new Error(`No definition registered for objective '${input.objective.definition}'`);
     const model: OpenAICompatibleConfig = { id: REASONING_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
@@ -76,7 +77,7 @@ export class MastraReasoner implements Reasoner {
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !plan; attempt++) {
       // Rebuild tools each attempt so canRun re-evaluates against ctx a prior attempt may have mutated
       // (e.g. create_household set householdId → it drops out, save_* become legal).
-      const tools = buildTools(ctx, def.tools);
+      const tools = buildTools(ctx, db, def.tools);
       const agent = new Agent({
         id: 'chef-reasoning',
         name: 'chef-reasoning',

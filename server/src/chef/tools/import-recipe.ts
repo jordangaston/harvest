@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { ImportService } from '../../import-service.js';
 import { classifySource } from '../../classify.js';
 import { ImessageImportRepository } from '../../repositories/imessage-import-repository.js';
@@ -18,13 +19,13 @@ export class ImportRecipeTool implements ChefTool {
   private readonly imports: ImportService;
   private readonly links: ImessageImportRepository;
 
-  private constructor(private readonly ctx: TurnContext) {
-    this.imports = ImportService.create(ctx.db);
-    this.links = ImessageImportRepository.create(ctx.db);
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.imports = ImportService.create(db);
+    this.links = ImessageImportRepository.create(db);
   }
 
-  static create(ctx: TurnContext): ImportRecipeTool {
-    return new ImportRecipeTool(ctx);
+  static create(ctx: TurnContext, db: Database): ImportRecipeTool {
+    return new ImportRecipeTool(ctx, db);
   }
 
   canRun(): boolean {

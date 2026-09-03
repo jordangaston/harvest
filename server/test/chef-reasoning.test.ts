@@ -8,7 +8,6 @@ import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
-import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
 import { ReplyPlanSchema, type ReasoningOutput } from '../src/chef/types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
@@ -55,7 +54,6 @@ async function seedTurn(taskSpecs: { key: string; status: 'unasked' | 'filled' }
   const loaded = (await store.loadActive(threadId))!;
 
   const ctx: TurnContext = {
-    db,
     threadId,
     objectiveId: loaded.objective.id,
     initiatorHandle: '',
@@ -64,7 +62,6 @@ async function seedTurn(taskSpecs: { key: string; status: 'unasked' | 'filled' }
     householdId: household.id,
     members: [{ userId: ownerId }],
     tasks: loaded.tasks,
-    factTypes: FactTypeRegistry.create(db),
   };
   const input: BriefingInput = {
     objective: loaded.objective,
@@ -104,10 +101,10 @@ describe('prepareBriefing (pure prompt assembly)', () => {
 describe('buildTools (per-turn legality gate)', () => {
   it('drops create_household once a household exists; keeps the always-legal tools', async () => {
     const { ctx } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
-    const withHh = buildTools(ctx, ['create_household', 'read_facts']).map((t) => t.id);
+    const withHh = buildTools(ctx, db, ['create_household', 'read_facts']).map((t) => t.id);
     expect(withHh).toEqual(['read_facts']); // household exists → no create
 
-    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, ['create_household', 'read_facts']).map((t) => t.id);
+    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['create_household', 'read_facts']).map((t) => t.id);
     expect(noHh).toEqual(['create_household', 'read_facts']); // no household → create still offered
   });
 });

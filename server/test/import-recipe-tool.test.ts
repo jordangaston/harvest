@@ -15,7 +15,6 @@ import { ImportRecipeTool } from '../src/chef/tools/import-recipe.js';
 import { buildTools } from '../src/chef/tools/registry.js';
 import { objectiveDefinition } from '../src/chef/objectives/index.js';
 import { onboardingObjective } from '../src/chef/objectives/onboarding.js';
-import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 
 let db: Database;
@@ -33,7 +32,6 @@ async function seedThread(triggerExternalId: string | null): Promise<{ ownerId: 
   const owner = await UserRepository.create(db).insert({ phone: '+15555551234', jwtPrivateKey: privateKey, jwtPublicKey: publicKey });
   const [thread] = await db.insert(threads).values({ chatGuid: 'chat-1', ownerUserId: owner.id }).returning();
   const ctx: TurnContext = {
-    db,
     threadId: thread!.id,
     objectiveId: 'obj-test',
     initiatorHandle: '',
@@ -42,7 +40,6 @@ async function seedThread(triggerExternalId: string | null): Promise<{ ownerId: 
     householdId: null,
     members: [],
     tasks: [],
-    factTypes: FactTypeRegistry.create(db),
   };
   return { ownerId: owner.id, threadId: thread!.id, ctx };
 }
@@ -51,7 +48,7 @@ describe('import_recipe.run', () => {
   it('starts an import for the owner and links it to the thread with the trigger id (AC1)', async () => {
     const { ownerId, threadId, ctx } = await seedThread('msg-guid-42');
 
-    const res = await ImportRecipeTool.create(ctx).run('https://www.tiktok.com/@x/video/1');
+    const res = await ImportRecipeTool.create(ctx, db).run('https://www.tiktok.com/@x/video/1');
 
     expect(res.saved.job_id).toBeTruthy();
     expect(res.rejected).toEqual([]);
@@ -67,7 +64,7 @@ describe('import_recipe.run', () => {
   it('rejects a non-recipe URL synchronously — no job, no link, no enqueue (AC2)', async () => {
     const { ownerId, ctx } = await seedThread(null);
 
-    const res = await ImportRecipeTool.create(ctx).run('https://instagram.com/someprofile');
+    const res = await ImportRecipeTool.create(ctx, db).run('https://instagram.com/someprofile');
 
     expect(res).toEqual({ saved: {}, rejected: [{ input: 'https://instagram.com/someprofile', reason: 'not a recipe link' }] });
     expect(send).not.toHaveBeenCalled();
@@ -77,8 +74,8 @@ describe('import_recipe.run', () => {
 
   it('canRun iff a thread owner is known', async () => {
     const { ctx } = await seedThread(null);
-    expect(ImportRecipeTool.create(ctx).canRun()).toBe(true);
-    expect(ImportRecipeTool.create({ ...ctx, initiatorUserId: '' }).canRun()).toBe(false);
+    expect(ImportRecipeTool.create(ctx, db).canRun()).toBe(true);
+    expect(ImportRecipeTool.create({ ...ctx, initiatorUserId: '' }, db).canRun()).toBe(false);
   });
 });
 
@@ -89,7 +86,7 @@ describe('import_recipe reachability', () => {
   it('is in the onboarding objective the reasoner runs every turn', async () => {
     const { ctx } = await seedThread(null);
     expect(objectiveDefinition('onboarding')!.tools).toContain('import_recipe');
-    const built = buildTools(ctx, onboardingObjective.tools);
+    const built = buildTools(ctx, db, onboardingObjective.tools);
     expect(built.map((t) => t.id)).toContain('import_recipe');
   });
 });

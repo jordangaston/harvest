@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import type { Database } from '../../db.js';
 import { FactRegistry, type FactDef } from '../facts/registry.js';
+import { FactTypeRegistry } from '../facts/fact-types.js';
 import type { Subject } from '../facts/fact-type.js';
 import type { ChefTool, TurnContext } from './types.js';
 
@@ -23,10 +25,16 @@ interface FactReading {
 export class ReadFactsTool implements ChefTool {
   readonly id = 'read_facts';
 
-  private constructor(private readonly ctx: TurnContext) {}
+  private readonly factTypes: FactTypeRegistry;
+  private readonly factRegistry: FactRegistry;
 
-  static create(ctx: TurnContext): ReadFactsTool {
-    return new ReadFactsTool(ctx);
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.factTypes = FactTypeRegistry.create(db);
+    this.factRegistry = FactRegistry.create();
+  }
+
+  static create(ctx: TurnContext, db: Database): ReadFactsTool {
+    return new ReadFactsTool(ctx, db);
   }
 
   canRun(): boolean {
@@ -45,7 +53,7 @@ export class ReadFactsTool implements ChefTool {
   }
 
   async run(keys?: string[]): Promise<{ facts: FactReading[] }> {
-    const defs = keys ? keys.map((k) => FactRegistry.get(k)).filter((d): d is FactDef => !!d) : FactRegistry.list();
+    const defs = keys ? keys.map((k) => this.factRegistry.get(k)).filter((d): d is FactDef => !!d) : this.factRegistry.list();
     const readings: FactReading[] = [];
     for (const def of defs) readings.push(...(await this.readDef(def)));
     return { facts: readings };
@@ -53,7 +61,7 @@ export class ReadFactsTool implements ChefTool {
 
   /** Reads one def against its subject(s): the household once, or every member individually. */
   private async readDef(def: FactDef): Promise<FactReading[]> {
-    const type = this.ctx.factTypes.get(def.factType);
+    const type = this.factTypes.get(def.factType);
     if (!type) return [];
     if (def.scope === 'household') {
       if (!this.ctx.householdId) return [{ key: def.key, value: null, known: false }];
