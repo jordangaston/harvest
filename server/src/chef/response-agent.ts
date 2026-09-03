@@ -6,7 +6,6 @@ import {
   CHEF_TAPBACK_KINDS,
   DeliberationResultSchema,
   type ChatEvent,
-  type ChatEvents,
   type DeliberationResult,
   type TapbackKind,
 } from './types.js';
@@ -32,6 +31,9 @@ export interface SupervisorTurn {
   triggerExternalId: string | null;
   /** Runs the reasoner's tool loop for the supervisor's question, returning its `DeliberationResult`. */
   deliberate: (question: string) => Promise<DeliberationResult>;
+  /** Flushes one outbound event live, mid-turn (journal + send, idempotent) — the `send` tool's sink.
+   *  Increment 2: sends happen during the generate, not collected for the Consumer to deliver after. */
+  send: (event: ChatEvent) => Promise<void>;
 }
 
 /**
@@ -39,11 +41,11 @@ export interface SupervisorTurn {
  * generation: the model reads the newest message against the objective and acts by calling tools —
  * `send` (every outbound: text, tapback, richlink) and `deliberate` (runs the reasoner for an
  * objective-bearing message, then the model voices the result with `send`). A social message is a
- * `send` with no `deliberate`; a task message is `deliberate` then `send`. Its only effect is the
- * events the `send` tool collected — it never touches Harvest data.
+ * `send` with no `deliberate`; a task message is `deliberate` then `send`. Each `send` flushes live
+ * via `turn.send` — it never returns collected events, and never touches Harvest data itself.
  */
 export interface Responder {
-  respond(turn: SupervisorTurn): Promise<ChatEvents>;
+  respond(turn: SupervisorTurn): Promise<void>;
 }
 
 /** The `send` tool's input — one tool for every outbound kind. `text` sends a message; `tapback`
@@ -125,32 +127,30 @@ function actPrompt(turn: SupervisorTurn): string {
 export class ScriptedResponder implements Responder {
   constructor(private readonly script: { deliberate?: boolean; send?: SendPayload[] } = { deliberate: true }) {}
 
-  async respond(turn: SupervisorTurn): Promise<ChatEvents> {
+  async respond(turn: SupervisorTurn): Promise<void> {
     let result: DeliberationResult | null = null;
     if (this.script.deliberate) result = await turn.deliberate('advance the objective');
 
-    const events: ChatEvents = [];
     if (this.script.send) {
       for (const p of this.script.send) {
         const e = sendEvent(p, turn.triggerExternalId);
-        if (e) events.push(e);
+        if (e) await turn.send(e);
       }
-      return events;
+      return;
     }
     if (result) {
-      for (const line of result.communicate) events.push({ kind: 'text', text: line });
-      for (const question of result.ask) events.push({ kind: 'text', text: question });
-      for (const a of result.artifacts ?? []) events.push({ kind: 'richlink', url: a.url });
+      for (const line of result.communicate) await turn.send({ kind: 'text', text: line });
+      for (const question of result.ask) await turn.send({ kind: 'text', text: question });
+      for (const a of result.artifacts ?? []) await turn.send({ kind: 'richlink', url: a.url });
     }
-    return events;
   }
 }
 
 /**
  * The live responder: a Mastra `Agent` (thinking-off) that runs ONE tool-loop generation. Its tools
- * are `send` (collects each outbound `ChatEvent`) and `deliberate` (runs the reasoner and returns its
- * `DeliberationResult` to the model to voice). No structured output — the model's `send` calls ARE the
- * reply, so there is no structured-output-vs-tool-call two-pass. The collected events are the result.
+ * are `send` (flushes each outbound `ChatEvent` live via `turn.send`) and `deliberate` (runs the
+ * reasoner and returns its `DeliberationResult` to the model to voice). No structured output — the
+ * model's `send` calls ARE the reply, so there is no structured-output-vs-tool-call two-pass.
  */
 export class MastraResponder implements Responder {
   constructor(private readonly apiKey: string) {}
@@ -159,9 +159,8 @@ export class MastraResponder implements Responder {
     return new MastraResponder(apiKey);
   }
 
-  async respond(turn: SupervisorTurn): Promise<ChatEvents> {
+  async respond(turn: SupervisorTurn): Promise<void> {
     const model: OpenAICompatibleConfig = { id: RESPONSE_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
-    const events: ChatEvents = [];
 
     const send = createTool({
       id: 'send',
@@ -172,7 +171,7 @@ export class MastraResponder implements Responder {
       inputSchema: SendInput,
       execute: async (payload: SendPayload) => {
         const e = sendEvent(payload, turn.triggerExternalId);
-        if (e) events.push(e);
+        if (e) await turn.send(e);
         return { sent: e !== null };
       },
     });
@@ -200,7 +199,6 @@ export class MastraResponder implements Responder {
       providerOptions: THINKING_OFF,
       stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= MAX_STEPS,
     });
-    return events;
   }
 }
 
