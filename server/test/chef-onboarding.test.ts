@@ -261,7 +261,7 @@ describe('completion + close', () => {
   });
 
   it('the close result carries the celebration, drop-a-recipe invite, and first-menu promise', () => {
-    expect(ONBOARDING_CLOSE.communicate).toHaveLength(3); // celebration, drop-a-recipe, first-menu
+    expect(ONBOARDING_CLOSE).toHaveLength(3); // celebration, drop-a-recipe, first-menu
     const text = JSON.stringify(ONBOARDING_CLOSE).toLowerCase();
     expect(text).toMatch(/set/); // "you're all set" celebration
     expect(text).toMatch(/recipe/);

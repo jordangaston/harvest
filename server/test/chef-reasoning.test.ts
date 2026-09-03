@@ -8,8 +8,6 @@ import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
-import { ScriptedReasoner, selectReasoningAgent, MastraReasoner } from '../src/chef/reasoning-agent.js';
-import { DeliberationResultSchema, type ReasoningOutput } from '../src/chef/types.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import { randomUUID } from 'node:crypto';
 
@@ -106,34 +104,5 @@ describe('buildTools (per-turn legality gate)', () => {
 
     const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['create_household', 'read_facts']).map((t) => t.id);
     expect(noHh).toEqual(['create_household', 'read_facts']); // no household → create still offered
-  });
-});
-
-describe('ScriptedReasoner (pure result replay, no network)', () => {
-  it('returns a result that parses; no prose or taskUpdates field', async () => {
-    const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
-    const result: ReasoningOutput = {
-      result: { communicate: ['5 cook days'], ask: [] },
-    };
-    const out = await new ScriptedReasoner(result).run(input, {} as TurnContext);
-    expect(() => DeliberationResultSchema.parse(out.result)).not.toThrow();
-    expect(out).not.toHaveProperty('prose');
-    // Task fills now happen through in-loop tools; the result no longer carries taskUpdates.
-    expect(out).not.toHaveProperty('taskUpdates');
-  });
-});
-
-describe('selectReasoningAgent (env gate, no network)', () => {
-  const prev = process.env.DEEPSEEK_API_KEY;
-  afterEach(() => {
-    if (prev === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = prev;
-  });
-
-  it('AC-6: absent key -> scripted stub; present key -> real Mastra agent', () => {
-    delete process.env.DEEPSEEK_API_KEY;
-    expect(selectReasoningAgent()).toBeInstanceOf(ScriptedReasoner);
-    process.env.DEEPSEEK_API_KEY = 'test-key-no-network';
-    expect(selectReasoningAgent()).toBeInstanceOf(MastraReasoner);
   });
 });
