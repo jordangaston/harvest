@@ -192,10 +192,10 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "hey");
 
-    const reasoner = new ScriptedReasoner({ replyPlan: { intents: [{ kind: "acknowledge", note: "hi" }], must_say: [] } });
-    const responder = new ScriptedResponder();
+    const reasoner = new ScriptedReasoner({ result: { communicate: ["hi"], ask: [] } });
+    const responder = new ScriptedResponder(); // task by default → each turn delegates to the reasoner
     const runSpy = vi.spyOn(reasoner, "run");
-    const renderSpy = vi.spyOn(responder, "render");
+    const respondSpy = vi.spyOn(responder, "respond");
 
     const chef = new RealChef(
       db,
@@ -209,8 +209,90 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
     const reply = await chef.respond(threadId);
 
     expect(runSpy).toHaveBeenCalledTimes(3);
-    expect(renderSpy).toHaveBeenCalledTimes(3);
+    expect(respondSpy).toHaveBeenCalledTimes(3);
     expect(reply).not.toBeNull();
+  });
+});
+
+// ── spec-01: responder supervisor over the RealChef harness (social vs task delegation) ──────────
+
+/** Builds a RealChef with a spied scripted reasoner and a scripted supervisor in the given mode. */
+function harness(social: boolean, result: { communicate: string[]; ask: string[]; artifacts?: { kind: "richlink"; url: string }[] }) {
+  const reasoner = new ScriptedReasoner({ result });
+  const responder = new ScriptedResponder(social);
+  const runSpy = vi.spyOn(reasoner, "run");
+  const chef = new RealChef(
+    db,
+    reasoner,
+    responder,
+    ObjectiveRepository.create(db),
+    ThreadRepository.create(db),
+    HouseholdRepository.create(db),
+    async () => false, // no interruption
+  );
+  return { chef, runSpy };
+}
+
+describe("spec-01 Test Case 1: social trigger is voiced without delegation (AC 1, 5)", () => {
+  it("does not invoke the reasoner; confirmTasks is [], cursor + objective from the loaded turn", async () => {
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
+    const newestId = await seedInbound(threadId, ownerId, "this only takes 20 min, amazing!");
+    const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
+
+    const { chef, runSpy } = harness(true, { communicate: [], ask: [] });
+    const reply = await chef.respond(threadId);
+
+    expect(runSpy).not.toHaveBeenCalled(); // the reasoner's tools/loop never run
+    expect(reply!.confirmTasks).toEqual([]); // a social turn confirms nothing
+    expect(reply!.cursorTo).toBe(newestId);
+    expect(reply!.objectiveId).toBe(active.objective.id);
+    expect(reply!.chatEvents).toHaveLength(1); // a react or short bubble
+  });
+});
+
+describe("spec-01 Test Case 2: task trigger delegates once and is voiced (AC 2)", () => {
+  it("invokes the reasoner exactly once and conveys communicate + ask", async () => {
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
+    await seedInbound(threadId, ownerId, "I'm allergic to peanuts");
+
+    const { chef, runSpy } = harness(false, {
+      communicate: ["noting peanuts as a severe allergy for Sam"],
+      ask: ["which store do you shop at?"],
+    });
+    const reply = await chef.respond(threadId);
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    const texts = reply!.chatEvents.filter((e) => e.kind === "text").map((e) => (e as { text: string }).text);
+    expect(texts).toContain("noting peanuts as a severe allergy for Sam");
+    expect(texts).toContain("which store do you shop at?");
+  });
+});
+
+describe("spec-01 Test Case 3: empty deliberation degrades cleanly (AC 4)", () => {
+  it("emits no chatEvents", async () => {
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
+    await seedInbound(threadId, ownerId, "hmm");
+
+    const { chef } = harness(false, { communicate: [], ask: [] });
+    const reply = await chef.respond(threadId);
+
+    expect(reply!.chatEvents).toEqual([]);
+  });
+});
+
+describe("spec-01 Test Case 4: artifact renders as a richlink (AC 2)", () => {
+  it("puts a richlink event on the reply", async () => {
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
+    await seedInbound(threadId, ownerId, "give me a recipe");
+
+    const { chef } = harness(false, {
+      communicate: ["here's a recipe"],
+      ask: [],
+      artifacts: [{ kind: "richlink", url: "https://x/y" }],
+    });
+    const reply = await chef.respond(threadId);
+
+    expect(reply!.chatEvents).toContainEqual({ kind: "richlink", url: "https://x/y" });
   });
 });
 

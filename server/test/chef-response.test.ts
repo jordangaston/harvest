@@ -1,63 +1,64 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ScriptedResponder, MastraResponder, selectResponseAgent } from '../src/chef/response-agent.js';
-import { CHEF_TAPBACK_KINDS, type ReplyPlan } from '../src/chef/types.js';
+import { ScriptedResponder, MastraResponder, selectResponseAgent, type SupervisorTurn } from '../src/chef/response-agent.js';
+import { CHEF_TAPBACK_KINDS, type DeliberationResult } from '../src/chef/types.js';
 
-const responder = new ScriptedResponder();
+/** A SupervisorTurn whose `deliberate` thunk returns a fixed result and records that it ran. */
+function turn(overrides: Partial<SupervisorTurn> & { result?: DeliberationResult } = {}): SupervisorTurn & { deliberated: () => boolean } {
+  let ran = false;
+  const result = overrides.result ?? { communicate: [], ask: [] };
+  return {
+    transcriptWindow: overrides.transcriptWindow ?? [],
+    objectiveSummary: overrides.objectiveSummary ?? 'onboarding',
+    triggerExternalId: overrides.triggerExternalId ?? null,
+    deliberate: overrides.deliberate ?? (async () => { ran = true; return result; }),
+    deliberated: () => ran,
+  };
+}
 
-describe('ScriptedResponder.render (deterministic, no network)', () => {
-  it('AC-1: one text event per conveyable intent, in order', async () => {
-    const plan: ReplyPlan = {
-      intents: [
-        { kind: 'confirm', fact: "Kroger's in." },
-        { kind: 'ask', question: 'What days do you usually cook?' },
-      ],
-      must_say: [],
-    };
-    const events = await responder.render(plan, ['we shop at kroger']);
+describe('ScriptedResponder — task turn (deterministic, no network)', () => {
+  const responder = new ScriptedResponder(); // task by default
+
+  it('renders one text per communicate line and ask question, in order (AC-2, Test Case 2)', async () => {
+    const t = turn({ result: { communicate: ['noting peanuts as a severe allergy for Sam'], ask: ['which store do you shop at?'] } });
+    const events = await responder.respond(t);
+    expect(t.deliberated()).toBe(true);
     expect(events).toEqual([
-      { kind: 'text', text: "Kroger's in." },
-      { kind: 'text', text: 'What days do you usually cook?' },
+      { kind: 'text', text: 'noting peanuts as a severe allergy for Sam' },
+      { kind: 'text', text: 'which store do you shop at?' },
     ]);
   });
 
-  it('AC-2: an acknowledge intent addressing a message renders an allowed-kind tapback (never like)', async () => {
-    const plan: ReplyPlan = { intents: [{ kind: 'acknowledge', note: 'got it' }], must_say: [], address: 'guid-1' };
-    const events = await responder.render(plan, []);
-    expect(events).toEqual([{ kind: 'tapback', target: 'guid-1', emoji: 'love' }]);
+  it('empty deliberation degrades to no events (AC-4, Test Case 3)', async () => {
+    const events = await responder.respond(turn({ result: { communicate: [], ask: [] } }));
+    expect(events).toEqual([]);
   });
 
-  it('AC-3: every must_say surfaces as a text event', async () => {
-    const plan: ReplyPlan = { intents: [], must_say: ['peanuts never enter this kitchen'] };
-    const events = await responder.render(plan, []);
-    expect(events).toContainEqual({ kind: 'text', text: 'peanuts never enter this kitchen' });
-  });
-
-  it('AC-5: a fresh collector per call — the second render omits the first\'s bubbles', async () => {
-    const planA: ReplyPlan = { intents: [{ kind: 'confirm', fact: 'A' }], must_say: [] };
-    const planB: ReplyPlan = { intents: [{ kind: 'confirm', fact: 'B' }], must_say: [] };
-    const a = await responder.render(planA, []);
-    const b = await responder.render(planB, []);
-    expect(a).toEqual([{ kind: 'text', text: 'A' }]);
-    expect(b).toEqual([{ kind: 'text', text: 'B' }]);
+  it('renders an artifact as a richlink event (AC-2, Test Case 4)', async () => {
+    const t = turn({ result: { communicate: ["here's a recipe"], ask: [], artifacts: [{ kind: 'richlink', url: 'https://x/y' }] } });
+    const events = await responder.respond(t);
+    expect(events).toContainEqual({ kind: 'richlink', url: 'https://x/y' });
   });
 });
 
-// WI-4A AC3: MastraResponder grounds a tapback on a REAL trigger id, of an allowed kind, never
-// like/dislike. The tapback path returns before any model call, so these run offline (no key).
-describe('MastraResponder tapback emission (WI-4A, grounded, no network)', () => {
-  const responder = MastraResponder.create('test-key-no-network');
+describe('ScriptedResponder — social turn (no delegation, no network)', () => {
+  const responder = new ScriptedResponder(true); // social
 
-  it('AC3: an addressed acknowledge plan reacts on the real trigger id with an allowed kind', async () => {
-    const plan: ReplyPlan = { intents: [{ kind: 'acknowledge', note: 'got it' }], must_say: [], address: 'model-said-X' };
-    const events = await responder.render(plan, ['sounds good'], 'spc-msg-REAL');
-
-    // Grounded on the trigger id, NOT the model's address string; kind is allowed (never like/dislike).
+  it('reacts on a real trigger id with an allowed kind and never delegates (AC-1, AC-7)', async () => {
+    const t = turn({ triggerExternalId: 'spc-msg-REAL' });
+    const events = await responder.respond(t);
+    expect(t.deliberated()).toBe(false); // the reasoner is never invoked
     expect(events).toEqual([{ kind: 'tapback', target: 'spc-msg-REAL', emoji: 'love' }]);
     const tapback = events[0]!;
     if (tapback.kind === 'tapback') expect(CHEF_TAPBACK_KINDS as readonly string[]).toContain(tapback.emoji);
   });
 
-  it('AC3: the never-thumbs-up rule is structural — the allowed set excludes like and dislike', () => {
+  it('a null trigger id degrades to a text bubble, never a tapback (AC-7, Test Case 6)', async () => {
+    const events = await new ScriptedResponder(true).respond(turn({ triggerExternalId: null }));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe('text');
+  });
+
+  it('the never-thumbs-up rule is structural — the allowed set excludes like and dislike', () => {
     expect(CHEF_TAPBACK_KINDS).not.toContain('like');
     expect(CHEF_TAPBACK_KINDS).not.toContain('dislike');
     expect([...CHEF_TAPBACK_KINDS].sort()).toEqual(['emphasize', 'laugh', 'love']);
