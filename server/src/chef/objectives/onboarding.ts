@@ -104,12 +104,10 @@ export const onboardingObjective = {
   id: 'onboarding',
   instructions:
     "Goal: learn this household's cooking profile — names, grocery stores, budget, cook days, allergies, " +
-    'diets, tastes, and skill — filling each objective task through update_tasks by its [id], following the ' +
-    "task's fill guidance. Discover a fact type's legal values or ground a loose phrase with fact_types. Ack " +
-    'low-stakes answers with a tapback; never write a value the tools did not return. If a required task stays ' +
-    'unanswered after the room moves on, send one reworded follow-up then state a default. When every required ' +
-    'task is filled the close emit becomes eligible — deliver it (a celebration, "drop a recipe here anytime," ' +
-    'and the promise of a first menu); the objective pops once its bubbles send.',
+    'diets, tastes, and skill — following each task\'s fill guidance. If a required task stays unanswered ' +
+    'after the room moves on, send one reworded follow-up then state a default. When every required task is ' +
+    'filled the close becomes eligible — deliver it (a celebration, "drop a recipe here anytime," and the ' +
+    'promise of a first menu); the objective pops once its bubbles send.',
   tools: ONBOARDING_TOOLS,
 };
 
