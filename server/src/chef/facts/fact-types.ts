@@ -7,6 +7,12 @@ import {
   DIET_STRICTNESS,
   DIFFICULTY_BANDS,
   GOALS,
+  DIRECTIVE_SCOPES,
+  DIRECTIONS,
+  STRENGTHS,
+  type DirectiveScope,
+  type Direction,
+  type Strength,
 } from '../../schema.js';
 import { HouseholdPreferenceRepository } from '../../repositories/household-preference-repository.js';
 import { HouseholdRepository } from '../../repositories/household-repository.js';
@@ -420,26 +426,30 @@ class DietType implements FactType {
   }
 }
 
-// ── member: food preferences (catalog, faceted, DB-backed grounding) ──────
+// ── member: directives (catalog value + enum modifiers, DB-backed grounding) ──
 
-/** The raw food-pref value: a facet, a value the matcher grounds, and its two orthogonal axes. */
-type FoodPrefValue = { facet?: string; value?: string; sentiment?: string; target?: number; reason?: string };
-const FOOD_FACETS = ['cuisine', 'dish_type', 'ingredient', 'food_category'] as const;
-const isFoodFacet = (f: unknown): f is (typeof FOOD_FACETS)[number] => FOOD_FACETS.includes(f as never);
-const isSentiment = (s: unknown): s is 'like' | 'dislike' => s === 'like' || s === 'dislike';
+/** The raw directive value: a dimension, a value the matcher grounds, and the enum/aggregate modifiers. */
+type DirectiveValue = { dimension?: string; value?: string; scope?: string; direction?: string; strength?: string; target?: number; unit?: string; reason?: string };
+/** The dimensions the chef may author (the server-owned `primary_ingredient` is excluded). */
+const DIRECTIVE_FACETS = ['cuisine', 'dish_type', 'ingredient', 'food_category', 'nutrient'] as const;
+const isDirectiveFacet = (d: unknown): d is (typeof DIRECTIVE_FACETS)[number] => DIRECTIVE_FACETS.includes(d as never);
+const isScope = (s: unknown): s is DirectiveScope => DIRECTIVE_SCOPES.includes(s as never);
+const isDirection = (d: unknown): d is Direction => DIRECTIONS.includes(d as never);
+const isStrength = (s: unknown): s is Strength => STRENGTHS.includes(s as never);
 
 /**
- * A member food preference over a `facet`, carrying two orthogonal axes: `sentiment` (taste:
- * like/dislike) and `target` (intent: −1 eat-less … +1 eat-more), plus a `reason`. Taste facets
- * (cuisine/dish_type/ingredient) require `sentiment`; `food_category` requires a `target` (moderation
- * is a food_category row with a negative target). Grounded per facet: cuisine/dish_type coerce onto
- * the code VOCAB, ingredient runs the tuned string→FDC→base-cluster matcher ("salmon"→Fish),
- * food_category coerces against FOOD_CLASSES. Writes land through the targeted `upsertFoodPref`.
+ * A member food directive: `{ dimension, value, scope?, direction, strength?, target?, unit?, reason? }`.
+ * `value` is catalog-grounded per dimension (nutrient via NUTRIENT_IDS; cuisine/dish_type coerce onto the
+ * code VOCAB; ingredient runs the tuned string→FDC→base-cluster matcher; food_category coerces against
+ * FOOD_CLASSES). `scope`/`direction`/`strength` are fixed-enum validation. Persists the whole directive
+ * through the targeted `upsertFoodPref` (default scope `recipe`, strength `soft`). Replaces the old
+ * FOOD_PREFERENCE like/dislike fact — a like is `{direction:'more'}`, a dislike `{direction:'less'}`.
  */
-class FoodPreferenceType implements FactType {
-  readonly name = 'FOOD_PREFERENCE';
+class DirectiveType implements FactType {
+  readonly name = 'SET_DIRECTIVE';
   readonly flavor = 'catalog' as const;
   private readonly foodCategories = codeCandidates('food_category');
+  private readonly nutrients = codeCandidates('nutrient');
   constructor(
     private readonly prefs: PreferenceRepository,
     private readonly taste: TasteOptionsService,
@@ -451,57 +461,64 @@ class FoodPreferenceType implements FactType {
       name: this.name,
       flavor: this.flavor,
       description:
-        'A member food preference: { facet: cuisine|dish_type|ingredient|food_category, value, ' +
-        'sentiment?: like|dislike, target?: -1..1, reason? }. A taste facet needs sentiment; ' +
-        'food_category needs a target (negative = eat less).',
+        'A member food directive: { dimension: cuisine|dish_type|ingredient|food_category|nutrient, ' +
+        'value, direction: more|less, scope?: recipe|breakfast|lunch|dinner|snack|day|week (default ' +
+        'recipe), strength?: soft|firm|strict (default soft), target?: number, unit?: count|grams|…, ' +
+        'reason? }. A like is direction:more, a dislike direction:less; an aggregate limit uses a ' +
+        'day/week scope with target + unit.',
     };
   }
   async search(query: string): Promise<ValuePage> {
     const opts = await this.taste.options();
     const q = query.toLowerCase();
-    const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients, ...this.foodCategories];
+    const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients, ...this.foodCategories, ...this.nutrients];
     return { values: all.filter((c) => c.value.includes(q) || c.label.toLowerCase().includes(q)).map((c) => ({ value: c.value, label: c.label })) };
   }
   validate(value: unknown): ValidateResult {
-    const v = (value ?? {}) as FoodPrefValue;
-    if (!isFoodFacet(v.facet)) return { ok: false, reason: `${this.name}: facet must be cuisine, dish_type, ingredient, or food_category` };
+    const v = (value ?? {}) as DirectiveValue;
+    if (!isDirectiveFacet(v.dimension)) return { ok: false, reason: `${this.name}: dimension must be cuisine, dish_type, ingredient, food_category, or nutrient` };
     if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
-    if (v.facet === 'food_category') {
-      if (typeof v.target !== 'number' || v.target < -1 || v.target > 1) return { ok: false, reason: 'food_category requires target (-1..1)' };
-      return { ok: true };
-    }
-    if (!isSentiment(v.sentiment)) return { ok: false, reason: `${v.facet} requires sentiment like|dislike` };
+    if (!isDirection(v.direction)) return { ok: false, reason: `${this.name}: direction must be ${DIRECTIONS.join(' or ')}` };
+    if (v.scope !== undefined && !isScope(v.scope)) return { ok: false, reason: `${this.name}: scope must be one of ${DIRECTIVE_SCOPES.join(', ')}` };
+    if (v.strength !== undefined && !isStrength(v.strength)) return { ok: false, reason: `${this.name}: strength must be ${STRENGTHS.join(', ')}` };
     return { ok: true };
   }
   /** Grounding hits the DB, so it lives in `persist`; `normalize` just shapes the input. */
   normalize(value: unknown): unknown {
-    const v = (value ?? {}) as FoodPrefValue;
-    return { facet: v.facet, value: v.value, sentiment: v.sentiment ?? null, target: v.target ?? null, reason: v.reason ?? null };
+    const v = (value ?? {}) as DirectiveValue;
+    return {
+      dimension: v.dimension,
+      value: v.value,
+      scope: v.scope ?? 'recipe',
+      direction: v.direction,
+      strength: v.strength ?? 'soft',
+      target: v.target ?? null,
+      unit: v.unit ?? null,
+      reason: v.reason ?? null,
+    };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const v = this.normalize(value) as { facet: (typeof FOOD_FACETS)[number]; value: string; sentiment: 'like' | 'dislike' | null; target: number | null; reason: string | null };
-    const grounded = await this.ground(v.facet, v.value);
+    const v = this.normalize(value) as { dimension: (typeof DIRECTIVE_FACETS)[number]; value: string; scope: DirectiveScope; direction: Direction; strength: Strength; target: number | null; unit: string | null; reason: string | null };
+    const grounded = await this.ground(v.dimension, v.value);
     if (!grounded) throw new Error(`${this.name}: no catalog match for "${v.value}"`);
-    // Map the legacy fact axes to a recipe-scope directive: a like/positive target → `more`,
-    // a dislike/negative target → `less`. WI-2 replaces this fact with the composite set_directive.
-    const direction = v.sentiment === 'dislike' || (v.target != null && v.target < 0) ? 'less' : 'more';
-    await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.facet, value: grounded, scope: 'recipe', direction, target: v.target, reason: v.reason });
+    await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
   }
 
-  /** Grounds one value to its catalog id per facet, reusing each facet's tuned resolution path. */
-  private async ground(facet: (typeof FOOD_FACETS)[number], value: string): Promise<string | null> {
-    if (facet === 'food_category') return coerce(value, this.foodCategories).value ?? null;
+  /** Grounds one value to its catalog id per dimension, reusing each dimension's tuned resolution path. */
+  private async ground(dimension: (typeof DIRECTIVE_FACETS)[number], value: string): Promise<string | null> {
+    if (dimension === 'nutrient') return coerce(value, this.nutrients).value ?? null;
+    if (dimension === 'food_category') return coerce(value, this.foodCategories).value ?? null;
     const opts = await this.taste.options();
-    if (facet === 'ingredient') {
+    if (dimension === 'ingredient') {
       const known = opts.ingredients.find((i) => i.value === value);
       if (known) return known.value;
       const base = await this.ingredients.resolve(value);
       return base ? base.id : null;
     }
-    const cands = facet === 'cuisine' ? opts.cuisines : opts.dish_types;
+    const cands = dimension === 'cuisine' ? opts.cuisines : opts.dish_types;
     return coerce(value, cands).value ?? null;
   }
 }
@@ -531,7 +548,7 @@ export class FactTypeRegistry {
       new NameType(userRepo),
       new AllergenType(member),
       new DietType(member),
-      new FoodPreferenceType(member, taste, ingredients),
+      new DirectiveType(member, taste, ingredients),
       new SkillLevelType(member),
     ];
     return new FactTypeRegistry(new Map(types.map((t) => [t.name, t])));
