@@ -640,15 +640,6 @@ export const userPreferences = sqliteTable('user_preferences', {
   timeBreakfastMinutes: integer('time_breakfast_minutes'),
   timeLunchMinutes: integer('time_lunch_minutes'),
   timeDinnerMinutes: integer('time_dinner_minutes'),
-  weightCost: integer('weight_cost').notNull().default(1),
-  weightDifficulty: integer('weight_difficulty').notNull().default(1),
-  weightNutrition: integer('weight_nutrition').notNull().default(1),
-  weightAffinity: integer('weight_affinity').notNull().default(1),
-  weightTime: integer('weight_time').notNull().default(1),
-  weightPopularity: integer('weight_popularity').notNull().default(0),
-  // Meal-prep signal weight (signal #10): 0–3, seeded to 3 by the `meal_prepping`
-  // goal at cold-start, else the uniform baseline 1 (design Q-MP1).
-  weightMealPrep: integer('weight_meal_prep').notNull().default(1),
   // Equipment signal (WI-EQ-1): gates the equipment filter — true once the user reviews
   // their kitchen (onboarding/settings), even if they own nothing. Inert until then, the
   // same "no data → no filter" stance as allergens.
@@ -742,9 +733,9 @@ export const userEquipment = sqliteTable(
 );
 
 // Swipe deck (WI-RANK-4): one row per (user, recipe) swipe — the feedback capture that
-// drives the deck (don't re-show) and is labeled data for later ranking. `score`/`weights`
-// snapshot the card the user saw (the pre-tune weights that produced it). Composite pk
-// (user, recipe) so a re-swipe overwrites; both fks cascade on delete.
+// drives the deck (don't re-show) and is labeled data for later ranking. `score` snapshots
+// the card the user saw. Composite pk (user, recipe) so a re-swipe overwrites; both fks
+// cascade on delete.
 export const recipeSwipes = sqliteTable(
   'recipe_swipes',
   {
@@ -757,9 +748,6 @@ export const recipeSwipes = sqliteTable(
     direction: text('direction', { enum: SWIPE_DIRECTIONS }).notNull(),
     reason: text('reason', { enum: SWIPE_REASONS }),
     score: real('score').notNull(),
-    weights: text('weights', { mode: 'json' })
-      .$type<{ cost: number; difficulty: number; nutrition: number; affinity: number; time: number; popularity: number; mealPrep: number }>()
-      .notNull(),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),
