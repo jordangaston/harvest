@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ScriptedResponder, MastraResponder, selectResponseAgent, type SupervisorTurn } from '../src/chef/response-agent.js';
+import { ScriptedResponder, MastraResponder, selectResponseAgent, sendEvent, type SupervisorTurn } from '../src/chef/response-agent.js';
 import { CHEF_TAPBACK_KINDS, type DeliberationResult } from '../src/chef/types.js';
 
 /** A SupervisorTurn whose `deliberate` thunk returns a fixed result and records that it ran. */
@@ -41,21 +41,33 @@ describe('ScriptedResponder — task turn (deterministic, no network)', () => {
 });
 
 describe('ScriptedResponder — social turn (no delegation, no network)', () => {
-  const responder = new ScriptedResponder(true); // social
-
-  it('reacts on a real trigger id with an allowed kind and never delegates (AC-1, AC-7)', async () => {
+  it('sends a tapback on a real trigger and never delegates (AC-1)', async () => {
+    const responder = new ScriptedResponder({ deliberate: false, send: [{ type: 'tapback' }] });
     const t = turn({ triggerExternalId: 'spc-msg-REAL' });
     const events = await responder.respond(t);
     expect(t.deliberated()).toBe(false); // the reasoner is never invoked
     expect(events).toEqual([{ kind: 'tapback', target: 'spc-msg-REAL', emoji: 'love' }]);
-    const tapback = events[0]!;
-    if (tapback.kind === 'tapback') expect(CHEF_TAPBACK_KINDS as readonly string[]).toContain(tapback.emoji);
   });
 
-  it('a null trigger id degrades to a text bubble, never a tapback (AC-7, Test Case 6)', async () => {
-    const events = await new ScriptedResponder(true).respond(turn({ triggerExternalId: null }));
-    expect(events).toHaveLength(1);
-    expect(events[0]!.kind).toBe('text');
+  it('sends a warm social line without delegating (AC-1 — the motivating example)', async () => {
+    const responder = new ScriptedResponder({ deliberate: false, send: [{ type: 'text', text: 'I know right! 😁' }] });
+    const t = turn({ triggerExternalId: 'spc-msg-REAL' });
+    const events = await responder.respond(t);
+    expect(t.deliberated()).toBe(false);
+    expect(events).toEqual([{ kind: 'text', text: 'I know right! 😁' }]);
+  });
+});
+
+describe('sendEvent grounding (AC-7)', () => {
+  it('a tapback grounds only on a real trigger id — never a bogus target', () => {
+    expect(sendEvent({ type: 'tapback' }, 'spc-REAL')).toEqual({ kind: 'tapback', target: 'spc-REAL', emoji: 'love' });
+    expect(sendEvent({ type: 'tapback' }, null)).toBeNull(); // no trigger ⇒ no tapback (the model sends text instead)
+  });
+
+  it('text and richlink pass through regardless of trigger; empty content is dropped', () => {
+    expect(sendEvent({ type: 'text', text: 'hi' }, null)).toEqual({ kind: 'text', text: 'hi' });
+    expect(sendEvent({ type: 'richlink', url: 'https://x/y' }, null)).toEqual({ kind: 'richlink', url: 'https://x/y' });
+    expect(sendEvent({ type: 'text' }, 'spc-REAL')).toBeNull();
   });
 
   it('the never-thumbs-up rule is structural — the allowed set excludes like and dislike', () => {

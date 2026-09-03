@@ -219,7 +219,8 @@ describe("Test Case 5: interruption restart bounded at 2 (AC-5)", () => {
 /** Builds a RealChef with a spied scripted reasoner and a scripted supervisor in the given mode. */
 function harness(social: boolean, result: { communicate: string[]; ask: string[]; artifacts?: { kind: "richlink"; url: string }[] }) {
   const reasoner = new ScriptedReasoner({ result });
-  const responder = new ScriptedResponder(social);
+  // social → send a warm line, never delegate; task → delegate to the reasoner then voice it.
+  const responder = new ScriptedResponder(social ? { deliberate: false, send: [{ type: "text", text: "love it!" }] } : { deliberate: true });
   const runSpy = vi.spyOn(reasoner, "run");
   const chef = new RealChef(
     db,

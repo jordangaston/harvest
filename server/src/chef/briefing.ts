@@ -30,6 +30,8 @@ export interface BriefingInput {
   suspended?: string[];
   /** When the trigger is a threaded reply, a snippet of the parent message it answers. */
   replyingTo?: string;
+  /** The supervisor's framed question when it delegated (e.g. "does Alex like spicy food?"). */
+  question?: string;
 }
 
 const HARD_RULE =
@@ -84,6 +86,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `# Tasks in play (address by [id] with update_tasks; each with how to fill it)\n${unfilled || '(none)'}`,
     `# Household\n${members}`,
     `# Recent transcript\n${transcript}`,
+    input.question ? `# The chef is deliberating on\n${input.question}` : '',
     `# What just arrived\n${input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : ''}${input.trigger}`,
   ]
     .filter(Boolean)

@@ -90,9 +90,9 @@ export class RealChef implements Chef {
         transcriptWindow: turn.transcriptWindow,
         objectiveSummary: turn.objectiveSummary,
         triggerExternalId: turn.triggerExternalId,
-        deliberate: async () => {
+        deliberate: async (question: string) => {
           deliberated = true;
-          return (await this.reasoner.run(turn.briefing, turn.turnCtx, this.db)).result;
+          return (await this.reasoner.run({ ...turn.briefing, question }, turn.turnCtx, this.db)).result;
         },
       });
 
