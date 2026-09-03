@@ -61,7 +61,6 @@ function prefs(foodPrefs: UserPreferences["foodPrefs"]): UserPreferences {
     timeBudgetMinutes: null,
     timeByMeal: null,
     weeklyMeals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
-    weights: { cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 0 },
     allergens: [],
     diets: [],
     foodPrefs,
@@ -105,9 +104,10 @@ describe("classify → persist match → ingredient affinity (offline)", () => {
     const rankable = (await RecipeRepository.create(db).getRankable(userId, recipeId))!;
     const aff = new AffinityScorer();
     // Only the ingredient facet is present (no cuisine/dish tags), so it drives the whole score.
-    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: OKRA_BASE_ID, scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null }]))).toBe(0);
-    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: OKRA_BASE_ID, scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null }]))).toBe(1);
+    // A firm directive saturates (±1 → 0/1); a soft one would pull halfway.
+    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: OKRA_BASE_ID, scope: "recipe", direction: "less", strength: "firm", target: null, unit: null, reason: null }]))).toBe(0);
+    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: OKRA_BASE_ID, scope: "recipe", direction: "more", strength: "firm", target: null, unit: null, reason: null }]))).toBe(1);
     // A stale/unknown base id matches nothing → fails safe (neutral).
-    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: "gone-uuid", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null }]))).toBe(0.5);
+    expect(aff.score(rankable, prefs([{ dimension: "ingredient", value: "gone-uuid", scope: "recipe", direction: "less", strength: "firm", target: null, unit: null, reason: null }]))).toBe(0.5);
   });
 });

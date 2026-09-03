@@ -62,62 +62,29 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
       skillLevel: "intermediate",
       budgetCentsPerServing: 400,
       timeBudgetMinutes: 30,
-      weightCost: 3,
-      weightNutrition: 3,
     });
     await db.insert(userAllergens).values({ userId, allergen: "peanut", severity: "severe" });
     await db.insert(userFoodPrefs).values({ userId, dimension: "cuisine", value: "italian", direction: "more" });
 
     const prefs = await PreferenceRepository.create(db).getPreferences(userId);
 
-    expect(prefs.weights.cost).toBe(3);
-    expect(prefs.weights.nutrition).toBe(3);
-    expect(prefs.weights.popularity).toBe(0);
     expect(prefs.budgetCentsPerServing).toBe(400);
     expect(prefs.skillLevel).toBe("intermediate");
     expect(prefs.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
     expect(prefs.foodPrefs).toContainEqual({ dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
   });
 
-  it("cold-starts from goals when no preferences row exists", async () => {
+  it("cold-starts to the documented baseline when no preferences row exists", async () => {
     const userId = await makeUser({ goals: ["save_money"] });
 
     const prefs = await PreferenceRepository.create(db).getPreferences(userId);
 
-    expect(prefs.weights).toEqual({ cost: 3, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
+    // Goal→weight seeding is retired with the weight vector (WI-3); cold start is a plain baseline.
     expect(prefs.skillLevel).toBe("beginner");
     expect(prefs.budgetCentsPerServing).toBeNull();
     expect(prefs.allergens).toEqual([]);
     expect(prefs.diets).toEqual([]);
     expect(prefs.foodPrefs).toEqual([]);
-  });
-
-  it("cold-starts to a uniform baseline with no goals", async () => {
-    const userId = await makeUser({ goals: null });
-
-    const prefs = await PreferenceRepository.create(db).getPreferences(userId);
-
-    expect(prefs.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
-    expect(prefs.allergens).toEqual([]);
-    expect(prefs.diets).toEqual([]);
-    expect(prefs.foodPrefs).toEqual([]);
-  });
-
-  it("cold-starts weight_meal_prep to 3 from the meal_prepping goal", async () => {
-    const userId = await makeUser({ goals: ["meal_prepping"] });
-
-    const prefs = await PreferenceRepository.create(db).getPreferences(userId);
-
-    expect(prefs.weights.mealPrep).toBe(3);
-    // Only the meal-prep weight is bumped; every other weight stays at its baseline.
-    expect(prefs.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 1, affinity: 1, time: 1, popularity: 0, mealPrep: 3 });
-  });
-
-  it("rejects an out-of-range stored weight at the boundary", async () => {
-    const userId = await makeUser();
-    await db.insert(userPreferences).values({ userId, weightCost: 5 });
-
-    await expect(PreferenceRepository.create(db).getPreferences(userId)).rejects.toThrow();
   });
 
   /** The non-food-pref fields of a save (defaults for the fields a case doesn't exercise). */
@@ -136,12 +103,11 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     eatsLeftovers: true,
   };
 
-  it("savePreferences upserts the editable subset, preserves weights, and upserts the unified food-prefs", async () => {
+  it("savePreferences upserts the editable subset and upserts the unified food-prefs", async () => {
     const userId = await makeUser();
     const repo = PreferenceRepository.create(db);
-    // Pre-existing server-owned state the settings save must NOT clobber: a dislike-tuned weight,
-    // and a dislike-loop dislike on a value the picker doesn't resend.
-    await repo.bumpWeight(userId, "cost");
+    // Pre-existing server-owned state the settings save must NOT clobber: a dislike-loop dislike
+    // on a value the picker doesn't resend.
     await db.insert(userFoodPrefs).values({ userId, dimension: "primary_ingredient", value: "cilantro", direction: "less" });
 
     const saved = await repo.savePreferences(userId, {
@@ -161,9 +127,6 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(saved.diets).toContainEqual({ dietId: "pescatarian", strictness: "flexible" });
     expect(saved.ownedEquipment.sort()).toEqual(["blender", "slow_cooker"]);
     expect(saved.equipmentReviewed).toBe(true); // implicit — they managed their kitchen
-
-    // Weights (dislike-tuned) survive the save.
-    expect(saved.weights.cost).toBe(2);
 
     // The unified directives are persisted across all dimensions…
     expect(saved.foodPrefs).toContainEqual({ dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
@@ -270,23 +233,4 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(prefs.eatsLeftovers).toBe(true);
   });
 
-  it("seeds mealPrep weight once on the eatsLeftovers false→true transition (Test Case 3)", async () => {
-    const userId = await makeUser();
-    const repo = PreferenceRepository.create(db);
-    // Establish leftovers=false at a mealPrep baseline below the cap.
-    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: false });
-    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(1);
-
-    // false→true bumps once.
-    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: true });
-    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
-
-    // A second true save does not bump again.
-    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: true });
-    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
-
-    // A save back to false never lowers it.
-    await repo.savePreferences(userId, { ...baseSave, eatsLeftovers: false });
-    expect((await repo.getPreferences(userId)).weights.mealPrep).toBe(2);
-  });
 });

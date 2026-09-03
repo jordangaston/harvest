@@ -73,19 +73,13 @@ async function seedCategories(recipeId: string, cats: [string, string][]): Promi
   await db.insert(recipeCategories).values(cats.map(([facet, value]) => ({ recipeId, facet: facet as any, value })));
 }
 
-/** Stores Alice's worked-example preferences: peanut/severe, weights + targets + food prefs. */
+/** Stores Alice's preferences: peanut/severe + recipe-scope taste directives (base = affinity). */
 async function seedAlicePrefs(userId: string): Promise<void> {
   await db.insert(userPreferences).values({
     userId,
     skillLevel: "intermediate",
     budgetCentsPerServing: 400,
     timeBudgetMinutes: 30,
-    weightCost: 3,
-    weightDifficulty: 1,
-    weightNutrition: 3,
-    weightAffinity: 2,
-    weightTime: 2,
-    weightPopularity: 0,
   });
   await db.insert(userAllergens).values({ userId, allergen: "peanut", severity: "severe" });
   await db.insert(userFoodPrefs).values([
@@ -116,27 +110,30 @@ describe("GET /v1/recipes/ranked (WI-RANK-3)", () => {
 
     const { status, body } = await getRanked(token);
     expect(status).toBe(200);
+    // Base = affinity: R1 (italian + chicken, both liked) outranks R3 (italian liked, beans neutral).
     expect(body.recipes.map((x: any) => x.recipe.title)).toEqual(["Chicken Piccata", "Veggie Minestrone"]);
-    expect(body.recipes[0].score).toBeCloseTo(81.7, 1);
-    expect(body.recipes[1].score).toBeCloseTo(71.2, 1);
-    expect(Object.keys(body.recipes[0].breakdown).length).toBeGreaterThan(0);
-    // Test 2: R2 (id) appears nowhere in the response.
+    expect(body.recipes[0].score).toBeGreaterThan(body.recipes[1].score);
+    expect(Object.keys(body.recipes[0].breakdown)).toContain("affinity");
+    // Test 2: R2 (id) appears nowhere in the response (severe peanut filter).
     expect(body.recipes.map((x: any) => x.recipe.id)).not.toContain(r2);
     expect(body.page_token).toBeNull();
   });
 
-  it("Test 3: cold-start user (eat_healthier bumps nutrition) orders higher-NRF first", async () => {
-    const { token, userId } = await mintUser(["eat_healthier"]);
-    await seedRecipe(userId, { title: "Low NRF", nrfScore: 10 });
-    await seedRecipe(userId, { title: "High NRF", nrfScore: 90 });
+  it("Test 3: a recipe-scope taste directive orders the deck (base = affinity)", async () => {
+    const { token, userId } = await mintUser();
+    await db.insert(userFoodPrefs).values({ userId, dimension: "cuisine", value: "thai", direction: "more" });
+    const plain = await seedRecipe(userId, { title: "Plain" });
+    const thai = await seedRecipe(userId, { title: "Thai Curry" });
+    await seedCategories(thai, [["cuisine", "thai"]]);
 
     const { status, body } = await getRanked(token);
     expect(status).toBe(200);
-    expect(body.recipes.map((x: any) => x.recipe.title)).toEqual(["High NRF", "Low NRF"]);
+    // The liked-cuisine recipe ranks first; the category-less recipe (affinity null) sinks.
+    expect(body.recipes.map((x: any) => x.recipe.title)).toEqual(["Thai Curry", "Plain"]);
   });
 
   it("Test 4: paginates the ranked list without duplicates", async () => {
-    const { token, userId } = await mintUser(["eat_healthier"]);
+    const { token, userId } = await mintUser();
     await seedRecipe(userId, { title: "A", nrfScore: 90 });
     await seedRecipe(userId, { title: "B", nrfScore: 60 });
     await seedRecipe(userId, { title: "C", nrfScore: 30 });
@@ -149,9 +146,10 @@ describe("GET /v1/recipes/ranked (WI-RANK-3)", () => {
     expect(second.body.recipes.length).toBe(1);
     expect(second.body.page_token).toBeNull();
 
+    // Ranking order is unspecified here (no directives → affinity ties); the contract is that
+    // pagination returns each recipe exactly once.
     const titles = [...first.body.recipes, ...second.body.recipes].map((x: any) => x.recipe.title);
-    expect(titles).toEqual(["A", "B", "C"]);
-    expect(new Set(titles).size).toBe(3);
+    expect(new Set(titles)).toEqual(new Set(["A", "B", "C"]));
   });
 
   it("Test 5: 401 without a valid bearer", async () => {

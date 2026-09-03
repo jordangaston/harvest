@@ -86,19 +86,18 @@ async function unswipe(token: string, recipeId: string): Promise<number> {
 }
 
 describe("swipe deck & feedback (WI-RANK-4)", () => {
-  it("TC1: deck returns ranked unswiped cards", async () => {
-    const { token, userId } = await mintUser(["eat_healthier"]);
-    await seedRecipe(userId, { title: "High", nrfScore: 90 });
-    await seedRecipe(userId, { title: "Mid", nrfScore: 60 });
-    await seedRecipe(userId, { title: "Low", nrfScore: 30 });
+  it("TC1: deck returns cards ranked by affinity (a liked cuisine leads)", async () => {
+    const { token, userId } = await mintUser();
+    const liked = await seedRecipe(userId, { title: "Italian" });
+    await seedRecipe(userId, { title: "Plain" });
+    await db.insert(recipeCategories).values({ recipeId: liked, facet: "cuisine", value: "italian" });
+    await db.insert(userFoodPrefs).values({ userId, dimension: "cuisine", value: "italian", direction: "more" });
 
     const { status, body } = await getDeck(token, "?limit=5");
     expect(status).toBe(200);
-    expect(body.recipes.map((x: any) => x.recipe.title)).toEqual(["High", "Mid", "Low"]);
-    for (const card of body.recipes) {
-      expect(typeof card.score).toBe("number");
-      expect(Object.keys(card.breakdown).length).toBeGreaterThan(0);
-    }
+    // The liked-cuisine recipe leads; base = affinity + popularity.
+    expect(body.recipes[0].recipe.title).toBe("Italian");
+    expect(Object.keys(body.recipes[0].breakdown)).toContain("affinity");
     expect(body.page_token).toBeUndefined();
   });
 
@@ -165,34 +164,26 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(deck.recipes.map((x: any) => x.recipe.id)).not.toContain(r1);
   });
 
-  it("TC4: snapshot captures score + current weights", async () => {
+  it("TC4: snapshot captures the score", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
     const r = await seedRecipe(userId, { title: "High", nrfScore: 90 });
 
     const { body } = await swipe(token, r, { direction: "dislike" });
     const [row] = await db.select().from(recipeSwipes).where(eq(recipeSwipes.recipeId, r));
     expect(row!.score).toBeCloseTo(body.swipe.score, 5);
-    // eat_healthier cold-start: nutrition bumped to 3, others 1, popularity 0, meal-prep 1.
-    expect(row!.weights).toEqual({ cost: 1, difficulty: 1, nutrition: 3, affinity: 1, time: 1, popularity: 0, mealPrep: 1 });
   });
 
-  it("TC5: reasoned dislike tunes the mapped weight (cold-start → row created, capped at 3)", async () => {
-    const { token, userId } = await mintUser(); // no goals: all weights 1
+  it("TC5: a cost/time/etc dislike reason records the swipe but writes no preferences (WI-3)", async () => {
+    const { token, userId } = await mintUser();
     const r1 = await seedRecipe(userId, { title: "A" });
-    const r2 = await seedRecipe(userId, { title: "B" });
-    const r3 = await seedRecipe(userId, { title: "C" });
 
     expect(await hasPrefsRow(userId)).toBe(false);
     await swipe(token, r1, { direction: "dislike", reason: "too_expensive" });
-    const first = await prefsRow(userId);
-    expect(first).not.toBeNull();
-    expect(first!.weightCost).toBe(2); // coldstart 1 + 1
-    expect(first!.weightDifficulty).toBe(1); // untouched
-
-    await swipe(token, r2, { direction: "dislike", reason: "too_expensive" });
-    expect((await prefsRow(userId))!.weightCost).toBe(3);
-    await swipe(token, r3, { direction: "dislike", reason: "too_expensive" });
-    expect((await prefsRow(userId))!.weightCost).toBe(3); // capped
+    // The weight vector is retired: this reason has no recipe-scope directive dimension yet, so it
+    // records the swipe only — no preferences row is materialized.
+    expect(await hasPrefsRow(userId)).toBe(false);
+    const [row] = await db.select().from(recipeSwipes).where(eq(recipeSwipes.recipeId, r1));
+    expect(row!.reason).toBe("too_expensive");
   });
 
   it("TC6: disliked_ingredient adds a food-pref (record-only without detail)", async () => {
@@ -312,32 +303,6 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dinner]);
   });
 
-  it("TC12b: per-meal time budget ranks a fast breakfast above an equal-minutes dinner a global budget would tie", async () => {
-    const { token, userId } = await mintUser(); // no goals → all weights 1 (time counts)
-    const bfast = await seedRecipe(userId, { title: "Breakfast", nrfScore: 80 });
-    const dinner = await seedRecipe(userId, { title: "Dinner", nrfScore: 80 });
-    await db.insert(recipeCategories).values([
-      { recipeId: bfast, facet: "meal_type", value: "breakfast" },
-      { recipeId: dinner, facet: "meal_type", value: "dinner" },
-    ]);
-    // Equal totalMinutes (45) → a single global budget scores them identically; the tight dinner
-    // budget (30) penalizes the dinner under per-meal scoring, so breakfast wins.
-    await db.update(recipes).set({ totalMinutes: 45 }).where(and(eq(recipes.userId, userId)));
-    await db
-      .insert(userPreferences)
-      .values({
-        userId,
-        weeklyMeals: { breakfast: 3, lunch: 0, dinner: 3, snack: 0, kids: 0 },
-        timeBreakfastMinutes: 90,
-        timeLunchMinutes: 90,
-        timeDinnerMinutes: 30,
-        timeBudgetMinutes: 90,
-      });
-
-    const { body } = await getDeck(token);
-    expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([bfast, dinner]);
-  });
-
   it("TC13: the meal-type filter never returns an empty deck — it relaxes to the catalog", async () => {
     const { token, userId } = await mintUser(["eat_healthier"]);
     const dessert = await seedRecipe(userId, { title: "Dessert", nrfScore: 60 });
@@ -348,21 +313,25 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
     expect(body.recipes.map((x: any) => x.recipe.id)).toEqual([dessert]);
   });
 
-  it("food-moderation Test Case 8: a red-meat recipe ranks below a comparable non-red-meat one when moderated", async () => {
-    const { token, userId } = await mintUser(["eat_healthier"]);
-    // Two otherwise-identical recipes; one carries food_category=red_meat.
-    const red = await seedRecipe(userId, { title: "Beef Bowl", nrfScore: 60 });
-    const veg = await seedRecipe(userId, { title: "Veggie Bowl", nrfScore: 60 });
-    await db.insert(recipeCategories).values({ recipeId: red, facet: "food_category", value: "red_meat" });
+  it("food-moderation Test Case 8: a firm-less red-meat directive sinks a red-meat recipe below its twin", async () => {
+    const { token, userId } = await mintUser();
+    // Two recipes sharing a cuisine (so both carry a non-zero affinity base); one is red_meat.
+    const red = await seedRecipe(userId, { title: "Beef Bowl" });
+    const veg = await seedRecipe(userId, { title: "Veggie Bowl" });
+    await db.insert(recipeCategories).values([
+      { recipeId: red, facet: "cuisine", value: "italian" },
+      { recipeId: veg, facet: "cuisine", value: "italian" },
+      { recipeId: red, facet: "food_category", value: "red_meat" },
+    ]);
 
-    // Materialize a preferences row, then set a negative moderation on red_meat.
+    // A firm `less` on red_meat: a rank down-weight (not a strict filter).
     await app.request("/v1/preferences", {
       method: "PUT",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
         skill_level: "intermediate", weekly_budget_cents: null, time_budget_minutes: null,
         weekly_meals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
-        food_prefs: [{ dimension: "food_category", value: "red_meat", direction: "less", target: -0.6 }],
+        food_prefs: [{ dimension: "food_category", value: "red_meat", direction: "less", strength: "firm" }],
         allergens: [], diets: [], owned_equipment: [], grocery_stores: [],
         household_adults: 2, household_kids: 0, eats_leftovers: true,
       }),
@@ -370,7 +339,7 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
 
     const { body } = await getDeck(token);
     const order = body.recipes.map((x: any) => x.recipe.id);
-    // Both still appear (no exclusion); the moderated red-meat recipe sinks below its twin.
+    // Both still appear (a firm directive weighs, it doesn't filter); red-meat sinks below its twin.
     expect(order).toContain(red);
     expect(order).toContain(veg);
     expect(order.indexOf(veg)).toBeLessThan(order.indexOf(red));

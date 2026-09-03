@@ -63,14 +63,17 @@ describe("food-directive migration backfills every legacy row (WI-1 Test Case 1)
   const DRIZZLE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
   const DIRECTIVE_TAG = "0036_food_directive";
 
-  /** Copy the real drizzle dir into a temp folder, keeping only journal entries before the WI-1
-   *  directive migration — so the migrator can stop at the pre-WI-1 (facet/sentiment) schema. */
+  /** Copy the real drizzle dir into a temp folder, keeping only journal entries strictly BEFORE the
+   *  WI-1 directive migration — a true prefix, so the migrator stops at the pre-WI-1
+   *  (facet/sentiment) schema. (Filtering out just the directive tag would leave later migrations in
+   *  the chain and apply them out of order.) */
   function drizzleDirBeforeDirective(into: string): void {
     const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf8"));
-    const before = journal.entries.filter((e: { tag: string }) => e.tag !== DIRECTIVE_TAG);
+    const directiveIdx = journal.entries.find((e: { tag: string }) => e.tag === DIRECTIVE_TAG).idx;
+    const before = journal.entries.filter((e: { idx: number }) => e.idx < directiveIdx);
     mkdirSync(join(into, "meta"), { recursive: true });
     cpSync(join(DRIZZLE_DIR, "meta"), join(into, "meta"), { recursive: true });
-    for (const e of journal.entries) cpSync(join(DRIZZLE_DIR, `${e.tag}.sql`), join(into, `${e.tag}.sql`));
+    for (const e of before) cpSync(join(DRIZZLE_DIR, `${e.tag}.sql`), join(into, `${e.tag}.sql`));
     writeFileSync(join(into, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: before }));
   }
 
