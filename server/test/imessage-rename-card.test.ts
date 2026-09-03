@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { Consumer } from '../src/imessage/consumer.js';
 import type { Chef, ChefReply } from '../src/imessage/chef.js';
+import { sendingChef } from './helpers/chef-double.js';
 import { StubSpectrumSender } from '../src/imessage/sender.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
@@ -56,12 +57,10 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
 
     let cursor = inboundId;
     const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: 'a reply' }],
-        confirmTasks: [],
-        cursorTo: cursor,
-        objectiveId: '',
-      }),
+      respond: async (_threadId, sink): Promise<ChefReply> => {
+        await sink.send({ kind: 'text', text: 'a reply' });
+        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true };
+      },
     };
     const sender = new StubSpectrumSender(); // spaceType defaults to 'group'
     const consumer = new Consumer(db, sender, chef, new StubThreadLock());
@@ -80,14 +79,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const { threadId, inboundId } = await seedThreadWithInbound();
     await ThreadRepository.create(db).markGreeted(threadId, new Date());
 
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: 'a reply' }],
-        confirmTasks: [],
-        cursorTo: inboundId,
-        objectiveId: '',
-      }),
-    };
+    const chef = sendingChef([{ kind: 'text', text: 'a reply' }], { confirmTasks: [], cursorTo: inboundId, objectiveId: '' });
     const sender = new StubSpectrumSender();
     sender.spaceType = 'dm'; // a DM: renameChat must no-op, not throw
     const consumer = new Consumer(db, sender, chef, new StubThreadLock());
@@ -113,14 +105,10 @@ describe('contact card on onboarding-complete (WI-4C AC3)', () => {
     const taskId = randomUUID();
     await db.insert(tasks).values({ id: taskId, objectiveId, kind: 'emit', fact: null, scope: 'household', required: true, status: 'unasked' });
 
-    const chef: Chef = {
-      respond: async (): Promise<ChefReply> => ({
-        chatEvents: [{ kind: 'text', text: "You're all set!" }],
-        confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }],
-        cursorTo: inboundId,
-        objectiveId,
-      }),
-    };
+    const chef = sendingChef(
+      [{ kind: 'text', text: "You're all set!" }],
+      { confirmTasks: [{ taskId, kind: 'emit', status: 'unasked' }], cursorTo: inboundId, objectiveId },
+    );
     const sender = new StubSpectrumSender();
     const consumer = new Consumer(db, sender, chef, new StubThreadLock());
 
