@@ -1,45 +1,4 @@
-import { z } from 'zod';
 import { Emoji } from '@spectrum-ts/core';
-
-/** A structured payload from deliberation too rich for a sentence — rendered deterministically
- *  through an existing send path (`richlink` → the `[richlink:<url>]` body). Extend later with
- *  `meal_plan`, `recipe_card`, etc. as new kinds, never a reshaped payload. */
-export const ArtifactSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('richlink'), url: z.string() }),
-]);
-
-export type Artifact = z.infer<typeof ArtifactSchema>;
-
-/**
- * The reasoner's output — the contract the deliberate tool hands the responder supervisor, never
- * prose. `communicate` are the points to convey this turn (facts, confirmations, the upshot of deep
- * thinking); `ask` are questions to advance the objective (0+); `artifacts` are structured payloads
- * the supervisor renders deterministically. The supervisor owns voice — this carries facts, not
- * phrasing (design §Modules).
- */
-export const DeliberationResultSchema = z.object({
-  communicate: z.array(z.string()).default([]),
-  ask: z.array(z.string()).default([]),
-  artifacts: z.array(ArtifactSchema).optional(),
-});
-
-export type DeliberationResult = z.infer<typeof DeliberationResultSchema>;
-
-/**
- * The reasoning agent's structured output — a `DeliberationResult`. Task/fact writes happen in-loop
- * through the `update_tasks`/`update_facts` tools (WI-3b), so the result no longer declares them.
- */
-export const ReasoningOutputSchema = z.object({
-  result: DeliberationResultSchema,
-});
-
-export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
-
-/** True when a `DeliberationResult` carries nothing to voice — the supervisor short-circuits to
- *  `[]` events before any render call (matches the reasoner's empty-plan branch; AC-4). */
-export function isEmptyDeliberation(result: DeliberationResult): boolean {
-  return result.communicate.length === 0 && result.ask.length === 0 && (result.artifacts?.length ?? 0) === 0;
-}
 
 export const TAPBACK_EMOJIS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
 
