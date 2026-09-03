@@ -54,9 +54,11 @@ function preferences(overrides: Partial<UserPreferences> = {}): UserPreferences 
 
 const round1 = (x: number) => Math.round(x * 100 * 10) / 10;
 
-/** A food pref with axis defaults (sentiment/target/reason null unless given). */
-function fp(p: { facet: UserPreferences['foodPrefs'][number]['facet']; value: string; sentiment?: 'like' | 'dislike'; target?: number; reason?: string }): UserPreferences['foodPrefs'][number] {
-  return { facet: p.facet, value: p.value, sentiment: p.sentiment ?? null, target: p.target ?? null, reason: p.reason ?? null };
+/** A recipe-scope food directive from the legacy taste/intent axes: a like/positive target → `more`,
+ *  a dislike/negative target → `less`. Preserves the pre-directive test intents. */
+function fp(p: { facet: UserPreferences['foodPrefs'][number]['dimension']; value: string; sentiment?: 'like' | 'dislike'; target?: number; reason?: string }): UserPreferences['foodPrefs'][number] {
+  const direction = p.sentiment === 'dislike' || (p.sentiment == null && p.target != null && p.target < 0) ? 'less' : 'more';
+  return { dimension: p.facet, value: p.value, scope: 'recipe', direction, strength: 'soft', target: p.target ?? null, unit: null, reason: p.reason ?? null };
 }
 /** A RankableRecipe categories bucket with foodCategory defaulting to []. */
 function cats(o: Partial<RankableRecipe['categories']> = {}): RankableRecipe['categories'] {

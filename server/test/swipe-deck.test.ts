@@ -206,8 +206,8 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
       .from(userFoodPrefs)
       .where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.value, "liver")));
     expect(prefs.length).toBe(1);
-    expect(prefs[0]!.facet).toBe("primary_ingredient");
-    expect(prefs[0]!.sentiment).toBe("dislike");
+    expect(prefs[0]!.dimension).toBe("primary_ingredient");
+    expect(prefs[0]!.direction).toBe("less");
 
     await swipe(token, r2, { direction: "dislike", reason: "disliked_ingredient" }); // no detail
     const all = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
@@ -362,7 +362,7 @@ describe("swipe deck & feedback (WI-RANK-4)", () => {
       body: JSON.stringify({
         skill_level: "intermediate", weekly_budget_cents: null, time_budget_minutes: null,
         weekly_meals: { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 },
-        food_prefs: [{ facet: "food_category", value: "red_meat", target: -0.6 }],
+        food_prefs: [{ dimension: "food_category", value: "red_meat", direction: "less", target: -0.6 }],
         allergens: [], diets: [], owned_equipment: [], grocery_stores: [],
         household_adults: 2, household_kids: 0, eats_leftovers: true,
       }),

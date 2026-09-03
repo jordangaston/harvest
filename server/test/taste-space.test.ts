@@ -86,7 +86,7 @@ describe('AnchorResolver', () => {
         { recipeId: 'it1', direction: 'like' },
         { recipeId: 'th1', direction: 'dislike' },
       ],
-      userFoodPrefs: async () => [{ facet: 'ingredient', value: 'coconut', sentiment: 'like' }],
+      userFoodPrefs: async () => [{ facet: 'ingredient', value: 'coconut', direction: 'more' }],
     });
     const anchors = await AnchorResolver.create(space, repo).anchors('u1');
     expect(anchors.anchors).toHaveLength(2); // it1 recipe + coconut facet

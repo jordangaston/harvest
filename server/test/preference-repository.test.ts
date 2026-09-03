@@ -40,8 +40,8 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     ]);
     await db.insert(userDiets).values({ userId, dietId: "vegan", strictness: "strict" });
     await db.insert(userFoodPrefs).values([
-      { userId, facet: "cuisine", value: "italian", sentiment: "like" },
-      { userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike" },
+      { userId, dimension: "cuisine", value: "italian", direction: "more" },
+      { userId, dimension: "primary_ingredient", value: "liver", direction: "less" },
     ]);
 
     // Duplicate (user_id, allergen) violates the composite pk.
@@ -66,7 +66,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
       weightNutrition: 3,
     });
     await db.insert(userAllergens).values({ userId, allergen: "peanut", severity: "severe" });
-    await db.insert(userFoodPrefs).values({ userId, facet: "cuisine", value: "italian", sentiment: "like" });
+    await db.insert(userFoodPrefs).values({ userId, dimension: "cuisine", value: "italian", direction: "more" });
 
     const prefs = await PreferenceRepository.create(db).getPreferences(userId);
 
@@ -76,7 +76,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     expect(prefs.budgetCentsPerServing).toBe(400);
     expect(prefs.skillLevel).toBe("intermediate");
     expect(prefs.allergens).toContainEqual({ allergen: "peanut", severity: "severe" });
-    expect(prefs.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
+    expect(prefs.foodPrefs).toContainEqual({ dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
   });
 
   it("cold-starts from goals when no preferences row exists", async () => {
@@ -142,14 +142,14 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     // Pre-existing server-owned state the settings save must NOT clobber: a dislike-tuned weight,
     // and a dislike-loop dislike on a value the picker doesn't resend.
     await repo.bumpWeight(userId, "cost");
-    await db.insert(userFoodPrefs).values({ userId, facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" });
+    await db.insert(userFoodPrefs).values({ userId, dimension: "primary_ingredient", value: "cilantro", direction: "less" });
 
     const saved = await repo.savePreferences(userId, {
       ...baseSave,
       foodPrefs: [
-        { facet: "cuisine", value: "italian", sentiment: "like" },
-        { facet: "dish_type", value: "bowls", sentiment: "like" },
-        { facet: "primary_ingredient", value: "liver", sentiment: "dislike" },
+        { dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft" },
+        { dimension: "dish_type", value: "bowls", scope: "recipe", direction: "more", strength: "soft" },
+        { dimension: "primary_ingredient", value: "liver", scope: "recipe", direction: "less", strength: "soft" },
       ],
     });
 
@@ -165,12 +165,12 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     // Weights (dislike-tuned) survive the save.
     expect(saved.weights.cost).toBe(2);
 
-    // The unified food-prefs are persisted across all facets (each axis carried)…
-    expect(saved.foodPrefs).toContainEqual({ facet: "cuisine", value: "italian", sentiment: "like", target: null, reason: null });
-    expect(saved.foodPrefs).toContainEqual({ facet: "dish_type", value: "bowls", sentiment: "like", target: null, reason: null });
-    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "liver", sentiment: "dislike", target: null, reason: null });
+    // The unified directives are persisted across all dimensions…
+    expect(saved.foodPrefs).toContainEqual({ dimension: "cuisine", value: "italian", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ dimension: "dish_type", value: "bowls", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ dimension: "primary_ingredient", value: "liver", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
     // …and a dislike-loop dislike on an un-resent value survives (upsert, not wholesale replace).
-    expect(saved.foodPrefs).toContainEqual({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike", target: null, reason: null });
+    expect(saved.foodPrefs).toContainEqual({ dimension: "primary_ingredient", value: "cilantro", scope: "recipe", direction: "less", strength: "soft", target: null, unit: null, reason: null });
   });
 
   it("upsertFoodPref adds/overwrites one row, leaving siblings and primary_ingredient untouched", async () => {
@@ -178,24 +178,24 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     const repo = PreferenceRepository.create(db);
     // A sibling authorable row and a server-owned dislike-loop row that must both survive.
     await db.insert(userFoodPrefs).values([
-      { userId, facet: "dish_type", value: "bowls", sentiment: "like" },
-      { userId, facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" },
+      { userId, dimension: "dish_type", value: "bowls", direction: "more" },
+      { userId, dimension: "primary_ingredient", value: "cilantro", direction: "less" },
     ]);
 
-    // Add a new row.
-    await repo.upsertFoodPref(userId, { facet: "food_category", value: "red_meat", target: -0.5, reason: "limiting" });
-    // Overwrite that exact (facet,value) row — flips its axes, does not duplicate.
-    await repo.upsertFoodPref(userId, { facet: "food_category", value: "red_meat", target: 0.5 });
+    // Add a new directive.
+    await repo.upsertFoodPref(userId, { dimension: "food_category", value: "red_meat", direction: "less", target: -0.5, reason: "limiting" });
+    // Overwrite that exact (dimension,value,scope) row — flips its fields, does not duplicate.
+    await repo.upsertFoodPref(userId, { dimension: "food_category", value: "red_meat", direction: "more", target: 0.5 });
 
     const rows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, userId));
-    const redMeat = rows.filter((r) => r.facet === "food_category" && r.value === "red_meat");
+    const redMeat = rows.filter((r) => r.dimension === "food_category" && r.value === "red_meat");
     expect(redMeat).toHaveLength(1);
-    expect(redMeat[0]).toMatchObject({ target: 0.5, sentiment: null, reason: null });
-    expect(rows).toContainEqual(expect.objectContaining({ facet: "dish_type", value: "bowls", sentiment: "like" }));
-    expect(rows).toContainEqual(expect.objectContaining({ facet: "primary_ingredient", value: "cilantro", sentiment: "dislike" }));
+    expect(redMeat[0]).toMatchObject({ direction: "more", target: 0.5, reason: null });
+    expect(rows).toContainEqual(expect.objectContaining({ dimension: "dish_type", value: "bowls", direction: "more" }));
+    expect(rows).toContainEqual(expect.objectContaining({ dimension: "primary_ingredient", value: "cilantro", direction: "less" }));
 
-    // The server-owned facet is rejected.
-    await expect(repo.upsertFoodPref(userId, { facet: "primary_ingredient", value: "liver", sentiment: "dislike" })).rejects.toThrow();
+    // The server-owned dimension is rejected.
+    await expect(repo.upsertFoodPref(userId, { dimension: "primary_ingredient", value: "liver", direction: "less" })).rejects.toThrow();
   });
 
   it("upsertAllergen/upsertDiet/setSkillLevel each mutate only their own slice", async () => {
@@ -204,7 +204,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     // A row in every slice, to prove a targeted write leaves the others untouched.
     await repo.upsertAllergen(userId, { allergen: "milk", severity: "moderate" });
     await repo.upsertDiet(userId, { dietId: "vegan", strictness: "flexible" });
-    await db.insert(userFoodPrefs).values({ userId, facet: "cuisine", value: "thai", sentiment: "like" });
+    await db.insert(userFoodPrefs).values({ userId, dimension: "cuisine", value: "thai", direction: "more" });
 
     // Add a second allergen and overwrite the first's severity — targeted, no sibling wipe.
     await repo.upsertAllergen(userId, { allergen: "peanut", severity: "severe" });
@@ -222,7 +222,7 @@ describe("PreferenceRepository (WI-RANK-1)", () => {
     ]));
     expect(prefs.allergens).toHaveLength(2);
     expect(prefs.diets).toEqual([{ dietId: "vegan", strictness: "strict" }]);
-    expect(prefs.foodPrefs).toContainEqual({ facet: "cuisine", value: "thai", sentiment: "like", target: null, reason: null });
+    expect(prefs.foodPrefs).toContainEqual({ dimension: "cuisine", value: "thai", scope: "recipe", direction: "more", strength: "soft", target: null, unit: null, reason: null });
   });
 
   it("persists time_by_meal and derives time_budget_minutes = max(...)", async () => {

@@ -142,7 +142,7 @@ describe('a targeted member write touches only its own slice', () => {
     const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'food_category', value: 'red_meat', target: -0.5 }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', sentiment: null, target: -0.5 }));
+    expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5 }));
   });
 
   it('a chef food-pref write does not wipe an existing allergen/diet', async () => {
@@ -156,7 +156,7 @@ describe('a targeted member write touches only its own slice', () => {
     expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
     expect(await db.select().from(userDiets).where(eq(userDiets.userId, memberId))).toHaveLength(1);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'cuisine', value: 'thai', sentiment: 'like' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'cuisine', value: 'thai', direction: 'more' }));
   });
 
   it('an allergen write preserves a previously upsert-written food pref', async () => {
@@ -165,7 +165,7 @@ describe('a targeted member write touches only its own slice', () => {
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
 
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'food_category', value: 'red_meat', target: -0.5, reason: 'trying to limit' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5, reason: 'trying to limit' }));
     expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
   });
 
@@ -230,7 +230,7 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
     const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { facet: 'ingredient', value: 'salmon', sentiment: 'like' }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
-    expect(prefs).toContainEqual(expect.objectContaining({ facet: 'ingredient', value: 'ti-fish', sentiment: 'like' }));
+    expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'ingredient', value: 'ti-fish', direction: 'more' }));
   });
 
   it('a food-pref value that fails grounding rejects instructively instead of throwing (review #4)', async () => {

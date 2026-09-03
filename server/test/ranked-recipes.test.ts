@@ -89,9 +89,9 @@ async function seedAlicePrefs(userId: string): Promise<void> {
   });
   await db.insert(userAllergens).values({ userId, allergen: "peanut", severity: "severe" });
   await db.insert(userFoodPrefs).values([
-    { userId, facet: "cuisine", value: "italian", sentiment: "like" },
-    { userId, facet: "primary_ingredient", value: "chicken", sentiment: "like" },
-    { userId, facet: "primary_ingredient", value: "liver", sentiment: "dislike" },
+    { userId, dimension: "cuisine", value: "italian", direction: "more" },
+    { userId, dimension: "primary_ingredient", value: "chicken", direction: "more" },
+    { userId, dimension: "primary_ingredient", value: "liver", direction: "less" },
   ]);
 }
 
