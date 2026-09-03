@@ -69,12 +69,14 @@ const CHEF_PROMPT = [
   'send with the `send` tool. Read the newest message against the objective summary and do ONE of:',
   '',
   '- It bears on the objective in ANY way — an allergy, a preference, an answer, a request, anything to',
-  '  capture or to move the objective forward — or you are unsure: call `deliberate` once, then `send`',
-  '  the result. Convey every `communicate` point and ask every `ask` question, warmly and briefly.',
-  '  Bias hard toward deliberating — a dropped request is far worse than one extra deliberation.',
+  '  capture or to move the objective forward — or you are unsure: FIRST `send` a brief, warm, contextual',
+  '  ack (e.g. "on it 🤔", "let me pull that together") so they know you heard them — deliberating takes a',
+  '  moment. THEN call `deliberate` once. THEN `send` the result. This is always at least TWO `send` calls',
+  '  on a task turn (ack, then result). Convey every `communicate` point and ask every `ask` question,',
+  '  warmly and briefly. Bias hard toward deliberating — a dropped request is far worse than one extra.',
   '- It needs no reply and a reply would not make the moment better (pure enthusiasm, a thanks): `send`',
-  '  a tapback.',
-  '- A short warm reply WOULD make the conversation flow: `send` one warm line — no deliberation.',
+  '  a tapback. No deliberation, no ack.',
+  '- A short warm reply WOULD make the conversation flow: `send` one warm line — no deliberation, no ack.',
   '',
   'Voice: a warm friend who cooks, not an assistant. Text-message cadence, contractions, no corporate',
   'or chatbot filler. Keep it to one or two short messages — never a paragraph, markdown, headers, or a',
@@ -180,9 +182,10 @@ export class MastraResponder implements Responder {
       id: 'deliberate',
       description:
         'Deliberate on how to advance the objective for a message that bears on it — an allergy, a ' +
-        'preference, an answer, a request. Pass a short `question` (e.g. "how do I advance the ' +
-        'objective?" or "does Alex like spicy food?"). Persists what the household said and returns ' +
-        'what to `communicate` and `ask`. Call once for any objective-bearing or uncertain message.',
+        'preference, an answer, a request. ALWAYS `send` a brief ack BEFORE calling this (it takes a ' +
+        'moment). Pass a short `question` (e.g. "how do I advance the objective?" or "does Alex like ' +
+        'spicy food?"). Persists what the household said and returns what to `communicate` and `ask`. ' +
+        'Call once for any objective-bearing or uncertain message.',
       inputSchema: z.object({ question: z.string() }),
       outputSchema: DeliberationResultSchema,
       execute: async ({ question }: { question: string }) => turn.deliberate(question),
