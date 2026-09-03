@@ -9,6 +9,7 @@ import type { ChatEvent } from '../chef/types.js';
 import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
+import { objectiveDefinition, taskGuidance } from '../chef/objectives/index.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 const MAX_INTERRUPT_RESTARTS = 2;
@@ -81,14 +82,28 @@ export class RealChef implements Chef {
       const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId);
       if (!turn) return null;
 
-      const reasoning = await this.reasoner.run(turn.briefing, turn.turnCtx, this.db);
-      const chatEvents = await this.responder.render(reasoning.replyPlan, turn.transcriptWindow, turn.triggerExternalId);
+      // The supervisor runs the turn: social → voice directly (reasoner untouched); task → call
+      // `deliberate`, which runs the reasoner's tool loop (facts/tasks persist) and returns its
+      // DeliberationResult. `deliberated` records which branch ran so a social turn confirms nothing.
+      let deliberated = false;
+      const chatEvents = await this.responder.respond({
+        transcriptWindow: turn.transcriptWindow,
+        objectiveSummary: turn.objectiveSummary,
+        triggerExternalId: turn.triggerExternalId,
+        deliberate: async () => {
+          deliberated = true;
+          return (await this.reasoner.run(turn.briefing, turn.turnCtx, this.db)).result;
+        },
+      });
 
       // Interruption barrier: a message that landed while we reasoned discards this render and
       // restarts against the fuller conversation, up to MAX_INTERRUPT_RESTARTS, then returns anyway.
       if (attempt < MAX_INTERRUPT_RESTARTS && (await this.isInterrupted(thread.id, turn.cursorTo))) continue;
 
-      return { chatEvents, confirmTasks: turn.confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
+      // A social (non-deliberated) turn advanced no task — confirm nothing (AC-5); a task turn
+      // confirms the loaded fact-less tasks as before.
+      const confirmTasks = deliberated ? turn.confirmTasks : [];
+      return { chatEvents, confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId };
     }
   }
 
@@ -138,7 +153,21 @@ export class RealChef implements Chef {
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
     // status in-loop, so they never appear here.
     const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
-    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
+    const objectiveSummary = this.objectiveSummary(active.objective.definition, active.tasks);
+    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id, objectiveSummary };
+  }
+
+  /** The lean two-line objective summary the supervisor decides against: line 1 is what the objective
+   *  is (first line of its instructions); line 2 is the next step (the first eligible task's fact +
+   *  its fill guidance). Not the full task tree — that stays inside the reasoner. */
+  private objectiveSummary(definition: string, tasks: Task[]): string {
+    const def = objectiveDefinition(definition);
+    const what = def ? def.instructions.split('\n')[0]!.trim() : definition;
+    const next = tasks.find((t) => t.status === 'unasked' || t.status === 'asked');
+    if (!next) return what;
+    const guidance = next.fact ? taskGuidance().get(next.fact) : undefined;
+    const step = next.fact ?? (next.kind === 'emit' ? 'deliver the close' : next.kind);
+    return `${what}\nNext step: ${step}${guidance ? ` — ${guidance}` : ''}`;
   }
 }
 
