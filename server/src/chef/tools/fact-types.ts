@@ -54,10 +54,11 @@ export class FactTypesTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Discover fact types and their legal values. No args: browse all types. `fact_type` only: ' +
-        'describe that type (its values or scalar rule). `query` only: ground a loose phrase across ' +
-        'types (ranked). Both: search one type for matching values. Pass `fact_type` whenever you ' +
-        'know it — a bare `query` is the expensive cross-type fallback. Large lists page via page_token.',
+        'Look up a fact type\'s legal values, or ground a loose phrase to a canonical one, before you ' +
+        'write — an off-catalog value is rejected. No args browses every type; `fact_type` alone ' +
+        'describes one (its values or scalar rule); `query` alone grounds a phrase across all types ' +
+        '(ranked); both search one type\'s values. Always pass `fact_type` when you know it — a bare ' +
+        '`query` is the expensive cross-type fallback. Long lists page via page_token. Reads only.',
       inputSchema,
       execute: async (input) => this.run(input),
     });

@@ -1,5 +1,6 @@
 import type { Database } from '../db.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
+import { HouseholdRepository } from '../repositories/household-repository.js';
 import { selectSender, type Sender } from './sender.js';
 import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type OutboundSink, type TaskUpdate } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
@@ -66,6 +67,7 @@ class LiveOutboundSink implements OutboundSink {
 export class Consumer {
   private readonly threads: ThreadRepository;
   private readonly objectives: ObjectiveRepository;
+  private readonly households: HouseholdRepository;
 
   constructor(
     private readonly db: Database,
@@ -75,6 +77,7 @@ export class Consumer {
   ) {
     this.threads = ThreadRepository.create(db);
     this.objectives = ObjectiveRepository.create(db);
+    this.households = HouseholdRepository.create(db);
   }
 
   /** Wires the consumer against the caller's db and the env-selected sender/chef/lock. */
@@ -105,7 +108,7 @@ export class Consumer {
       let cursor = thread.lastProcessedId;
       // Confetti/fireworks/contact-card effects are removed for now (WI-4B/4C deferred) — they fired on
       // a premature completion. The one-time RENAME gate stays: rename the chat to "Meal Planning" the
-      // turn the household first exists (group chats only — a DM no-ops). Seeded null ⇒ pending, flipped
+      // turn the household's roster is first set (group chats only — a DM no-ops). Seeded null ⇒ pending, flipped
       // once fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
       let renamePending = thread.renamedAt === null;
       for (;;) {
@@ -130,10 +133,12 @@ export class Consumer {
           // emit or pop the objective — the close was never sent.
           const delivered = reply.delivered;
 
-          // A household created this turn is why we rename: re-read the thread after respond (the
-          // create_household tool linked it inside respond's own txn), gate on renamed_at + a set id.
-          const householdNow = (await this.threads.findById(threadId))?.householdId ?? null;
-          const renameNow = renamePending && householdNow !== null;
+          // The household exists from the first inbound now, so household-existence no longer marks
+          // the moment a chat becomes a real household — the ROSTER does. Rename once members are
+          // present (the turn `add_members` ran), re-reading after respond so the same-turn roster shows.
+          const hasRoster =
+            thread.householdId !== null && (await this.households.loadMembers(thread.householdId)).length > 0;
+          const renameNow = renamePending && hasRoster;
 
           await this.db.transaction(async (tx) => {
             // Confirm the fact-less tasks now the turn's bubbles went out: an emit's just delivered
@@ -156,7 +161,7 @@ export class Consumer {
           });
 
           renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
-          // Rename the chat to "Meal Planning" once the household exists (group only; DM no-ops).
+          // Rename the chat to "Meal Planning" once the roster is set (group only; DM no-ops).
           if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
           return reply.cursorTo;
         });

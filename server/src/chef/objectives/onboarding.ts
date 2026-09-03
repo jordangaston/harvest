@@ -95,7 +95,7 @@ export function taskGuidance(): Map<string, string> {
 }
 
 /** The tools resident in the onboarding prompt (the fact surface + identity + import). */
-const ONBOARDING_TOOLS = ['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe'];
+const ONBOARDING_TOOLS = ['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'add_members', 'import_recipe'];
 
 /** The onboarding objective definition, keyed by the `objectives.definition` string. Tasks are
  *  seeded via `householdTaskSpecs`/`memberTaskSpecs`; this carries the id, instructions, and tools. */

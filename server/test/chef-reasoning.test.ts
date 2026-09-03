@@ -84,9 +84,15 @@ describe('prepareBriefing (pure prompt assembly)', () => {
     expect(prompt).not.toContain('household.weekly_budget_cents');
   });
 
-  it('carries the hard L1 rule', async () => {
+  it('carries no conduct — that lives in the system prompt, not the per-turn state', async () => {
     const { input } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
-    expect(prepareBriefing(input)).toContain('never write a value the tools did not return');
+    const prompt = prepareBriefing(input);
+    // Conduct, voice, and rules belong to CHEF_PROMPT; the briefing is pure state.
+    expect(prompt).not.toContain('reasoning half');
+    expect(prompt).not.toContain('deliberation result');
+    expect(prompt).not.toContain('never write a value the tools did not return');
+    // It still carries the per-turn state.
+    expect(prompt).toContain('<objective name="onboarding">');
   });
 
   it('references the parent message when the trigger is a threaded reply (WI-B TC3)', async () => {
@@ -97,12 +103,14 @@ describe('prepareBriefing (pure prompt assembly)', () => {
 });
 
 describe('buildTools (per-turn legality gate)', () => {
-  it('drops create_household once a household exists; keeps the always-legal tools', async () => {
+  it('offers add_members whenever a household exists; drops it only when there is none', async () => {
     const { ctx } = await seedTurn([{ key: 'household.cook_days_count', status: 'unasked' }]);
-    const withHh = buildTools(ctx, db, ['create_household', 'read_facts']).map((t) => t.id);
-    expect(withHh).toEqual(['read_facts']); // household exists → no create
+    // Household exists → add_members stays available (members can be added at any point).
+    const withHh = buildTools(ctx, db, ['add_members', 'read_facts']).map((t) => t.id);
+    expect(withHh).toEqual(['add_members', 'read_facts']);
 
-    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['create_household', 'read_facts']).map((t) => t.id);
-    expect(noHh).toEqual(['create_household', 'read_facts']); // no household → create still offered
+    // No household at all → nothing to add members to, so add_members is dropped.
+    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['add_members', 'read_facts']).map((t) => t.id);
+    expect(noHh).toEqual(['read_facts']);
   });
 });

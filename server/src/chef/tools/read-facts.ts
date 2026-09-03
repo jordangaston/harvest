@@ -45,8 +45,9 @@ export class ReadFactsTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Recall facts the household has already given. Optionally pass `keys` to read only those; ' +
-        'omit to read all. Returns { facts: [{ key, value, known }] } — member facts repeat per member.',
+        'Recall what the household has already told you, so you never ask twice. Pass `keys` to read ' +
+        'specific facts, or omit to read them all. Returns { facts: [{ key, value, known }] }, ' +
+        'member-scoped facts repeated per member (`known` is false when nothing is on file). Reads only.',
       inputSchema,
       execute: async ({ keys }) => this.run(keys),
     });

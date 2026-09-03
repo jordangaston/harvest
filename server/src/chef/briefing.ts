@@ -2,10 +2,12 @@ import type { Objective } from '../models/objective.js';
 import type { Task } from '../models/task.js';
 import { objectiveDefinition, taskGuidance } from './objectives/index.js';
 
-/** One turn's transcript entry (role + text), for tone and to avoid repetition. */
+/** One turn's transcript entry (role + text), for tone and to avoid repetition. A household line
+ *  carries a short `[m#]` handle the `send` tool can target a tapback at. */
 export interface TranscriptLine {
   role: 'household' | 'chef';
   text: string;
+  handle?: string;
 }
 
 /** A household member as the briefing names them (never invents a value the tools didn't return). */
@@ -30,33 +32,13 @@ export interface BriefingInput {
   suspended?: string[];
   /** When the trigger is a threaded reply, a snippet of the parent message it answers. */
   replyingTo?: string;
-  /** The supervisor's framed question when it delegated (e.g. "does Alex like spicy food?"). */
-  question?: string;
 }
 
-const HARD_RULE =
-  'HARD RULE: never write a value the tools did not return. If a value has no catalog match, ' +
-  'acknowledge it and move on — never confirm or guess it.';
-
-const CONDUCT_AND_SAFETY =
-  'You are the reasoning half of a private chef onboarding a household over text. Decide what must ' +
-  'happen and what must be said — you emit no prose (the response half owns voice). Change the world ' +
-  'only by calling tools. After the room confirms they cook together, call create_household FIRST. ' +
-  'Fill the objective tasks below with update_tasks, addressing each by its [id]: batch every task you ' +
-  'can answer this turn into one call, except a task marked (solo), which must be sent by itself. ' +
-  'Record a fact the household volunteers that no task is asking for with update_facts by its key. ' +
-  'Discover a fact type\'s legal values, or ground a loose phrase to a canonical value, with fact_types ' +
-  'before filling — never write a value the tools did not return. ' +
-  'Return a deliberation result: `communicate` are the points to convey this turn (facts to confirm, ' +
-  'the upshot of your thinking) and `ask` are the questions to advance the next eligible task(s). Never ' +
-  'repeat a question already answered, and never echo the user back. Task status is set by the tools you ' +
-  'call, not by the result. ' +
-  HARD_RULE;
-
 /**
- * Assembles the reasoning agent's prompt from the loaded turn state — a pure function, no network,
- * no model call. Conduct + safety, the active objective and its UNFILLED slots, members, the
- * condition-gated guidance, the transcript, and the framed trigger.
+ * Assembles the turn's STATE prompt (the agent's user message) — a pure function, no network, no
+ * model call. Conduct, voice, and rules live in the system prompt (`CHEF_PROMPT`); this carries only
+ * what changes turn to turn: the active objective and its UNFILLED slots, members, the condition-gated
+ * fill guidance, and the tagged new messages.
  * @throws If the objective's `definition` is not registered.
  */
 export function prepareBriefing(input: BriefingInput): string {
@@ -77,17 +59,16 @@ export function prepareBriefing(input: BriefingInput): string {
     })
     .join('\n');
   const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');
-  const transcript = input.transcript.map((l) => `${l.role}: ${l.text}`).join('\n');
+  // The tagged batch is the new messages; fall back to the raw trigger text if there is no transcript.
+  const conversation = input.transcript.map((l) => `${l.handle ? `[${l.handle}] ` : ''}${l.role}: ${l.text}`).join('\n') || input.trigger;
+  const replyingLine = input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : '';
 
   return [
-    `# Conduct\n${CONDUCT_AND_SAFETY}`,
-    `# Objective: ${def.id}\n${def.instructions}`,
-    input.suspended?.length ? `Suspended underneath: ${input.suspended.join(', ')}` : '',
-    `# Tasks in play (address by [id] with update_tasks; each with how to fill it)\n${unfilled || '(none)'}`,
-    `# Household\n${members}`,
-    `# Recent transcript\n${transcript}`,
-    input.question ? `# The chef is deliberating on\n${input.question}` : '',
-    `# What just arrived\n${input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : ''}${input.trigger}`,
+    `<objective name="${def.id}">\n${def.instructions}\n</objective>`,
+    input.suspended?.length ? `<suspended>${input.suspended.join(', ')}</suspended>` : '',
+    `<tasks>\n${unfilled || '(none)'}\n</tasks>`,
+    `<household>\n${members}\n</household>`,
+    `<conversation>\n${replyingLine}${conversation}\n</conversation>`,
   ]
     .filter(Boolean)
     .join('\n\n');
