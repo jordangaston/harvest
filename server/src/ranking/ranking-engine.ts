@@ -64,7 +64,7 @@ export class RankingEngine {
     // Food-class moderation ("eat less of X"): a negative intent target on a food class the recipe
     // carries sinks it, scaled by intent magnitude. Positive target is inert this milestone (less-only).
     for (const p of prefs.foodPrefs)
-      if (p.facet === 'food_category' && p.target != null && p.target < 0 && recipe.categories.foodCategory.includes(p.value))
+      if (p.dimension === 'food_category' && p.target != null && p.target < 0 && recipe.categories.foodCategory.includes(p.value))
         total += MODERATION_PENALTY_MAX * -p.target;
     return total;
   }

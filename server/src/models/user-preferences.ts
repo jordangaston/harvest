@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AFFINITY_FACETS, SENTIMENTS } from '../schema.js';
+import { AFFINITY_FACETS, DIRECTIVE_DIMENSIONS, DIRECTIVE_SCOPES, DIRECTIONS, STRENGTHS } from '../schema.js';
 
 // Ranking enum value tuples, re-declared here (repo convention: the model validates
 // independently of the Drizzle table). The 0–3 weight range is enforced in this
@@ -9,7 +9,7 @@ const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', 'tree_nut', 'peanut', 'wheat', 'soybean', 'sesame'] as const;
 const ALLERGEN_SEVERITIES = ['severe', 'moderate', 'mild'] as const;
 const DIET_STRICTNESS = ['strict', 'flexible'] as const;
-export { AFFINITY_FACETS };
+export { AFFINITY_FACETS, DIRECTIVE_DIMENSIONS };
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
 const weight = () => z.number().int().min(0).max(3);
@@ -41,25 +41,22 @@ export function timeByMealFromColumns(breakfast: number | null, lunch: number | 
   return { breakfast, lunch, dinner };
 }
 
-/** At least one of the two orthogonal axes must be present — a row with neither taste
- *  (sentiment) nor intent (target) carries no signal. Enforced in the model, not the DB. */
-const hasAnAxis = (p: { sentiment?: unknown; target?: unknown }) => p.sentiment != null || p.target != null;
-const NEITHER_AXIS = 'a food pref needs at least one of sentiment or target';
-
 /**
- * One resolved food pref (mirrors a `user_food_prefs` row 1:1). Two orthogonal axes:
- * `sentiment` (taste, nullable) and `target` (intent −1..+1, nullable), plus a `reason` blurb.
- * The steak case sets both on one element. At least one axis must be set.
+ * One resolved food directive (mirrors a `user_food_prefs` row 1:1) —
+ * `{ dimension, value, scope, direction, strength, target?, unit? }` plus a `reason` blurb.
+ * `scope` drives enforcement (recipe → rank/filter, meal-slot → plate rule, day/week → aggregate);
+ * `direction`+`strength` replace the old taste/weight axes. `target`/`unit` are aggregate-scope only.
  */
-export const FoodPrefSchema = z
-  .object({
-    facet: z.enum(AFFINITY_FACETS),
-    value: z.string(),
-    sentiment: z.enum(SENTIMENTS).nullable(),
-    target: z.number().min(-1).max(1).nullable(),
-    reason: z.string().nullable(),
-  })
-  .refine(hasAnAxis, { message: NEITHER_AXIS });
+export const FoodPrefSchema = z.object({
+  dimension: z.enum(DIRECTIVE_DIMENSIONS),
+  value: z.string(),
+  scope: z.enum(DIRECTIVE_SCOPES),
+  direction: z.enum(DIRECTIONS),
+  strength: z.enum(STRENGTHS),
+  target: z.number().nullable(),
+  unit: z.string().nullable(),
+  reason: z.string().nullable(),
+});
 export type FoodPref = z.infer<typeof FoodPrefSchema>;
 
 /** The fully-resolved per-user ranking preferences, with the child tables folded in. */
@@ -96,25 +93,26 @@ export const UserPreferencesSchema = z.object({
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
 /**
- * One editable food pref (mirrors the row; each axis `.nullish()` so a caller sends only
- * the axes that apply). Same ≥1-axis invariant as the resolved {@link FoodPrefSchema}.
+ * One editable food directive (mirrors the row). `scope`/`strength` default when a caller omits
+ * them; `target`/`unit`/`reason` are `.nullish()` (aggregate-scope or optional).
  */
-export const FoodPrefUpdateSchema = z
-  .object({
-    facet: z.enum(AFFINITY_FACETS),
-    value: z.string(),
-    sentiment: z.enum(SENTIMENTS).nullish(),
-    target: z.number().min(-1).max(1).nullish(),
-    reason: z.string().nullish(),
-  })
-  .refine(hasAnAxis, { message: NEITHER_AXIS });
+export const FoodPrefUpdateSchema = z.object({
+  dimension: z.enum(DIRECTIVE_DIMENSIONS),
+  value: z.string(),
+  scope: z.enum(DIRECTIVE_SCOPES).default('recipe'),
+  direction: z.enum(DIRECTIONS),
+  strength: z.enum(STRENGTHS).default('soft'),
+  target: z.number().nullish(),
+  unit: z.string().nullish(),
+  reason: z.string().nullish(),
+});
 export type FoodPrefUpdate = z.infer<typeof FoodPrefUpdateSchema>;
 
 /**
  * The user-editable subset the settings + onboarding surfaces write. Weights are omitted on
  * purpose — they're server-owned (tuned by the dislike loop), so a save never clobbers them.
- * One `foodPrefs` array carries every taste like/dislike and every eat-more/less intent, each
- * element sending whichever axes apply; the repo upserts each by (userId, facet, value).
+ * One `foodPrefs` array carries every food directive (taste + eat-more/less intent); the repo
+ * upserts each by (userId, dimension, value, scope).
  */
 export const PreferencesUpdateSchema = z.object({
   skillLevel: z.enum(SKILL_LEVELS),

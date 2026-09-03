@@ -482,7 +482,10 @@ class FoodPreferenceType implements FactType {
     const v = this.normalize(value) as { facet: (typeof FOOD_FACETS)[number]; value: string; sentiment: 'like' | 'dislike' | null; target: number | null; reason: string | null };
     const grounded = await this.ground(v.facet, v.value);
     if (!grounded) throw new Error(`${this.name}: no catalog match for "${v.value}"`);
-    await this.prefs.upsertFoodPref(memberId(subject), { facet: v.facet, value: grounded, sentiment: v.sentiment, target: v.target, reason: v.reason });
+    // Map the legacy fact axes to a recipe-scope directive: a like/positive target → `more`,
+    // a dislike/negative target → `less`. WI-2 replaces this fact with the composite set_directive.
+    const direction = v.sentiment === 'dislike' || (v.target != null && v.target < 0) ? 'less' : 'more';
+    await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.facet, value: grounded, scope: 'recipe', direction, target: v.target, reason: v.reason });
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).foodPrefs;

@@ -253,6 +253,13 @@
       "when": 1788410347501,
       "tag": "0035_responsive_turn_trigger_id",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1788410347502,
+      "tag": "0036_food_directive",
+      "breakpoints": true
     }
   ]
 }

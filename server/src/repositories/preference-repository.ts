@@ -1,6 +1,6 @@
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type AffinityFacet } from '../schema.js';
+import { users, userPreferences, userAllergens, userDiets, userFoodPrefs, userEquipment, MAJOR_ALLERGENS, ALLERGEN_SEVERITIES, DIET_STRICTNESS, DIFFICULTY_BANDS, type DirectiveDimension, type DirectiveScope, type Direction, type Strength } from '../schema.js';
 import { UserPreferencesSchema, ZERO_MEALS, timeByMealFromColumns, type UserPreferences, type PreferencesUpdate } from '../models/user-preferences.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
@@ -67,7 +67,7 @@ export class PreferenceRepository {
       },
       allergens: allergens.map((a) => ({ allergen: a.allergen, severity: a.severity })),
       diets: diets.map((d) => ({ dietId: d.dietId, strictness: d.strictness })),
-      foodPrefs: foodPrefs.map((f) => ({ facet: f.facet, value: f.value, sentiment: f.sentiment, target: f.target, reason: f.reason })),
+      foodPrefs: foodPrefs.map((f) => ({ dimension: f.dimension, value: f.value, scope: f.scope, direction: f.direction, strength: f.strength, target: f.target, unit: f.unit, reason: f.reason })),
       ownedEquipment: equipment.map((e) => e.equipment),
       equipmentReviewed: prefs.equipmentReviewed,
       groceryStores: prefs.groceryStores ?? [],
@@ -150,36 +150,38 @@ export class PreferenceRepository {
   }
 
   /**
-   * Records a food-pref dislike (a like on the same facet/value flips to dislike).
-   * Materializes cold-start preferences first so the user has a resolved profile.
+   * Records a dislike as a recipe-scope `less` directive (a `more` at the same
+   * dimension/value/scope flips to `less`). Materializes cold-start preferences first.
    */
-  async addDislike(userId: string, facet: AffinityFacet, value: string): Promise<void> {
+  async addDislike(userId: string, dimension: DirectiveDimension, value: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await this.ensureRow(tx, userId);
       await tx
         .insert(userFoodPrefs)
-        .values({ userId, facet, value, sentiment: 'dislike' })
-        .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.facet, userFoodPrefs.value], set: { sentiment: 'dislike' } });
+        .values({ userId, dimension, value, scope: 'recipe', direction: 'less', strength: 'soft' })
+        .onConflictDoUpdate({ target: [userFoodPrefs.userId, userFoodPrefs.dimension, userFoodPrefs.value, userFoodPrefs.scope], set: { direction: 'less' } });
     });
   }
 
   /**
-   * Upserts one authorable food-pref row targeted on `(userId, facet, value)` — the chef's
-   * incremental write path. Deletes any existing row at that key then inserts the new one, so a
-   * re-write flips its axes (sentiment/target/reason) without touching sibling rows or the dislike
-   * loop's server-owned `primary_ingredient` facet. Materializes cold-start preferences first.
-   * @throws If `facet` is `primary_ingredient` (server-owned — the picker authors it, not the chef).
+   * Upserts one directive targeted on `(userId, dimension, value, scope)` — the chef's incremental
+   * write path. Deletes any existing directive at that key then inserts the new one, so a re-write
+   * flips its fields without touching sibling rows or the dislike loop's server-owned
+   * `primary_ingredient` dimension. `scope`/`strength` default when omitted. Materializes cold-start
+   * preferences first.
+   * @throws If `dimension` is `primary_ingredient` (server-owned — the picker authors it, not the chef).
    */
   async upsertFoodPref(
     userId: string,
-    pref: { facet: AffinityFacet; value: string; sentiment?: 'like' | 'dislike' | null; target?: number | null; reason?: string | null },
+    pref: { dimension: DirectiveDimension; value: string; scope?: DirectiveScope; direction: Direction; strength?: Strength; target?: number | null; unit?: string | null; reason?: string | null },
     tx?: Executor,
   ): Promise<void> {
-    if (pref.facet === 'primary_ingredient') throw new Error('primary_ingredient is server-owned');
+    if (pref.dimension === 'primary_ingredient') throw new Error('primary_ingredient is server-owned');
+    const scope = pref.scope ?? 'recipe';
     await this.on(tx, async (t) => {
       await this.ensureRow(t, userId);
-      await t.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.facet, pref.facet), eq(userFoodPrefs.value, pref.value)));
-      await t.insert(userFoodPrefs).values({ userId, facet: pref.facet, value: pref.value, sentiment: pref.sentiment ?? null, target: pref.target ?? null, reason: pref.reason ?? null });
+      await t.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.dimension, pref.dimension), eq(userFoodPrefs.value, pref.value), eq(userFoodPrefs.scope, scope)));
+      await t.insert(userFoodPrefs).values({ userId, dimension: pref.dimension, value: pref.value, scope, direction: pref.direction, strength: pref.strength ?? 'soft', target: pref.target ?? null, unit: pref.unit ?? null, reason: pref.reason ?? null });
     });
   }
 
@@ -280,18 +282,23 @@ export class PreferenceRepository {
       if (input.ownedEquipment.length)
         await tx.insert(userEquipment).values(input.ownedEquipment.map((equipment) => ({ userId, equipment })));
 
-      // The caller owns every food-pref facet it can author — the taste facets (cuisine, dish_type,
-      // ingredient) and food_category moderation — so this is a full replace of that slice: delete the
-      // owned facets, then insert what came in. `primary_ingredient` is the dislike loop's facet, which
-      // the picker never authors, so those rows survive untouched. The chef read-merge-writes the full
-      // set it read, so its rows come back in `input` and re-land. The Zod model already rejects a
-      // neither-axis element; guard here too since the repo is a public boundary.
-      const foodRows = input.foodPrefs.map((p) => {
-        if (p.sentiment == null && p.target == null)
-          throw new Error(`food pref (${p.facet}, ${p.value}) has neither sentiment nor target`);
-        return { userId, facet: p.facet, value: p.value, sentiment: p.sentiment ?? null, target: p.target ?? null, reason: p.reason ?? null };
-      });
-      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), ne(userFoodPrefs.facet, 'primary_ingredient')));
+      // The caller owns every directive dimension it can author — the taste dimensions (cuisine,
+      // dish_type, ingredient) and food_category/nutrient moderation — so this is a full replace of
+      // that slice: delete the owned dimensions, then insert what came in. `primary_ingredient` is the
+      // dislike loop's dimension, which the picker never authors, so those rows survive untouched. The
+      // chef read-merge-writes the full set it read, so its rows come back in `input` and re-land.
+      const foodRows = input.foodPrefs.map((p) => ({
+        userId,
+        dimension: p.dimension,
+        value: p.value,
+        scope: p.scope,
+        direction: p.direction,
+        strength: p.strength,
+        target: p.target ?? null,
+        unit: p.unit ?? null,
+        reason: p.reason ?? null,
+      }));
+      await tx.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), ne(userFoodPrefs.dimension, 'primary_ingredient')));
       if (foodRows.length) await tx.insert(userFoodPrefs).values(foodRows);
     });
     return this.getPreferences(userId);

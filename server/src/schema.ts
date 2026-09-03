@@ -68,6 +68,14 @@ export const DIET_STRICTNESS = ['strict', 'flexible'] as const;
 // value is a `taste_ingredients.id` (uuid) — finer than `primary_ingredient`.
 export const AFFINITY_FACETS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient', 'food_category'] as const;
 export const SENTIMENTS = ['like', 'dislike'] as const;
+// Food-directive model (WI-1): one scoped directive over every food attribute. `dimension` widens
+// AFFINITY_FACETS with `nutrient`; `direction` replaces `sentiment`; `scope` drives enforcement
+// (recipe → rank/filter, meal-slot → plate rule, day/week → aggregate); `strength` is the semantic
+// weight. See docs/food-preference-model-design.md.
+export const DIRECTIVE_DIMENSIONS = ['cuisine', 'dish_type', 'primary_ingredient', 'ingredient', 'food_category', 'nutrient'] as const;
+export const DIRECTIVE_SCOPES = ['recipe', 'breakfast', 'lunch', 'dinner', 'snack', 'day', 'week'] as const;
+export const DIRECTIONS = ['more', 'less'] as const;
+export const STRENGTHS = ['soft', 'firm', 'strict'] as const;
 // The FoodMatch confidence tier persisted on a matched ingredient (`FoodMatch.quality`).
 export const MATCH_QUALITIES = ['high', 'medium', 'low'] as const;
 // Equipment signal (#9, WI-EQ-1): the controlled vocab of notable appliances (baseline
@@ -680,21 +688,27 @@ export const userDiets = sqliteTable(
   (t) => [primaryKey({ columns: [t.userId, t.dietId] })],
 );
 
+// Food-directive model (WI-1): one scoped directive per row —
+// `{ dimension, value, scope, direction, strength, target?, unit? }`. `scope` decides enforcement
+// (recipe → rank/filter, meal-slot → plate rule, day/week → aggregate). `direction`+`strength`
+// replace the old `sentiment`+weight vector; `target`/`unit` are aggregate-scope only. The scope
+// joins the PK so the same value can carry a recipe-scope taste and an aggregate-scope budget.
 export const userFoodPrefs = sqliteTable(
   'user_food_prefs',
   {
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    facet: text('facet', { enum: AFFINITY_FACETS }).notNull(),
+    dimension: text('dimension', { enum: DIRECTIVE_DIMENSIONS }).notNull(),
     value: text('value').notNull(),
-    // Two orthogonal axes on one row: sentiment = taste (nullable now — a pure "eat less"
-    // intent carries no taste), target = intent (−1 less … +1 more), reason = the "why" blurb.
-    sentiment: text('sentiment', { enum: SENTIMENTS }),
+    scope: text('scope', { enum: DIRECTIVE_SCOPES }).notNull().default('recipe'),
+    direction: text('direction', { enum: DIRECTIONS }).notNull(),
+    strength: text('strength', { enum: STRENGTHS }).notNull().default('soft'),
     target: real('target'),
+    unit: text('unit'),
     reason: text('reason'),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.facet, t.value] })],
+  (t) => [primaryKey({ columns: [t.userId, t.dimension, t.value, t.scope] })],
 );
 
 // Equipment signal (WI-EQ-1): the recipe's rolled-up equipment set — the set the filter
@@ -913,6 +927,11 @@ export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
 export type MealPrepFit = (typeof MEAL_PREP_FITS)[number];
 /** Affinity facet union (WI-RANK-1), the food-pref facets. */
 export type AffinityFacet = (typeof AFFINITY_FACETS)[number];
+/** Food-directive unions (WI-1), shared with the domain model. */
+export type DirectiveDimension = (typeof DIRECTIVE_DIMENSIONS)[number];
+export type DirectiveScope = (typeof DIRECTIVE_SCOPES)[number];
+export type Direction = (typeof DIRECTIONS)[number];
+export type Strength = (typeof STRENGTHS)[number];
 /** FoodMatch confidence tier union (taste overhaul), shared with the domain models. */
 export type MatchQuality = (typeof MATCH_QUALITIES)[number];
 /** Equipment vocab + essentiality unions (WI-EQ-1), shared with the domain models. */

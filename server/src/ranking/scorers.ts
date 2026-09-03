@@ -70,10 +70,11 @@ export class AffinityScorer implements SignalScorer {
   }
 
   private facetSentiment(facet: string, values: string[], prefs: UserPreferences): number {
-    // Skip pure-intent rows (sentiment == null): a "eat less red meat" carries no taste.
-    const prefs_ = prefs.foodPrefs.filter((f) => f.sentiment != null && f.facet === facet && values.includes(f.value));
-    if (prefs_.some((f) => f.sentiment === 'like')) return 1;
-    if (prefs_.some((f) => f.sentiment === 'dislike')) return -1;
+    // Recipe-scope taste directives on this dimension: `more` likes it, `less` dislikes it. Only
+    // taste dimensions reach here (facet is never food_category), so every match carries a direction.
+    const directives = prefs.foodPrefs.filter((f) => f.scope === 'recipe' && f.dimension === facet && values.includes(f.value));
+    if (directives.some((f) => f.direction === 'more')) return 1;
+    if (directives.some((f) => f.direction === 'less')) return -1;
     return 0;
   }
 }
