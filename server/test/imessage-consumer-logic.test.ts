@@ -12,8 +12,7 @@ import { StubThreadLock } from "../src/imessage/lock.js";
 import { ObjectiveRepository } from "../src/chef/objective-repository.js";
 import { ThreadRepository } from "../src/repositories/thread-repository.js";
 import { HouseholdRepository } from "../src/repositories/household-repository.js";
-import { ScriptedReasoner } from "../src/chef/reasoning-agent.js";
-import { ScriptedResponder } from "../src/chef/response-agent.js";
+import { ScriptedChefAgent } from "../src/chef/chef-agent.js";
 import { UserRepository } from "../src/repositories/user-repository.js";
 import { AuthService } from "../src/services/auth-service.js";
 import { threads, threadMessages, tasks, objectives } from "../src/schema.js";
@@ -182,44 +181,40 @@ describe("Test Case 4: the confirm/cursor commit is atomic — a failing task up
   });
 });
 
-describe("Test Case 5: no interruption restart — respond runs the reasoner + responder exactly once (Q-02)", () => {
+describe("Test Case 5: no interruption restart — respond runs the agent exactly once (Q-02)", () => {
   it("does not restart even with a message pending mid-turn (live sends aren't discardable)", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "hey");
 
-    const reasoner = new ScriptedReasoner({ result: { communicate: ["hi"], ask: [] } });
-    const responder = new ScriptedResponder(); // task by default → the turn delegates to the reasoner
-    const runSpy = vi.spyOn(reasoner, "run");
-    const respondSpy = vi.spyOn(responder, "respond");
+    const agent = new ScriptedChefAgent({ mutate: true, send: [{ type: "text", text: "hi" }] });
+    const runSpy = vi.spyOn(agent, "run");
 
     const chef = new RealChef(
       db,
-      reasoner,
-      responder,
+      agent,
       ObjectiveRepository.create(db),
       ThreadRepository.create(db),
       HouseholdRepository.create(db),
     );
     const reply = await chef.respond(threadId, new CollectingSink());
 
-    expect(runSpy).toHaveBeenCalledTimes(1); // no restart loop — exactly one reasoner run
-    expect(respondSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledTimes(1); // no restart loop — exactly one agent run
     expect(reply).not.toBeNull();
   });
 });
 
-// ── spec-01: responder supervisor over the RealChef harness (social vs task delegation) ──────────
+// ── spec-01: the merged agent over the RealChef harness (social vs work → confirm gate) ──────────
 
-/** Builds a RealChef with a spied scripted reasoner and a scripted supervisor in the given mode. */
-function harness(social: boolean, result: { communicate: string[]; ask: string[]; artifacts?: { kind: "richlink"; url: string }[] }) {
-  const reasoner = new ScriptedReasoner({ result });
-  // social → send a warm line, never delegate; task → delegate to the reasoner then voice it.
-  const responder = new ScriptedResponder(social ? { deliberate: false, send: [{ type: "text", text: "love it!" }] } : { deliberate: true });
-  const runSpy = vi.spyOn(reasoner, "run");
+type SendPayload = { type: "text" | "tapback" | "richlink"; text?: string; url?: string };
+
+/** Builds a RealChef around a spied ScriptedChefAgent: `mutate` marks the turn as work (any mutating
+ *  tool ran → the consumer confirms fact-less tasks); `sends` are the bubbles it flushes live. */
+function harness(mutate: boolean, sends: SendPayload[]) {
+  const agent = new ScriptedChefAgent({ mutate, send: sends });
+  const runSpy = vi.spyOn(agent, "run");
   const chef = new RealChef(
     db,
-    reasoner,
-    responder,
+    agent,
     ObjectiveRepository.create(db),
     ThreadRepository.create(db),
     HouseholdRepository.create(db),
@@ -227,49 +222,56 @@ function harness(social: boolean, result: { communicate: string[]; ask: string[]
   return { chef, runSpy };
 }
 
-describe("spec-01 Test Case 1: social trigger is voiced without delegation (AC 1, 5)", () => {
-  it("does not invoke the reasoner; confirmTasks is [], cursor + objective from the loaded turn", async () => {
+describe("spec-01 Test Case 1: a social (no-work) trigger confirms nothing (AC 1, 5)", () => {
+  it("worked is false → confirmTasks is [], cursor + objective from the loaded turn", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     const newestId = await seedInbound(threadId, ownerId, "this only takes 20 min, amazing!");
     const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
 
-    const { chef, runSpy } = harness(true, { communicate: [], ask: [] });
+    const { chef, runSpy } = harness(false, [{ type: "text", text: "love it!" }]);
     const sink = new CollectingSink();
     const reply = await chef.respond(threadId, sink);
 
-    expect(runSpy).not.toHaveBeenCalled(); // the reasoner's tools/loop never run
-    expect(reply!.confirmTasks).toEqual([]); // a social turn confirms nothing
+    expect(runSpy).toHaveBeenCalledTimes(1); // the agent runs once
+    expect(reply!.confirmTasks).toEqual([]); // no mutating tool ran → a social turn confirms nothing
     expect(reply!.cursorTo).toBe(newestId);
     expect(reply!.objectiveId).toBe(active.objective.id);
     expect(sink.events).toHaveLength(1); // a react or short bubble, sent live
   });
 });
 
-describe("spec-01 Test Case 2: task trigger delegates once and is voiced (AC 2)", () => {
-  it("invokes the reasoner exactly once and conveys communicate + ask", async () => {
-    const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
+describe("spec-01 Test Case 2: a working trigger runs once and confirms fact-less tasks (AC 2, 5)", () => {
+  it("invokes the agent once, sends its bubbles, and confirms the loaded fact-less tasks", async () => {
+    const { threadId, ownerId } = await seedThread();
+    // A fact-less emit (close) is the kind the consumer confirms at send-time — the `worked` gate's
+    // positive branch. Seed it directly so the working turn has a fact-less task to confirm.
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
     await seedInbound(threadId, ownerId, "I'm allergic to peanuts");
 
-    const { chef, runSpy } = harness(false, {
-      communicate: ["noting peanuts as a severe allergy for Sam"],
-      ask: ["which store do you shop at?"],
-    });
+    const { chef, runSpy } = harness(true, [
+      { type: "text", text: "noting peanuts as a severe allergy for Sam" },
+      { type: "text", text: "which store do you shop at?" },
+    ]);
     const sink = new CollectingSink();
-    await chef.respond(threadId, sink);
+    const reply = await chef.respond(threadId, sink);
 
     expect(runSpy).toHaveBeenCalledTimes(1);
     const texts = sink.events.filter((e) => e.kind === "text").map((e) => (e as { text: string }).text);
     expect(texts).toContain("noting peanuts as a severe allergy for Sam");
     expect(texts).toContain("which store do you shop at?");
+    expect(reply!.confirmTasks.map((t) => t.taskId)).toContain(emitId); // a working turn confirms the fact-less emit
   });
 });
 
-describe("spec-01 Test Case 3: empty deliberation degrades cleanly (AC 4)", () => {
+describe("spec-01 Test Case 3: an empty working turn degrades cleanly (AC 4)", () => {
   it("emits no chatEvents", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "hmm");
 
-    const { chef } = harness(false, { communicate: [], ask: [] });
+    const { chef } = harness(true, []);
     const sink = new CollectingSink();
     await chef.respond(threadId, sink);
 
@@ -277,16 +279,15 @@ describe("spec-01 Test Case 3: empty deliberation degrades cleanly (AC 4)", () =
   });
 });
 
-describe("spec-01 Test Case 4: artifact renders as a richlink (AC 2)", () => {
+describe("spec-01 Test Case 4: a richlink send passes through (AC 2)", () => {
   it("puts a richlink event on the reply", async () => {
     const { threadId, ownerId } = await seedThread(["household.grocery_stores"]);
     await seedInbound(threadId, ownerId, "give me a recipe");
 
-    const { chef } = harness(false, {
-      communicate: ["here's a recipe"],
-      ask: [],
-      artifacts: [{ kind: "richlink", url: "https://x/y" }],
-    });
+    const { chef } = harness(true, [
+      { type: "text", text: "here's a recipe" },
+      { type: "richlink", url: "https://x/y" },
+    ]);
     const sink = new CollectingSink();
     await chef.respond(threadId, sink);
 

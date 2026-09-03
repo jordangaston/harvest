@@ -2,14 +2,12 @@ import type { Database } from '../db.js';
 import { ObjectiveRepository } from '../chef/objective-repository.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
-import { selectReasoningAgent, type Reasoner } from '../chef/reasoning-agent.js';
-import { selectResponseAgent, type Responder } from '../chef/response-agent.js';
+import { selectChefAgent, type ChefAgent } from '../chef/chef-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
 import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
-import { objectiveDefinition, taskGuidance } from '../chef/objectives/index.js';
 
 const MAX_TURN_TRANSCRIPT = 12;
 /** Cap the replied-to parent to a snippet — a Chef menu can be long, and only the referent matters. */
@@ -61,16 +59,15 @@ export interface Chef {
 
 /**
  * The live Chef. Loads its own turn context (active objective + unfilled slots, transcript,
- * members, pending inbound past the cursor), runs reasoning → response, and sends each bubble live
- * through the Consumer's `sink` (increment 2). No interruption restart: live sends aren't
- * discardable, so a message that lands mid-turn is picked up by the Consumer's next drain iteration
- * (Q-02 resolved in practice). Applies nothing to the outbox itself — it returns the commit reply.
+ * members, pending inbound past the cursor), runs ONE agent (objective tools + `send`), and sends
+ * each bubble live through the Consumer's `sink` (increment 2). No interruption restart: live sends
+ * aren't discardable, so a message that lands mid-turn is picked up by the Consumer's next drain
+ * iteration (Q-02 resolved in practice). Applies nothing to the outbox itself — it returns the reply.
  */
 export class RealChef implements Chef {
   constructor(
     private readonly db: Database,
-    private readonly reasoner: Reasoner,
-    private readonly responder: Responder,
+    private readonly agent: ChefAgent,
     private readonly objectives: ObjectiveRepository,
     private readonly threads: ThreadRepository,
     private readonly households: HouseholdRepository,
@@ -80,8 +77,7 @@ export class RealChef implements Chef {
     const threads = ThreadRepository.create(db);
     return new RealChef(
       db,
-      selectReasoningAgent(),
-      selectResponseAgent(),
+      selectChefAgent(),
       ObjectiveRepository.create(db),
       threads,
       HouseholdRepository.create(db),
@@ -95,29 +91,27 @@ export class RealChef implements Chef {
     const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId);
     if (!turn) return null;
 
-    // The supervisor runs the turn: social → voice directly (reasoner untouched); task → call
-    // `deliberate`, which runs the reasoner's tool loop (facts/tasks persist) and returns its
-    // DeliberationResult. `deliberated` records which branch ran so a social turn confirms nothing;
-    // `delivered` records whether any bubble actually shipped through the sink this turn.
-    let deliberated = false;
+    // One agent runs the whole turn: it acks, calls the objective tools to persist what the household
+    // said, and speaks — each bubble flushed live via the sink. `worked` (any mutating tool ran) gates
+    // the fact-less confirm — a social, send-only turn confirms nothing. `delivered` records whether
+    // any bubble actually shipped through the sink this turn.
     let delivered = false;
-    await this.responder.respond({
-      transcriptWindow: turn.transcriptWindow,
-      objectiveSummary: turn.objectiveSummary,
-      triggerExternalId: turn.triggerExternalId,
-      deliberate: async (question: string) => {
-        deliberated = true;
-        return (await this.reasoner.run({ ...turn.briefing, question }, turn.turnCtx, this.db)).result;
+    const { worked } = await this.agent.run(
+      {
+        briefing: turn.briefing,
+        ctx: turn.turnCtx,
+        triggerExternalId: turn.triggerExternalId,
+        send: async (event) => {
+          delivered = true;
+          await sink.send(event);
+        },
       },
-      send: async (event) => {
-        delivered = true;
-        await sink.send(event);
-      },
-    });
+      this.db,
+    );
 
-    // A social (non-deliberated) turn advanced no task — confirm nothing (AC-5); a task turn
-    // confirms the loaded fact-less tasks as before.
-    const confirmTasks = deliberated ? turn.confirmTasks : [];
+    // A social (no-work) turn advanced no task — confirm nothing (AC-5); a working turn confirms the
+    // loaded fact-less tasks as before.
+    const confirmTasks = worked ? turn.confirmTasks : [];
     return { confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId, delivered };
   }
 
@@ -167,21 +161,7 @@ export class RealChef implements Chef {
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
     // status in-loop, so they never appear here.
     const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
-    const objectiveSummary = this.objectiveSummary(active.objective.definition, active.tasks);
-    return { briefing, turnCtx, transcriptWindow, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id, objectiveSummary };
-  }
-
-  /** The lean two-line objective summary the supervisor decides against: line 1 is what the objective
-   *  is (first line of its instructions); line 2 is the next step (the first eligible task's fact +
-   *  its fill guidance). Not the full task tree — that stays inside the reasoner. */
-  private objectiveSummary(definition: string, tasks: Task[]): string {
-    const def = objectiveDefinition(definition);
-    const what = def ? def.instructions.split('\n')[0]!.trim() : definition;
-    const next = tasks.find((t) => t.status === 'unasked' || t.status === 'asked');
-    if (!next) return what;
-    const guidance = next.fact ? taskGuidance().get(next.fact) : undefined;
-    const step = next.fact ?? (next.kind === 'emit' ? 'deliver the close' : next.kind);
-    return `${what}\nNext step: ${step}${guidance ? ` — ${guidance}` : ''}`;
+    return { briefing, turnCtx, triggerExternalId: trigger.externalId, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
   }
 }
 

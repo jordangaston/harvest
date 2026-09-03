@@ -1,5 +1,4 @@
 import type { TaskSpec } from '../objective-repository.js';
-import type { DeliberationResult } from '../types.js';
 import { FactRegistry } from '../facts/registry.js';
 
 const req = true;
@@ -112,15 +111,12 @@ export const onboardingObjective = {
 };
 
 /**
- * The completion close the responder voices when the close `emit` is eligible: the celebration, the
- * drop-a-recipe invitation, and the first-menu promise. The reasoner emits these as `communicate`
- * lines; this is the canonical result the WI-08 eval asserts against and tests drive with.
+ * The completion close the chef voices when the close `emit` is eligible: the celebration, the
+ * drop-a-recipe invitation, and the first-menu promise — the canonical copy the WI-08 eval asserts
+ * against and tests drive with. The merged agent voices these as its close bubbles.
  */
-export const ONBOARDING_CLOSE: DeliberationResult = {
-  communicate: [
-    "That's everything — your kitchen is all set.",
-    'Drop a recipe link here anytime and I\'ll save it.',
-    'Give me a sec — I\'m cooking up your first menu.',
-  ],
-  ask: [],
-};
+export const ONBOARDING_CLOSE: string[] = [
+  "That's everything — your kitchen is all set.",
+  'Drop a recipe link here anytime and I\'ll save it.',
+  'Give me a sec — I\'m cooking up your first menu.',
+];
