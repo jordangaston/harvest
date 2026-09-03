@@ -104,7 +104,7 @@ describe('onboarding definition', () => {
   });
 
   it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'set_directive', 'update_facts', 'update_tasks', 'create_household', 'import_recipe']);
+    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'create_household', 'import_recipe']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();

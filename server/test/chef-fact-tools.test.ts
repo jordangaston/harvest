@@ -13,7 +13,6 @@ import { FactTypeRegistry } from '../src/chef/facts/fact-types.js';
 import { ReadFactsTool } from '../src/chef/tools/read-facts.js';
 import { FactTypesTool } from '../src/chef/tools/fact-types.js';
 import { UpdateFactsTool } from '../src/chef/tools/update-facts.js';
-import { SetDirectiveTool } from '../src/chef/tools/set-directive.js';
 import { UpdateTasksTool } from '../src/chef/tools/update-tasks.js';
 import { householdTaskSpecs, memberTaskSpecs } from '../src/chef/objectives/onboarding.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
@@ -143,20 +142,24 @@ describe('update_facts (TC-3)', () => {
   });
 });
 
-describe('set_directive (WI-2)', () => {
-  it('grounds + persists a nutrient directive to the only member', async () => {
-    const { ctx, memberId } = await seedTurn([]); // one member → no member_user_id needed
-    const res = await SetDirectiveTool.create(ctx, db).run({ dimension: 'nutrient', value: 'saturated fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' });
-    expect(res).toEqual({ status: 'set', dimension: 'nutrient', value: 'saturated fat' });
+describe('food directive via update_facts → SET_DIRECTIVE', () => {
+  it('grounds + persists a composite nutrient directive', async () => {
+    const { ctx, memberId } = await seedTurn([]);
+    const res = await UpdateFactsTool.create(ctx, db).run([
+      { key: 'food_preferences', value: { dimension: 'nutrient', value: 'saturated fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }, member_user_id: memberId },
+    ]);
+    expect(res.results[0]!.status).not.toBe('rejected');
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'nutrient', value: 'saturated_fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }));
   });
 
-  it('rejects an illegal scope with an instructive reason', async () => {
-    const { ctx } = await seedTurn([]);
-    const res = await SetDirectiveTool.create(ctx, db).run({ dimension: 'nutrient', value: 'sodium', direction: 'less', scope: 'fortnight' as never });
-    expect(res.status).toBe('rejected');
-    if (res.status === 'rejected') expect(res.reason).toMatch(/scope/i);
+  it('rejects an illegal scope with an instructive reason, writing nothing', async () => {
+    const { ctx, memberId } = await seedTurn([]);
+    const res = await UpdateFactsTool.create(ctx, db).run([
+      { key: 'food_preferences', value: { dimension: 'nutrient', value: 'sodium', direction: 'less', scope: 'fortnight' }, member_user_id: memberId },
+    ]);
+    expect(res.results[0]!.status).toBe('rejected');
+    expect(res.results[0]!.reason).toMatch(/scope/i);
   });
 });
 

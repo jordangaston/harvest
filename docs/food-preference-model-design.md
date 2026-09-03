@@ -111,10 +111,10 @@ fat" and keeps dropping it (the original bug).
   - `ingredient` / `cuisine` / `dish_type` — already grounded today (the food-pref facets); reuse as-is.
 - **`scope` / `strength` / `direction`** — fixed `enum` values; trivial validation, no catalog.
 - **Persisting a directive is composite** — only `value` is catalog-grounded; `direction`, `strength`,
-  `scope`, `target`, `unit` ride alongside. Today's `update_facts` carries one grounded value per key,
-  which doesn't fit. **Open choice:** widen `update_facts` to a composite value, or add a dedicated
-  `set_directive` tool (recommended — it grounds `value` via the dimension's catalog, then writes the
-  row with the modifiers).
+  `scope`, `target`, `unit` ride alongside. This needs **no dedicated tool**: `update_facts` already
+  carries an arbitrary composite value (allergens write `{value, severity, confirmed}` the same way),
+  and the `DirectiveType` fact type grounds `value` per dimension in its `persist`. So the chef grounds
+  with `fact_types` then writes the composite via `update_facts`, exactly like every other fact.
 
 ## How scope enforces it
 
