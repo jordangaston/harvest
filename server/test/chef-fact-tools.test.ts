@@ -15,6 +15,7 @@ import { FactTypesTool } from '../src/chef/tools/fact-types.js';
 import { UpdateFactsTool } from '../src/chef/tools/update-facts.js';
 import { UpdateTasksTool } from '../src/chef/tools/update-tasks.js';
 import { householdTaskSpecs, memberTaskSpecs } from '../src/chef/objectives/onboarding.js';
+import { firstMealPlanTaskSpecs, FEEDBACK_KEY, CONFIRM_KEY } from '../src/chef/objectives/first-meal-plan.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import type { Task } from '../src/models/task.js';
 
@@ -134,6 +135,44 @@ describe('tasks__update non-terminal fill does not pop (TC-3, AC-5)', () => {
     expect(res.objectiveComplete).toBe(false);
     expect(res.popped).toBe(false);
     expect((await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId)))[0]!.status).toBe('active');
+  });
+});
+
+describe('TC-5: fact-less elicit lifecycle (first_meal_plan feedback/confirm)', () => {
+  it('fills feedback with no fact row, gates confirm after it, and filling confirm pops the objective', async () => {
+    const { ctx, objectiveId } = await seedTurn(firstMealPlanTaskSpecs());
+    const objectives = ObjectiveRepository.create(db);
+
+    // A turn's eligible task set, addressed by its seed key — mirrors how loadTurn rebuilds ctx.tasks.
+    const eligible = async () => (await objectives.loadActive(ctx.threadId))!.tasks;
+    const withTasks = (tasks: Task[]): TurnContext => ({ ...ctx, tasks });
+    const byFact = (tasks: Task[], fact: string) => tasks.find((t) => t.fact === fact);
+
+    // Step 0: only the leading `generate` emit is eligible (feedback/confirm gated behind it).
+    let tasks = await eligible();
+    const gen = tasks.find((t) => t.kind === 'emit')!;
+    expect(tasks.some((t) => t.fact === FEEDBACK_KEY)).toBe(false); // feedback gated until generate done
+    await UpdateTasksTool.create(withTasks(tasks), db).run([{ task_id: gen.id, value: undefined }]);
+
+    // Step 1: feedback is now eligible; confirm is still gated behind feedback. Fill feedback fact-less.
+    tasks = await eligible();
+    const feedback = byFact(tasks, FEEDBACK_KEY)!;
+    expect(byFact(tasks, CONFIRM_KEY)).toBeUndefined(); // confirm gated after feedback
+    const fb = await UpdateTasksTool.create(withTasks(tasks), db).run([{ task_id: feedback.id, value: undefined }]);
+    expect(fb.results).toEqual([{ task_id: feedback.id, status: 'filled' }]);
+    expect(fb.objectiveComplete).toBe(false); // confirm still open
+    expect(fb.popped).toBe(false);
+    // No fact row was written for the fact-less feedback fill (its "fact" is a label, no factType).
+    const prefRows = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, ctx.initiatorUserId));
+    expect(prefRows).toHaveLength(0);
+
+    // Step 2: confirm is now eligible; filling it completes + pops the objective.
+    tasks = await eligible();
+    const confirm = byFact(tasks, CONFIRM_KEY)!;
+    const done = await UpdateTasksTool.create(withTasks(tasks), db).run([{ task_id: confirm.id, value: undefined }]);
+    expect(done.objectiveComplete).toBe(true);
+    expect(done.popped).toBe(true);
+    expect((await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId)))[0]!.status).toBe('complete');
   });
 });
 

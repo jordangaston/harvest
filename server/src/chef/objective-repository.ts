@@ -80,17 +80,19 @@ export class ObjectiveRepository {
     // This replaces the ineffective static `after:[EXPLAINER_ACK_KEY]` those rows can't resolve to.
     const soloPending = all.some((t) => t.solo && t.required && !isTerminal(t.status));
 
-    // ponytail: "close fires last" rule. A required `emit` (the onboarding close) is eligible only
-    // when every required `elicit` currently loaded is terminal — its static `after` can't name member
-    // tasks that don't exist at seed time, so gate it in code here. Generalization point for a future
-    // multi-emit objective: order emits among themselves via `after` and keep this last-elicit gate.
+    // ponytail: "close fires last" rule. A TRAILING required `emit` (the onboarding close) is eligible
+    // only when every required `elicit` currently loaded is terminal — its static `after` can't name
+    // member tasks that don't exist at seed time, so gate it in code here. It does NOT apply to a
+    // LEADING emit that other tasks are gated after (first_meal_plan's `generate`, which its feedback
+    // elicit follows): that emit is explicitly ordered by `after`, so it leads instead of trailing.
     const requiredElicitsDone = all.every((t) => !(t.kind === 'elicit' && t.required) || isTerminal(t.status));
+    const gatedUpon = new Set(all.flatMap((t) => t.afterTaskIds));
 
     const eligible = all.filter((t) => {
       if (isTerminal(t.status)) return false;
       if (!t.afterTaskIds.every((id) => terminalIds.has(id))) return false;
       if (soloPending && !t.solo) return false;
-      if (t.kind === 'emit' && t.required && !requiredElicitsDone) return false;
+      if (t.kind === 'emit' && t.required && !requiredElicitsDone && !gatedUpon.has(t.id)) return false;
       return true;
     });
     return { objective, tasks: eligible };

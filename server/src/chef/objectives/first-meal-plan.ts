@@ -21,8 +21,10 @@ const req = true;
  */
 export function firstMealPlanTaskSpecs(): TaskSpec[] {
   return [
+    // generate LEADS (an emit that feedback follows) — the `after` on feedback marks it a leading emit,
+    // so loadActive's trailing-emit gate doesn't hold it behind the elicits.
     { key: GENERATE_KEY, kind: 'emit', scope: 'household', required: req },
-    { key: FEEDBACK_KEY, kind: 'elicit', fact: FEEDBACK_KEY, scope: 'household', required: req },
+    { key: FEEDBACK_KEY, kind: 'elicit', fact: FEEDBACK_KEY, scope: 'household', required: req, after: [GENERATE_KEY] },
     { key: CONFIRM_KEY, kind: 'elicit', fact: CONFIRM_KEY, scope: 'household', required: req, after: [FEEDBACK_KEY] },
   ];
 }

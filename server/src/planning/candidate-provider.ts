@@ -6,6 +6,7 @@ import { RecipeRepository } from '../repositories/recipe-repository.js';
 import { MealPlanRepository } from '../repositories/meal-plan-repository.js';
 import { RankingEngine } from '../ranking/ranking-engine.js';
 import { recipeMatches } from '../ranking/directive-match.js';
+import { isStandaloneMeal } from '../ranking/course.js';
 import type { CandidateRecipe, SlotCriteria, CriteriaDimension } from './types.js';
 
 /** A meal slot → the recipe `meal_type` facet values that fill it (brunch counts as breakfast). */
@@ -59,11 +60,16 @@ export class CandidateProvider {
     ]);
     const byId = new Map(pool.map((p) => [p.recipe.id, p]));
     const criteria = opts.criteria;
+    // A slot's candidate is its MAIN — a side/dessert/drink tagged for the meal (a dinner roll is
+    // `meal_type: dinner`) is not a dinner. Sides come only from completePlate's corpus. Snacks keep
+    // everything (a snack has no separate side course).
+    const mainsOnly = meal !== 'snack';
 
     const out: CandidateRecipe[] = [];
     for (const { recipeId, score } of this.ranking.rank(pool.map((p) => p.recipe), prefs)) {
       if (recent.has(recipeId) || opts.exclude?.has(recipeId)) continue;
       const p = byId.get(recipeId)!;
+      if (mainsOnly && !isStandaloneMeal(p.recipe)) continue;
       if (criteria && !matchesCriteria(p.recipe, criteria)) continue;
       out.push({ recipeId, score, categories: p.recipe.categories, card: p.card });
     }
