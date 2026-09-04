@@ -197,7 +197,10 @@ export class ObjectiveRepository {
   /**
    * Marks the objective `complete` (with `completed_at`), then activates the
    * highest-`stack_position` `suspended` sibling on the same thread. Because the completed
-   * row is no longer active, activating the next never trips the one-active index.
+   * row is no longer active, activating the next never trips the one-active index. The activated
+   * successor is stamped `kickoff_pending` (in `context`), a durable marker the consumer's drain loop
+   * uses to resume a stranded kick-off after a crash between this pop and its opener (spec AC-7); the
+   * consumer clears it once the opener delivers.
    * @returns The newly-activated objective, or null when the stack is now empty.
    */
   async completeAndPop(objectiveId: string, tx: Tx): Promise<Objective | null> {
@@ -212,8 +215,20 @@ export class ObjectiveRepository {
       .orderBy(desc(objectives.stackPosition))
       .limit(1);
     if (!next) return null;
-    await tx.update(objectives).set({ status: 'active' }).where(eq(objectives.id, next.id));
-    return ObjectiveSchema.parse({ ...next, status: 'active' });
+    const context = { ...(next.context ?? {}), kickoffPendingAt: new Date().toISOString() };
+    await tx.update(objectives).set({ status: 'active', context }).where(eq(objectives.id, next.id));
+    return ObjectiveSchema.parse({ ...next, status: 'active', context });
+  }
+
+  /**
+   * Clears the kickoff-pending marker on an objective once its kick-off opener has delivered — so a
+   * later bare doorbell no longer re-enters it (spec AC-7). Idempotent: a no-op if already clear.
+   */
+  async clearKickoffPending(objectiveId: string, tx: Tx): Promise<void> {
+    const [row] = await tx.select({ context: objectives.context }).from(objectives).where(eq(objectives.id, objectiveId));
+    if (!row?.context || row.context.kickoffPendingAt === undefined) return;
+    const { kickoffPendingAt: _drop, ...rest } = row.context;
+    await tx.update(objectives).set({ context: rest }).where(eq(objectives.id, objectiveId));
   }
 
   /**

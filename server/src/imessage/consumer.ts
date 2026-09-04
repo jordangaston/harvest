@@ -122,21 +122,19 @@ export class Consumer {
       let lastPopped = false;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
-        // Continue iff pending inbound remains OR the last turn popped (a kick-off). No pending and no
-        // pop ⇒ drained or parked — stop. Termination is bounded by the stack depth, so no spin.
-        // ponytail: a kick-off only fires by chaining off an in-process pop (lastPopped) — there is NO
-        // cold-start re-entry, so a crash between a pop and its kick-off strands the newly-active
-        // objective (its opener never sent, and no bare doorbell re-runs it). Dark until a successor
-        // objective exists (nothing is pushed below onboarding today, so completeAndPop returns null and
-        // this branch is unreachable). The first successor (meal-plan) WI must add a durable
-        // "awaiting-opener" marker on the popped objective and a re-entry arm here that resumes it — a
-        // status-only heuristic can't distinguish a stranded opener from an inbound-driven objective.
-        if (pending.length === 0 && !lastPopped) return;
-
-        // A kick-off (no pending inbound after a pop) has no trigger id — key its sends on the
-        // now-active objective id (AC-9). No active objective ⇒ the stack emptied; nothing to kick off.
+        // With no pending inbound, a kick-off runs only when the last turn popped (chain a fresh pop
+        // into its opener) OR the active objective carries the durable kickoff-pending marker (resume a
+        // kick-off stranded by a crash between an earlier pop and its opener — spec AC-7). Load the
+        // active objective to read that marker; no pending, no pop, no marker ⇒ drained or parked, stop.
+        // Termination is bounded by stack depth (a pop clears the marker's predecessor; the opener
+        // clears the marker), so no spin.
         const kickOff = pending.length === 0;
         const active = kickOff ? await this.objectives.loadActive(threadId) : null;
+        const kickoffPending = active?.objective.context?.kickoffPendingAt !== undefined;
+        if (kickOff && !lastPopped && !kickoffPending) return;
+
+        // A kick-off (no pending inbound) has no trigger id — key its sends on the now-active objective
+        // id (AC-9). No active objective ⇒ the stack emptied; nothing to kick off.
         if (kickOff && !active) return;
         // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids;
         // kick-off: the objective id keys the guids, and the row carries no trigger id.
@@ -173,6 +171,10 @@ export class Consumer {
             // AC-8 only when the turn did NOT already pop in-loop — a popped turn marked its emit via
             // tasks__update, so re-filling/re-popping here would double-activate a suspended sibling.
             if (delivered && !reply.popped) await this.completeDeliveredEmit(reply.confirmTasks, reply.objectiveId, tx);
+            // A kick-off turn that delivered its opener clears the objective's kickoff-pending marker,
+            // so a later bare doorbell no longer re-enters it (AC-7). Guid dedup already made the opener
+            // fire exactly once; this just retires the re-entry arm now the opener is out.
+            if (kickOff && delivered && active) await this.objectives.clearKickoffPending(active.objective.id, tx);
             // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
             // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink). A kick-off
             // consumed no inbound (cursorTo null) so it advances nothing.
