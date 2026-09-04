@@ -1,0 +1,1 @@
+ALTER TABLE `meal_plan_entries` ADD `source` text DEFAULT 'manual' NOT NULL;

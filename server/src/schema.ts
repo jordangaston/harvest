@@ -108,6 +108,8 @@ const HOW_HEARD = [
 const AGE_BANDS = ['under_24', 'from_25_to_34', 'from_35_to_44', 'from_45_to_54', 'over_55'] as const;
 // W2 meal-plan slot + grocery aisle (pgEnum → text{enum}).
 const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+// How a meal-plan entry got there: the planner ('generated') or a user pick ('manual').
+export const MEAL_PLAN_SOURCES = ['generated', 'manual'] as const;
 const GROCERY_AISLES = [
   'produce',
   'meat_seafood',
@@ -485,6 +487,9 @@ export const mealPlanEntries = sqliteTable(
       .notNull()
       .references(() => recipes.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
+    // Who set the entry: 'generated' by the planner, 'manual' by a user pick. A regenerate replaces
+    // only the generated entries, so a manual pick survives it. Existing rows default 'manual'.
+    source: text('source', { enum: MEAL_PLAN_SOURCES }).notNull().default('manual'),
     createdAt: createdAt(),
   },
   (t) => [index('meal_plan_entries_user_date_idx').on(t.userId, t.date)],
