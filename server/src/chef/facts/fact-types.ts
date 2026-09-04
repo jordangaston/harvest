@@ -467,26 +467,42 @@ class DirectiveType implements FactType {
         'value, direction: more|less, scope?: recipe|breakfast|lunch|dinner|snack|day|week (default ' +
         'recipe), strength?: soft|firm|strict (default soft), target?: number, unit?: count|grams|…, ' +
         'reason? }. A like is direction:more, a dislike direction:less; an aggregate limit uses a ' +
-        'day/week scope with target + unit.',
+        'day/week scope with target + unit. Pass ONE directive, or an ARRAY of them to record several preferences in one write.',
     };
   }
   async search(query: string): Promise<ValuePage> {
     const opts = await this.taste.options();
-    const q = query.toLowerCase();
     const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients, ...this.foodCategories, ...this.nutrients];
-    return { values: all.filter((c) => c.value.includes(q) || c.label.toLowerCase().includes(q)).map((c) => ({ value: c.value, label: c.label })) };
+    // Fuzzy-rank rather than substring-match, so a plural or loose phrasing still lands ("tacos" -> taco).
+    const ranked = rank(query, all).slice(0, 10);
+    if (ranked.length) return { values: ranked.map((c) => ({ value: c.value, label: c.label })) };
+    // No catalog hit — fall back to the ingredient resolver so lookups agree with the write path
+    // (e.g. "salmon" rolls up to Fish). Without this the model sees "no match" and drops the value,
+    // even though persist() would have grounded it.
+    const base = await this.ingredients.resolve(query);
+    return { values: base ? [{ value: base.label, label: base.label }] : [] };
   }
+  // A directive value may be a single object or an array of them — a member states several
+  // preferences at once ("Italian, tacos, salmon"), and read_facts returns a list, so the model
+  // naturally batches. Both shapes are accepted; each element is validated/grounded/persisted on its own.
   validate(value: unknown): ValidateResult {
-    const v = (value ?? {}) as DirectiveValue;
-    if (!isDirectiveFacet(v.dimension)) return { ok: false, reason: `${this.name}: dimension must be cuisine, dish_type, ingredient, food_category, or nutrient` };
-    if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
-    if (!isDirection(v.direction)) return { ok: false, reason: `${this.name}: direction must be ${DIRECTIONS.join(' or ')}` };
-    if (v.scope !== undefined && !isScope(v.scope)) return { ok: false, reason: `${this.name}: scope must be one of ${DIRECTIVE_SCOPES.join(', ')}` };
-    if (v.strength !== undefined && !isStrength(v.strength)) return { ok: false, reason: `${this.name}: strength must be ${STRENGTHS.join(', ')}` };
+    const items = Array.isArray(value) ? value : [value];
+    if (items.length === 0) return { ok: false, reason: `${this.name}: needs at least one directive` };
+    for (const item of items) {
+      const v = (item ?? {}) as DirectiveValue;
+      if (!isDirectiveFacet(v.dimension)) return { ok: false, reason: `${this.name}: dimension must be cuisine, dish_type, ingredient, food_category, or nutrient` };
+      if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
+      if (!isDirection(v.direction)) return { ok: false, reason: `${this.name}: direction must be ${DIRECTIONS.join(' or ')}` };
+      if (v.scope !== undefined && !isScope(v.scope)) return { ok: false, reason: `${this.name}: scope must be one of ${DIRECTIVE_SCOPES.join(', ')}` };
+      if (v.strength !== undefined && !isStrength(v.strength)) return { ok: false, reason: `${this.name}: strength must be ${STRENGTHS.join(', ')}` };
+    }
     return { ok: true };
   }
   /** Grounding hits the DB, so it lives in `persist`; `normalize` just shapes the input. */
   normalize(value: unknown): unknown {
+    return Array.isArray(value) ? value.map((v) => this.normalizeOne(v)) : this.normalizeOne(value);
+  }
+  private normalizeOne(value: unknown) {
     const v = (value ?? {}) as DirectiveValue;
     return {
       dimension: v.dimension,
@@ -500,10 +516,19 @@ class DirectiveType implements FactType {
     };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const v = this.normalize(value) as { dimension: (typeof DIRECTIVE_FACETS)[number]; value: string; scope: DirectiveScope; direction: Direction; strength: Strength; target: number | null; unit: string | null; reason: string | null };
-    const grounded = await this.ground(v.dimension, v.value);
-    if (!grounded) throw new Error(`${this.name}: no catalog match for "${v.value}"`);
-    await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
+    const items = (Array.isArray(value) ? value : [value]).map((v) => this.normalizeOne(v)) as {
+      dimension: (typeof DIRECTIVE_FACETS)[number]; value: string; scope: DirectiveScope; direction: Direction; strength: Strength; target: number | null; unit: string | null; reason: string | null;
+    }[];
+    // Persist each directive independently: one off-catalog value shouldn't drop the rest. Ground and
+    // write what we can, then throw naming the misses so the model gets instructive feedback while the
+    // grounded ones are already saved (upsertFoodPref commits per call, not on the turn's tx).
+    const unmatched: string[] = [];
+    for (const v of items) {
+      const grounded = await this.ground(v.dimension, v.value);
+      if (!grounded) { unmatched.push(v.value); continue; }
+      await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
+    }
+    if (unmatched.length) throw new Error(`${this.name}: no catalog match for ${unmatched.map((u) => `"${u}"`).join(', ')}`);
   }
   async read(subject: Subject): Promise<unknown> {
     const prefs = (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
