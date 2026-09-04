@@ -74,6 +74,32 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     await consumer.handle({ threadId }); // renamed_at set → no re-rename
     expect(sender.renameCalls).toHaveLength(1);
   });
+});
+
+// Share Chef's contact card on the first message so the household can save her.
+describe('contact card on first message', () => {
+  it('shares the card once on the first answered turn, stamps carded_at, and does not re-card later', async () => {
+    const { threadId, inboundId, ownerUserId } = await seedThreadWithInbound();
+
+    let cursor = inboundId;
+    const chef: Chef = {
+      respond: async (_threadId, sink): Promise<ChefReply> => {
+        await sink.send({ kind: 'text', text: 'a reply' });
+        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    const consumer = new Consumer(db, sender, chef, new StubThreadLock());
+
+    await consumer.handle({ threadId }); // carded_at null → card fires
+    expect(sender.contactCardCalls).toEqual([{ chatGuid: `g-${threadId}` }]);
+    const [t1] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(t1!.cardedAt).not.toBeNull();
+
+    cursor = await addInbound(threadId, ownerUserId);
+    await consumer.handle({ threadId }); // carded_at set → no re-card
+    expect(sender.contactCardCalls).toHaveLength(1);
+  });
 
   it('no-ops on a 1:1 DM without throwing (still stamps renamed_at so it never retries)', async () => {
     const { threadId, inboundId } = await seedThreadWithInbound();
