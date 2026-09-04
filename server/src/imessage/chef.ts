@@ -35,17 +35,22 @@ export interface ConfirmTask {
 }
 
 /** What the consumer commits for one turn — the Chef's bubbles already went out live via the sink,
- *  so this carries only the after-the-fact commit: task confirmations, the cursor, the objective to
- *  pop, and whether anything was actually delivered. */
+ *  so this carries only the after-the-fact commit: task confirmations, the cursor, the objective it
+ *  ran against, whether anything was delivered, and whether the objective popped in-loop. */
 export interface ChefReply {
-  /** Fact-less tasks the consumer confirms once the turn's bubbles send (emit + explainer-ack). */
+  /** Fact-less tasks the consumer confirms once the turn's bubbles send (the explainer-ack elicit). */
   confirmTasks: ConfirmTask[];
-  cursorTo: string;
-  /** The active objective this turn ran against — the consumer pops it if it just completed. */
+  /** The inbound id to advance the cursor to, or null for a kick-off turn (consumed no inbound). */
+  cursorTo: string | null;
+  /** The objective this turn ran against — the AC-8 safety net pops it if a required emit was
+   *  delivered but left unmarked, and the consumer keys kick-off sends on it. */
   objectiveId: string;
   /** Whether any bubble was sent this turn (the sink flushed at least one) — gates the fact-less
-   *  confirm + completion pop, which may only fire when the close was actually delivered. */
+   *  ack confirm and the AC-8 delivered-emit safety net. */
   delivered: boolean;
+  /** Whether this turn completed and popped its objective (via `update_tasks` in-loop). The drain
+   *  loop runs one more kick-off iteration against the newly-active objective when true. */
+  popped: boolean;
 }
 
 /**
@@ -114,20 +119,34 @@ export class RealChef implements Chef {
     // A social (no-work) turn advanced no task — confirm nothing (AC-5); a working turn confirms the
     // loaded fact-less tasks as before.
     const confirmTasks = worked ? turn.confirmTasks : [];
-    return { confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId, delivered };
+    // The turn popped its objective iff the one it ran against is no longer the active objective —
+    // `update_tasks`'s in-loop completeAndPop either activated a sibling (different id) or emptied the
+    // stack (null). Read after the run so the pop is visible.
+    const stillActive = await this.objectives.loadActive(threadId);
+    const popped = stillActive?.objective.id !== turn.objectiveId;
+    return { confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId, delivered, popped };
   }
 
-  /** Loads the active objective, slots, members, transcript, and pending inbound. Null if nothing pending. */
+  /**
+   * Loads the active objective, slots, members, transcript, and pending inbound. Returns null when
+   * there is neither pending inbound nor eligible active work to kick off (the thread parks). When
+   * there is no pending inbound but the active objective still has eligible tasks, builds a
+   * TRIGGERLESS kick-off turn (no trigger id, no targets, no pending line) so the model reads "here's
+   * the next objective" and delivers/asks its opener.
+   */
   private async loadTurn(threadId: string, householdId: string | null, cursor: string | null, ownerUserId: string) {
     const pending = await this.threads.loadPendingInbound(threadId, cursor);
-    if (pending.length === 0) return null;
     // A fresh thread has no objective — seed onboarding (its household slots) on the first inbound
-    // so the conversation is resumable from the DB alone (F-01 step 2).
+    // so the conversation is resumable from the DB alone (F-01 step 2). Only on a real inbound: a
+    // kick-off never seeds onboarding.
     let active = await this.objectives.loadActive(threadId);
-    if (!active) {
+    if (!active && pending.length > 0) {
       await this.objectives.pushObjective({ threadId, definition: onboardingObjective.id, tasks: householdTaskSpecs(), position: 'top' });
       active = await this.objectives.loadActive(threadId);
     }
+    // Kick-off gate: with no pending inbound, run only when the active objective has eligible
+    // non-terminal work; otherwise the thread has nothing to do — park.
+    if (pending.length === 0 && (!active || active.tasks.length === 0)) return null;
     if (!active) return null;
 
     const members = householdId ? await this.households.loadMembers(householdId) : [];
@@ -153,8 +172,9 @@ export class RealChef implements Chef {
     });
 
     // A threaded reply (the trigger carries a parent guid) shows the model the message it answers.
-    const trigger = pending[pending.length - 1]!;
-    const parent = trigger.targetMessageGuid
+    // A kick-off has no trigger — null everything trigger-derived (no parent, no external id).
+    const trigger = pending.length > 0 ? pending[pending.length - 1]! : null;
+    const parent = trigger?.targetMessageGuid
       ? await this.threads.findByPlatformId(threadId, trigger.targetMessageGuid)
       : null;
 
@@ -171,7 +191,7 @@ export class RealChef implements Chef {
       objectiveId: active.objective.id,
       initiatorHandle: await this.threads.handleForUser(ownerUserId),
       initiatorUserId: ownerUserId,
-      triggerExternalId: trigger.externalId ?? null,
+      triggerExternalId: trigger?.externalId ?? null,
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
       tasks: active.tasks,
@@ -180,7 +200,10 @@ export class RealChef implements Chef {
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
     // status in-loop, so they never appear here.
     const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
-    return { briefing, turnCtx, triggerExternalId: trigger.externalId, messageTargets, cursorTo: pending[pending.length - 1]!.id, confirmTasks, objectiveId: active.objective.id };
+    // A kick-off consumes no inbound, so it has no cursor to advance to (`null`); a normal turn
+    // advances to the newest pending id. The consumer skips the cursor advance when this is null.
+    const cursorTo = trigger ? trigger.id : null;
+    return { briefing, turnCtx, triggerExternalId: trigger?.externalId ?? null, messageTargets, cursorTo, confirmTasks, objectiveId: active.objective.id };
   }
 }
 
@@ -207,8 +230,9 @@ export class StubChef implements Chef {
     return {
       confirmTasks: [],
       cursorTo: pending[pending.length - 1]!.id,
-      objectiveId: '', // the stub runs no objective — the consumer's pop is a no-op on a blank id
+      objectiveId: '', // the stub runs no objective
       delivered: true,
+      popped: false, // the stub never completes an objective
     };
   }
 }
