@@ -318,36 +318,61 @@ describe("Test Case 6: selectChef(db) returns StubChef offline (AC-6)", () => {
   });
 });
 
-describe("Test Case 5: emit at send-time, explainer-ack on next inbound (AC-4)", () => {
-  it("marks an emit filled the turn its bubbles send", async () => {
+/** Seeds an active onboarding objective with one required close emit; returns the ids. */
+async function seedEmitObjective(threadId: string): Promise<{ objectiveId: string; emitId: string }> {
+  const objectiveId = randomUUID();
+  await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+  const emitId = randomUUID();
+  await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+  return { objectiveId, emitId };
+}
+
+/** A chef that fills the emit + pops the objective in-loop (as update_tasks now does) and reports it,
+ *  so the consumer's commit should only advance the cursor. */
+function poppingChef(text: string, emitId: string, objectiveId: string, cursorTo: string): Chef {
+  return {
+    respond: async (_threadId, sink): Promise<ChefReply> => {
+      await sink.send({ kind: "text", text });
+      // The in-loop update_tasks path: mark the emit filled + pop, in one txn.
+      await db.transaction(async (tx) => {
+        await ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx);
+        await ObjectiveRepository.create(db).completeAndPop(objectiveId, tx);
+      });
+      return { confirmTasks: [], cursorTo, objectiveId, delivered: true, popped: true };
+    },
+  };
+}
+
+describe("Test Case 5: onboarding completes via update_tasks, consumer only advances the cursor (AC-6, AC-7)", () => {
+  it("the emit is filled + objective popped in-loop; the consumer runs no completeAndPop of its own", async () => {
     const { threadId, ownerId } = await seedThread();
     const newestId = await seedInbound(threadId, ownerId, "sounds good");
-    const objectiveId = randomUUID();
-    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
-    const emitId = randomUUID();
-    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+    const { objectiveId, emitId } = await seedEmitObjective(threadId);
 
-    const chef = sendingChef(
-      [{ kind: "text", text: "You're all set!" }],
-      { confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }], cursorTo: newestId, objectiveId },
-    );
+    const chef = poppingChef("You're all set!", emitId, objectiveId, newestId);
+    const popSpy = vi.spyOn(ObjectiveRepository.prototype, "completeAndPop");
     await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
 
+    // The chef popped in-loop (one completeAndPop, inside respond). The consumer added none of its own:
+    // with the pop reported, the AC-8 fallback is skipped, so completeAndPop is called exactly once.
+    expect(popSpy).toHaveBeenCalledTimes(1);
+    popSpy.mockRestore();
+
     const [emit] = await db.select().from(tasks).where(eq(tasks.id, emitId));
-    expect(emit!.status).toBe("filled"); // its bubbles went out → filled
+    expect(emit!.status).toBe("filled");
     const [obj] = await db.select().from(objectives).where(eq(objectives.id, objectiveId));
-    expect(obj!.status).toBe("complete"); // every required task terminal → popped the same turn
+    expect(obj!.status).toBe("complete");
+    // The consumer's only commit is the cursor advance.
+    const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(after.lastProcessedId).toBe(newestId);
   });
 
-  it("does NOT confirm the emit or pop the objective when the reply delivered no bubbles", async () => {
+  it("does NOT pop the objective when the reply delivered no bubbles (empty MAX_ATTEMPTS turn)", async () => {
     const { threadId, ownerId } = await seedThread();
     const newestId = await seedInbound(threadId, ownerId, "sounds good");
-    const objectiveId = randomUUID();
-    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
-    const emitId = randomUUID();
-    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+    const { objectiveId, emitId } = await seedEmitObjective(threadId);
 
-    // An empty reply plan (MAX_ATTEMPTS fallback / a model that didn't deliver the close): no bubbles.
+    // An empty reply plan: no bubbles, nothing marked. AC-8 needs a delivered emit — it must not fire.
     const chef = sendingChef(
       [],
       { confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }], cursorTo: newestId, objectiveId },
@@ -355,9 +380,32 @@ describe("Test Case 5: emit at send-time, explainer-ack on next inbound (AC-4)",
     await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
 
     const [emit] = await db.select().from(tasks).where(eq(tasks.id, emitId));
-    expect(emit!.status).toBe("unasked"); // nothing was sent → the emit is NOT confirmed
+    expect(emit!.status).toBe("unasked"); // nothing delivered → not filled
     const [obj] = await db.select().from(objectives).where(eq(objectives.id, objectiveId));
     expect(obj!.status).toBe("active"); // the close never sent → the objective must not pop
+  });
+
+  it("TC-6 safety net: a delivered but unmarked required emit still pops, with no duplicate bubbles on re-run (AC-8)", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "sounds good");
+    const { objectiveId, emitId } = await seedEmitObjective(threadId);
+
+    // The chef delivers the close but does NOT mark the emit via update_tasks (popped:false). The
+    // consumer's AC-8 fallback must fill + pop so the terminal flow can't stall.
+    const chef = sendingChef(
+      [{ kind: "text", text: "You're all set!" }],
+      { confirmTasks: [{ taskId: emitId, kind: "emit", status: "unasked" }], cursorTo: newestId, objectiveId, popped: false },
+    );
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect((await db.select().from(tasks).where(eq(tasks.id, emitId)))[0]!.status).toBe("filled");
+    expect((await db.select().from(objectives).where(eq(objectives.id, objectiveId)))[0]!.status).toBe("complete");
+    expect(sender.calls).toHaveLength(1); // the one close bubble
+
+    // Re-run on the same doorbell (cursor already advanced) — the sink dedupes; no new bubbles.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    expect(sender.calls).toHaveLength(1);
   });
 
   it("asks the fact-less explainer-ack when first delivered, fills it on the next inbound", async () => {
@@ -379,6 +427,7 @@ describe("Test Case 5: emit at send-time, explainer-ack on next inbound (AC-4)",
           cursorTo: pending[pending.length - 1]!.id,
           objectiveId,
           delivered: true,
+          popped: false,
         };
       },
     };
@@ -416,7 +465,7 @@ describe("spec-02 Test Case 2: crash between two sends resumes with no double-se
           throw new Error("crash after the ack, before the result");
         }
         await sink.send({ kind: "text", text: "here's your week" }); // the result — second send
-        return { confirmTasks: [], cursorTo: newestId, objectiveId: "", delivered: true };
+        return { confirmTasks: [], cursorTo: newestId, objectiveId: "", delivered: true, popped: false };
       },
     };
     const sender = new StubSpectrumSender();
@@ -453,5 +502,89 @@ describe("spec-02 Test Case 3: outbound rows are tagged with trigger_id (AC 3)",
     expect(outbound.every((r) => r.triggerId === newestId)).toBe(true); // both tagged with the trigger
     // The deterministic dedup guids: `${triggerId}#0`, `${triggerId}#1`.
     expect(outbound.map((r) => r.messageGuid).sort()).toEqual([`${newestId}#0`, `${newestId}#1`]);
+  });
+});
+
+// ── TC-4/7: the drain loop kicks off the next objective after a pop ────────────
+
+/** Seeds a two-objective stack on `threadId`: objective A active (one required elicit) and objective
+ *  B suspended (one required emit). Returns their ids. */
+async function seedTwoObjectiveStack(threadId: string): Promise<{ objA: string; taskA: string; objB: string }> {
+  const store = ObjectiveRepository.create(db);
+  const a = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "a", kind: "elicit", fact: "household.grocery_stores", factType: "GROCERY_STORE", scope: "household", required: true }], position: "top" });
+  const b = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "bottom" });
+  const [taskA] = await db.select().from(tasks).where(eq(tasks.objectiveId, a.id));
+  return { objA: a.id, taskA: taskA!.id, objB: b.id };
+}
+
+/** A stateful chef: turn 1 (inbound) pops objective A; the kick-off turn (no inbound) sends one
+ *  bubble against B and leaves it active. Records the sinks it saw and each turn's pending state. */
+function chainingChef(taskA: string, objA: string, cursorTo: string): { chef: Chef; turns: { kickOff: boolean }[] } {
+  const turns: { kickOff: boolean }[] = [];
+  const chef: Chef = {
+    respond: async (threadId, sink): Promise<ChefReply | null> => {
+      const store = ObjectiveRepository.create(db);
+      const active = await store.loadActive(threadId);
+      if (!active) return null;
+      const kickOff = active.objective.id !== objA; // A is gone once popped → this is the B kick-off
+      turns.push({ kickOff });
+      if (!kickOff) {
+        // Turn 1: fill A's last task + pop (as update_tasks does), report popped.
+        await sink.send({ kind: "text", text: "got it" });
+        await db.transaction(async (tx) => {
+          await store.applyTaskUpdates([{ taskId: taskA, status: "filled" }], tx);
+          await store.completeAndPop(objA, tx);
+        });
+        return { confirmTasks: [], cursorTo, objectiveId: objA, delivered: true, popped: true };
+      }
+      // Kick-off turn: send B's opener, leave B active (no pop). No inbound consumed → cursorTo null.
+      await sink.send({ kind: "text", text: "here's your first menu" });
+      return { confirmTasks: [], cursorTo: null, objectiveId: active.objective.id, delivered: true, popped: false };
+    },
+  };
+  return { chef, turns };
+}
+
+describe("TC-4: drain loop runs a triggerless kick-off after a pop (AC-4, AC-5)", () => {
+  it("two turns from one inbound: pop A, kick off B, then park; cursor sits at the inbound", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "we shop at kroger");
+    const { objA, taskA, objB } = await seedTwoObjectiveStack(threadId);
+
+    const { chef, turns } = chainingChef(taskA, objA, newestId);
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    expect(turns).toEqual([{ kickOff: false }, { kickOff: true }]); // exactly two turns; turn 2 a kick-off
+    expect((await db.select().from(objectives).where(eq(objectives.id, objA)))[0]!.status).toBe("complete");
+    expect((await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!.status).toBe("active");
+    // The loop stopped after B parked; the cursor sits at the single inbound.
+    expect((await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId).toBe(newestId);
+  });
+});
+
+describe("TC-7: kick-off sends key on the objective id; redelivery is a clean no-op (AC-9, AC-10)", () => {
+  it("B's kick-off guid is `${objectiveB.id}#0` with a null trigger; a same-doorbell redelivery sends nothing new", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "we shop at kroger");
+    const { objA, taskA, objB } = await seedTwoObjectiveStack(threadId);
+
+    const { chef } = chainingChef(taskA, objA, newestId);
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    // B's kick-off bubble is keyed on the objective id (no inbound trigger to key on) — AC-9.
+    const kickOffRows = (await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).filter((r) => r.messageGuid.startsWith(`${objB}#`));
+    expect(kickOffRows).toHaveLength(1);
+    expect(kickOffRows[0]!.messageGuid).toBe(`${objB}#0`);
+    expect(kickOffRows[0]!.triggerId).toBeNull(); // a kick-off row carries no trigger id
+    const sentBefore = sender.calls.length;
+
+    // Redelivery on the same doorbell after a full pass: the cursor advanced and A's inbound is
+    // consumed, so the drain loop finds nothing pending and no fresh pop — it commits nothing. AC-10:
+    // no duplicate bubbles, B stays active, the cursor stays advanced.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    expect(sender.calls.length).toBe(sentBefore); // no duplicate sends
+    expect((await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!.status).toBe("active");
+    expect((await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId).toBe(newestId);
   });
 });

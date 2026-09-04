@@ -77,6 +77,66 @@ describe('update_tasks (TC-1)', () => {
   });
 });
 
+const emitTask: TaskSpec = { key: 'close', kind: 'emit', scope: 'household', required: true };
+
+describe('update_tasks fills an emit and pops (TC-1, AC-1/2/3)', () => {
+  it('marks a required emit filled with no fact write, completes + pops the objective in-loop', async () => {
+    const { ctx, tasks, objectiveId } = await seedTurn([emitTask]);
+    const emit = tasks[0]!;
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: emit.id, value: undefined }]);
+
+    expect(res.results).toEqual([{ task_id: emit.id, status: 'filled' }]);
+    expect(res.objectiveComplete).toBe(true);
+    expect(res.popped).toBe(true);
+    const [erow] = await db.select().from(tasksRaw).where(eq(tasksRaw.id, emit.id));
+    expect(erow!.status).toBe('filled');
+    const [orow] = await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId));
+    expect(orow!.status).toBe('complete'); // popped in-loop before the tool returned
+  });
+});
+
+describe('update_tasks fills the last elicit and pops (TC-2, AC-2/3)', () => {
+  it('when no emit remains, the last required elicit completes + pops; a suspended sibling activates', async () => {
+    const { ctx, tasks, objectiveId } = await seedTurn([
+      storeTask,
+      { key: 'days', kind: 'elicit', fact: 'household.cook_days', factType: 'COOK_DAYS', scope: 'household', required: true },
+    ]);
+    // Seed a suspended sibling below the active objective so the pop has something to activate.
+    const sibling = await ObjectiveRepository.create(db).pushObjective({
+      threadId: ctx.threadId, definition: 'onboarding', tasks: [], position: 'bottom',
+    });
+
+    // Fill the first elicit (not the last required → no pop yet).
+    const store = tasks.find((t) => t.factType === 'GROCERY_STORE')!;
+    const first = await UpdateTasksTool.create(ctx, db).run([{ task_id: store.id, value: 'trader joes' }]);
+    expect(first.popped).toBe(false);
+
+    // Fill the last required elicit → complete + pop.
+    const days = tasks.find((t) => t.factType === 'COOK_DAYS')!;
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: days.id, value: ['monday', 'wednesday', 'friday'] }]);
+    expect(res.objectiveComplete).toBe(true);
+    expect(res.popped).toBe(true);
+    expect((await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId)))[0]!.status).toBe('complete');
+    expect((await db.select().from(objectivesTable).where(eq(objectivesTable.id, sibling.id)))[0]!.status).toBe('active');
+  });
+});
+
+describe('update_tasks non-terminal fill does not pop (TC-3, AC-5)', () => {
+  it('filling one of two required elicits leaves the objective active, popped false', async () => {
+    const { ctx, tasks, objectiveId } = await seedTurn([
+      storeTask,
+      { key: 'days', kind: 'elicit', fact: 'household.cook_days', factType: 'COOK_DAYS', scope: 'household', required: true },
+    ]);
+    const store = tasks.find((t) => t.factType === 'GROCERY_STORE')!;
+    const res = await UpdateTasksTool.create(ctx, db).run([{ task_id: store.id, value: 'trader joes' }]);
+
+    expect(res.results[0]!.status).toBe('filled');
+    expect(res.objectiveComplete).toBe(false);
+    expect(res.popped).toBe(false);
+    expect((await db.select().from(objectivesTable).where(eq(objectivesTable.id, objectiveId)))[0]!.status).toBe('active');
+  });
+});
+
 describe('update_tasks instructive rejection (TC-2)', () => {
   it('rejects an allergen missing severity/confirmed and leaves the task open', async () => {
     const owner = await makeUser();
