@@ -4,6 +4,7 @@ import { eq, asc } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
 import { users, threads, threadMessages, households, householdMembers, objectives, tasks } from '../src/schema.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
+import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { Consumer } from '../src/imessage/consumer.js';
 import { selectChef } from '../src/imessage/chef.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
@@ -93,6 +94,12 @@ async function transcript(db: ReturnType<typeof dbFromEnv>, threadId: string): P
   const repo = ThreadRepository.create(db);
   const userId = await repo.upsertUserByHandle(HANDLE);
   const thread = await repo.upsertThreadByChatGuid({ chatGuid: CHAT, ownerUserId: userId });
+  // Match the real webhook path (src/index.ts): a thread implies a household, created + linked on
+  // first inbound. Without it the chef's add_members/update_facts have nowhere to write.
+  if (!thread.householdId) {
+    const hh = await HouseholdRepository.create(db).createHousehold({ ownerUserId: userId });
+    await repo.linkHousehold(thread.id, hh.id);
+  }
   await repo.insertInboundMessage({ threadId: thread.id, senderUserId: userId, type: 'text', body: arg, messageGuid: `dev-${randomUUID()}` });
 
   const sender = new CaptureSender();

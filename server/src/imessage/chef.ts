@@ -137,16 +137,19 @@ export class RealChef implements Chef {
     // id map lets a tapback ground on any of them without the model ever touching a raw id.
     const recent = await this.threads.loadRecentMessages(threadId, CONVERSATION_WINDOW);
     const pendingIds = new Set(pending.map((m) => m.id));
+    // Sender id → name, so each household line is labelled with who spoke (undefined ⇒ "unknown").
+    const nameByUser = new Map(members.map((m) => [m.userId, m.name ?? undefined]));
     const messageTargets: Record<string, string> = {};
     let tag = 0;
     const transcript: TranscriptLine[] = recent.map((m) => {
       const role: TranscriptLine['role'] = m.direction === 'inbound' ? 'household' : 'chef';
+      const name = role === 'household' && m.senderUserId ? nameByUser.get(m.senderUserId) : undefined;
       if (role === 'household' && pendingIds.has(m.id)) {
         const handle = `m${(tag += 1)}`;
         if (m.externalId) messageTargets[handle] = m.externalId;
-        return { role, text: m.body ?? '', handle };
+        return { role, text: m.body ?? '', handle, name };
       }
-      return { role, text: m.body ?? '' };
+      return { role, text: m.body ?? '', name };
     });
 
     // A threaded reply (the trigger carries a parent guid) shows the model the message it answers.

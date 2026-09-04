@@ -338,7 +338,9 @@ class NameType implements FactType {
 // ── member: allergens (catalog + rich rule) ──────────────────────────────
 
 /** The raw allergen value: a name plus the safety fields, or the no_allergens sentinel. */
-type AllergenValue = { value?: string; severity?: string; confirmed?: boolean; no_allergens?: boolean };
+type AllergenValue = { value?: string; allergen?: string; name?: string; severity?: string; confirmed?: boolean; no_allergens?: boolean };
+/** The allergen id, read forgivingly from the field the model most naturally reaches for. */
+const allergenId = (v: AllergenValue): string => String(v.value ?? v.allergen ?? v.name ?? '');
 const isSeverity = (s: unknown): s is (typeof ALLERGEN_SEVERITIES)[number] => ALLERGEN_SEVERITIES.includes(s as never);
 
 /**
@@ -353,7 +355,7 @@ class AllergenType implements FactType {
   constructor(private readonly prefs: PreferenceRepository) {}
 
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'A member allergen; requires confirmed:true and a severity (mild|moderate|severe). Pass { no_allergens: true } for none.', values: this.candidates };
+    return { name: this.name, flavor: this.flavor, description: 'A member allergen. Value: { value: <one of the listed allergens>, confirmed: true, severity: mild|moderate|severe }; or { no_allergens: true } for none.', values: this.candidates };
   }
   search(query: string): ValuePage {
     const { value } = coerce(query, this.candidates);
@@ -366,13 +368,13 @@ class AllergenType implements FactType {
     if (!isSeverity(v.severity)) missing.push('severity');
     if (v.confirmed !== true) missing.push('confirmed');
     if (missing.length) return { ok: false, reason: 'ALLERGEN requires severity ∈ {mild,moderate,severe} and confirmed:true', missing };
-    const { value: id, closest } = coerce(String(v.value ?? ''), this.candidates);
-    return id ? { ok: true } : { ok: false, reason: `ALLERGEN: no match for "${v.value}"`, closest };
+    const { value: id, closest } = coerce(allergenId(v), this.candidates);
+    return id ? { ok: true } : { ok: false, reason: `ALLERGEN: no match for "${allergenId(v)}"`, closest };
   }
   normalize(value: unknown): unknown {
     const v = (value ?? {}) as AllergenValue;
     if (v.no_allergens === true) return 'none';
-    return { allergen: coerce(String(v.value ?? ''), this.candidates).value!, severity: v.severity };
+    return { allergen: coerce(allergenId(v), this.candidates).value!, severity: v.severity };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
     const normalized = this.normalize(value);
@@ -403,7 +405,7 @@ class DietType implements FactType {
     return String(v.dietId ?? v.value ?? '');
   }
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'A member diet with a strictness (strict|flexible).', values: this.candidates };
+    return { name: this.name, flavor: this.flavor, description: 'A member diet. Value: { value: <one of the listed diets>, strictness: strict|flexible }.', values: this.candidates };
   }
   search(query: string): ValuePage {
     const { value } = coerce(query, this.candidates);
@@ -446,7 +448,7 @@ const isStrength = (s: unknown): s is Strength => STRENGTHS.includes(s as never)
  * FOOD_PREFERENCE like/dislike fact — a like is `{direction:'more'}`, a dislike `{direction:'less'}`.
  */
 class DirectiveType implements FactType {
-  readonly name = 'SET_DIRECTIVE';
+  readonly name = 'FOOD_PREFERENCE';
   readonly flavor = 'catalog' as const;
   private readonly foodCategories = codeCandidates('food_category');
   private readonly nutrients = codeCandidates('nutrient');
