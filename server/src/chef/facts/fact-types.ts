@@ -425,7 +425,7 @@ class AllergenType implements FactType {
 // ── member: diets (catalog + strictness) ─────────────────────────────────
 
 /** The raw diet value: an id/phrasing plus optional strictness. */
-type DietValue = { value?: string; dietId?: string; strictness?: string };
+type DietValue = { value?: string; dietId?: string; strictness?: string; no_diets?: boolean };
 const isStrictness = (s: unknown): s is (typeof DIET_STRICTNESS)[number] => DIET_STRICTNESS.includes(s as never);
 
 /** A member diet, grounded to the `DIET_RULES` ids, carrying a strictness (default `strict`). */
@@ -440,22 +440,27 @@ class DietType implements FactType {
     return String(v.dietId ?? v.value ?? '');
   }
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'A member diet. Value: { value: <one of the listed diets>, strictness: strict|flexible }.', values: this.candidates };
+    return { name: this.name, flavor: this.flavor, description: 'A member diet. Value: { value: <one of the listed diets>, strictness: strict|flexible }; or { no_diets: true } for none.', values: this.candidates };
   }
   search(query: string): ValuePage {
     const { value } = coerce(query, this.candidates);
     return { values: value ? this.candidates.filter((c) => c.value === value) : this.candidates };
   }
   validate(value: unknown): ValidateResult {
+    const v = (value ?? {}) as DietValue;
+    if (v.no_diets === true) return { ok: true };
     const { value: id, closest } = coerce(this.idOf(value), this.candidates);
     return id ? { ok: true } : { ok: false, reason: `DIET: no match for "${this.idOf(value)}"`, closest };
   }
   normalize(value: unknown): unknown {
     const v = (value ?? {}) as DietValue;
+    if (v.no_diets === true) return 'none';
     return { dietId: coerce(this.idOf(value), this.candidates).value!, strictness: isStrictness(v.strictness) ? v.strictness : 'strict' };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const { dietId, strictness } = this.normalize(value) as { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] };
+    const normalized = this.normalize(value);
+    if (normalized === 'none') return; // "no diet" is real data with nothing to write; the task still fills
+    const { dietId, strictness } = normalized as { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] };
     await this.prefs.upsertDiet(memberId(subject), { dietId, strictness });
   }
   async retract(subject: Subject, value: unknown): Promise<boolean> {

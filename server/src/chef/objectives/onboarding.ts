@@ -76,7 +76,7 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
         '(an unconfirmed allergen is never saved). If the member confirms none, write no_allergens:true — "none" ' +
         'fills this task. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
     ),
-    member('diets', false, 'If strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
+    member('diets', false, 'If they follow no diet, write no_diets:true — "none" fills this task, so you never re-ask. Otherwise, if strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
     member(
       'food_preferences',
       false,
