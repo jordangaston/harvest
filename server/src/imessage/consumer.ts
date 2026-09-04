@@ -124,6 +124,13 @@ export class Consumer {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         // Continue iff pending inbound remains OR the last turn popped (a kick-off). No pending and no
         // pop ⇒ drained or parked — stop. Termination is bounded by the stack depth, so no spin.
+        // ponytail: a kick-off only fires by chaining off an in-process pop (lastPopped) — there is NO
+        // cold-start re-entry, so a crash between a pop and its kick-off strands the newly-active
+        // objective (its opener never sent, and no bare doorbell re-runs it). Dark until a successor
+        // objective exists (nothing is pushed below onboarding today, so completeAndPop returns null and
+        // this branch is unreachable). The first successor (meal-plan) WI must add a durable
+        // "awaiting-opener" marker on the popped objective and a re-entry arm here that resumes it — a
+        // status-only heuristic can't distinguish a stranded opener from an inbound-driven objective.
         if (pending.length === 0 && !lastPopped) return;
 
         // A kick-off (no pending inbound after a pop) has no trigger id — key its sends on the
