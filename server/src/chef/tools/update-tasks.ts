@@ -22,11 +22,12 @@ interface TaskWriteResult {
 }
 
 /**
- * Fills the active objective's `elicit` tasks the model has answers for. Resolves each `task_id` in
- * the turn's loaded tasks → its `fact`/`factType`/subject, routes the value through `writeFact`, and
- * on success sets the task `filled`. Batch every eligible task in one call; a `solo` task must be
- * sent alone (a batch containing one rejects). Reports per-task status and whether the objective is
- * now complete.
+ * Fills the active objective's tasks the model has answers for. An `elicit` resolves its
+ * `fact`/`factType`/subject and routes the value through `writeFact`; an `emit` (delivered content,
+ * no fact) is simply marked `filled`. Batch every eligible task in one call; a `solo` task must be
+ * sent alone (a batch containing one rejects). After the fills, if every required task is terminal
+ * the objective completes and pops in-loop, so the model learns it finished and stops. Reports
+ * per-task status and whether the objective is now complete/popped.
  */
 export class UpdateTasksTool implements ChefTool {
   readonly id = 'update_tasks';
@@ -56,29 +57,52 @@ export class UpdateTasksTool implements ChefTool {
         'every task you can answer this turn into one call — except a task marked (solo), which must go ' +
         'alone (a batch with one is rejected). For something the household mentions that no task asks ' +
         'about, use update_facts instead. Returns each task filled/rejected (with the reason and ' +
-        'closest valid values) and whether the objective is now complete.',
+        'closest valid values) and whether the objective is now complete (and popped — if so, stop ' +
+        'working it, it is done).',
       inputSchema,
       execute: async ({ updates }) => this.run(updates),
     });
   }
 
-  async run(updates: { task_id: string; value: unknown }[]): Promise<{ results: TaskWriteResult[]; objectiveComplete: boolean }> {
+  async run(updates: { task_id: string; value: unknown }[]): Promise<{ results: TaskWriteResult[]; objectiveComplete: boolean; popped: boolean }> {
     const byId = new Map(this.ctx.tasks.map((t) => [t.id, t]));
     const resolved = updates.map((u) => ({ update: u, task: byId.get(u.task_id) }));
 
     const soloInBatch = updates.length > 1 && resolved.some((r) => r.task?.solo);
     if (soloInBatch) {
       const results = updates.map<TaskWriteResult>((u) => ({ task_id: u.task_id, status: 'rejected', reason: 'a solo task must be sent alone, not batched with others' }));
-      return { results, objectiveComplete: await this.objectives.isComplete(this.ctx.objectiveId) };
+      return { results, objectiveComplete: await this.objectives.isComplete(this.ctx.objectiveId), popped: false };
     }
 
     const results: TaskWriteResult[] = [];
-    for (const { update, task } of resolved) results.push(await this.fillOne(update.task_id, update.value, task));
-    return { results, objectiveComplete: await this.objectives.isComplete(this.ctx.objectiveId) };
+    const emitFilled: string[] = []; // emit fills defer their status set into the completion txn below
+    for (const { update, task } of resolved) {
+      const r = await this.fillOne(update.task_id, update.value, task);
+      results.push(r);
+      if (r.status === 'filled' && task?.kind === 'emit') emitFilled.push(update.task_id);
+    }
+
+    // An emit fill has no `writeFact`, so its status set can share ONE transaction with the completion
+    // check + pop — no nested-tx/libSQL-deadlock conflict (unlike the elicit path, whose writeFact runs
+    // in its own tx). Set the emit(s) filled, then complete-and-pop iff the objective is now done.
+    let objectiveComplete = false;
+    let popped = false;
+    await this.db.transaction(async (tx) => {
+      if (emitFilled.length) await this.objectives.applyTaskUpdates(emitFilled.map((taskId) => ({ taskId, status: 'filled' as const })), tx);
+      objectiveComplete = await this.objectives.isComplete(this.ctx.objectiveId, tx);
+      if (objectiveComplete) {
+        await this.objectives.completeAndPop(this.ctx.objectiveId, tx);
+        popped = true;
+      }
+    });
+    return { results, objectiveComplete, popped };
   }
 
   private async fillOne(taskId: string, value: unknown, task?: Task): Promise<TaskWriteResult> {
     if (!task) return { task_id: taskId, status: 'rejected', reason: 'not an eligible task this turn' };
+    // An emit delivers content — no fact to write. Mark it filled (status set deferred to run's
+    // completion txn); its bubbles ship via the send tool.
+    if (task.kind === 'emit') return { task_id: taskId, status: 'filled' };
     if (task.kind !== 'elicit' || !task.factType) return { task_id: taskId, status: 'rejected', reason: 'not a fillable elicit task' };
 
     const type = this.factTypes.get(task.factType);

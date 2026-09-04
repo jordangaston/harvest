@@ -34,7 +34,7 @@ class TwoBubbleChef {
     if (pending.length === 0) return null;
     await sink.send({ kind: "text", text: "first" });
     await sink.send({ kind: "text", text: "second" });
-    return { confirmTasks: [], cursorTo: pending[pending.length - 1]!.id, objectiveId: "", delivered: true };
+    return { confirmTasks: [], cursorTo: pending[pending.length - 1]!.id, objectiveId: "", delivered: true, popped: false };
   }
 }
 

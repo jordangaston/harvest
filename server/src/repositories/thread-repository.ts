@@ -164,7 +164,7 @@ export class ThreadRepository {
       threadId: string;
       body: string | null;
       messageGuid: string;
-      triggerId: string;
+      triggerId: string | null;
       type?: 'text' | 'reaction';
       reactionEmoji?: string | null;
       targetGuid?: string | null;

@@ -59,7 +59,7 @@ describe('chat rename after household creation (WI-4C AC1, AC2)', () => {
     const chef: Chef = {
       respond: async (_threadId, sink): Promise<ChefReply> => {
         await sink.send({ kind: 'text', text: 'a reply' });
-        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true };
+        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true, popped: false };
       },
     };
     const sender = new StubSpectrumSender(); // spaceType defaults to 'group'
@@ -85,7 +85,7 @@ describe('contact card on first message', () => {
     const chef: Chef = {
       respond: async (_threadId, sink): Promise<ChefReply> => {
         await sink.send({ kind: 'text', text: 'a reply' });
-        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true };
+        return { confirmTasks: [], cursorTo: cursor, objectiveId: '', delivered: true, popped: false };
       },
     };
     const sender = new StubSpectrumSender();

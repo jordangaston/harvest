@@ -10,9 +10,11 @@ import { TAPBACK_GLYPHS } from '../chef/types.js';
 
 /**
  * The Consumer's per-turn live outbound channel (increment 2). Each `send` journals an outbound row
- * tagged `trigger_id` + a deterministic `${triggerId}#${ordinal}` guid (`onConflictDoNothing`), then
+ * tagged `trigger_id` + a deterministic `${guidPrefix}#${ordinal}` guid (`onConflictDoNothing`), then
  * flushes it live through the `Sender`. On a redelivered, re-run turn the same guid already exists
- * and is already sent → the send is skipped, so the household sees each bubble exactly once.
+ * and is already sent → the send is skipped, so the household sees each bubble exactly once. The
+ * `guidPrefix` is the trigger inbound id on a normal turn, or the objective id on a triggerless
+ * kick-off (no inbound to key on) — so a redelivered kick-off dedupes the same (AC-9).
  */
 class LiveOutboundSink implements OutboundSink {
   private ordinal = 0;
@@ -22,11 +24,12 @@ class LiveOutboundSink implements OutboundSink {
     private readonly sender: Sender,
     private readonly threadId: string,
     private readonly chatGuid: string,
-    private readonly triggerId: string,
+    private readonly guidPrefix: string,
+    private readonly triggerId: string | null,
   ) {}
 
   async send(event: ChatEvent): Promise<void> {
-    const messageGuid = `${this.triggerId}#${this.ordinal++}`;
+    const messageGuid = `${this.guidPrefix}#${this.ordinal++}`;
     const row =
       event.kind === 'tapback'
         ? { type: 'reaction' as const, body: null, reactionEmoji: TAPBACK_GLYPHS[event.emoji], targetGuid: event.target }
@@ -113,26 +116,44 @@ export class Consumer {
       // CONTACT CARD on the first message so the household can save her (DM + group).
       let renamePending = thread.renamedAt === null;
       let cardPending = thread.cardedAt === null;
+      // Whether the previous turn popped its objective — drives the kick-off continuation (AC-4/5):
+      // a popped turn runs one more iteration against the newly-active objective even with no pending
+      // inbound; a turn that only parked stops the loop.
+      let lastPopped = false;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
-        if (pending.length === 0) return; // drained — nothing left
-        // The trigger id tags every outbound row this turn and is where the cursor lands — the newest
-        // pending inbound. On redelivery the same trigger re-derives the same deterministic send guids.
-        const triggerId = pending[pending.length - 1]!.id;
+        // Continue iff pending inbound remains OR the last turn popped (a kick-off). No pending and no
+        // pop ⇒ drained or parked — stop. Termination is bounded by the stack depth, so no spin.
+        // ponytail: a kick-off only fires by chaining off an in-process pop (lastPopped) — there is NO
+        // cold-start re-entry, so a crash between a pop and its kick-off strands the newly-active
+        // objective (its opener never sent, and no bare doorbell re-runs it). Dark until a successor
+        // objective exists (nothing is pushed below onboarding today, so completeAndPop returns null and
+        // this branch is unreachable). The first successor (meal-plan) WI must add a durable
+        // "awaiting-opener" marker on the popped objective and a re-entry arm here that resumes it — a
+        // status-only heuristic can't distinguish a stranded opener from an inbound-driven objective.
+        if (pending.length === 0 && !lastPopped) return;
 
-        // Acknowledge receipt: mark the messages we're about to answer as read.
-        await this.sender.markRead(thread.chatGuid, pending.map((m) => m.messageGuid));
+        // A kick-off (no pending inbound after a pop) has no trigger id — key its sends on the
+        // now-active objective id (AC-9). No active objective ⇒ the stack emptied; nothing to kick off.
+        const kickOff = pending.length === 0;
+        const active = kickOff ? await this.objectives.loadActive(threadId) : null;
+        if (kickOff && !active) return;
+        // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids;
+        // kick-off: the objective id keys the guids, and the row carries no trigger id.
+        const triggerId = kickOff ? null : pending[pending.length - 1]!.id;
+        const guidPrefix = kickOff ? active!.objective.id : triggerId!;
 
-        const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, triggerId);
+        // Acknowledge receipt: mark the messages we're about to answer as read (none on a kick-off).
+        if (!kickOff) await this.sender.markRead(thread.chatGuid, pending.map((m) => m.messageGuid));
+
+        const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, guidPrefix, triggerId);
 
         // Keep the typing indicator up while the chef composes + sends live, then we commit.
-        const cursorTo = await this.sender.responding(thread.chatGuid, async () => {
+        const outcome = await this.sender.responding(thread.chatGuid, async () => {
           const reply = await this.chef.respond(threadId, sink);
           if (!reply) return null; // nothing to say this turn — no commit, no send
-          // Send proves delivery: a fact-less confirm (emit filled / ack asked) and completion may
-          // only fire when the turn actually delivered a bubble. An empty turn (reasoning-agent
-          // MAX_ATTEMPTS fallback, or a model that didn't deliver the close) must NOT confirm the
-          // emit or pop the objective — the close was never sent.
+          // Send proves delivery: the fact-less ack confirm and the AC-8 safety net may only fire when
+          // the turn actually delivered a bubble.
           const delivered = reply.delivered;
 
           // The household exists from the first inbound now, so household-existence no longer marks
@@ -141,23 +162,21 @@ export class Consumer {
           const hasRoster =
             thread.householdId !== null && (await this.households.loadMembers(thread.householdId)).length > 0;
           const renameNow = renamePending && hasRoster;
-          const cardNow = cardPending; // the first turn we answer shares Chef's card, once per thread
+          const cardNow = !kickOff && cardPending; // the first turn we ANSWER shares Chef's card
 
           await this.db.transaction(async (tx) => {
-            // Confirm the fact-less tasks now the turn's bubbles went out: an emit's just delivered
-            // (→ filled); the explainer-ack elicit is asked when first delivered and filled by the
-            // next inbound. ponytail: onboarding's gate is linear (ack first+solo, close last), so
-            // "an eligible fact-less task was addressed this turn" is a safe status-driven heuristic.
-            if (delivered) await this.confirmTasks(reply.confirmTasks, tx);
-            // Completion is a computable predicate — when every required task is terminal the
-            // objective completes and pops (the next suspended one, if any, activates). Only when a
-            // bubble went out this turn: an empty turn can't have delivered the close.
-            const completedNow =
-              delivered && !!reply.objectiveId && (await this.objectives.isComplete(reply.objectiveId, tx));
-            if (completedNow) await this.objectives.completeAndPop(reply.objectiveId, tx);
+            // Confirm the explainer-ack now the turn's bubbles went out: asked when first delivered,
+            // filled by the next inbound. The emit is no longer confirmed here — it completes in-loop
+            // via update_tasks (the pop lives in the tool). The AC-8 safety net below covers a
+            // delivered-but-unmarked required emit so the terminal flow can't stall.
+            if (delivered) await this.confirmAcks(reply.confirmTasks, tx);
+            // AC-8 only when the turn did NOT already pop in-loop — a popped turn marked its emit via
+            // update_tasks, so re-filling/re-popping here would double-activate a suspended sibling.
+            if (delivered && !reply.popped) await this.completeDeliveredEmit(reply.confirmTasks, reply.objectiveId, tx);
             // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
-            // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink).
-            await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
+            // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink). A kick-off
+            // consumed no inbound (cursorTo null) so it advances nothing.
+            if (reply.cursorTo !== null) await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
             // Rename once the household exists; stamp even for a DM (which no-ops on send) so it never
             // retries. Stamp the contact-card gate on the first answered turn. (Confetti/fireworks
             // effects removed — WI-4B deferred.)
@@ -171,25 +190,42 @@ export class Consumer {
           if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
           // Share Chef's contact card on the first message so the household can save her.
           if (cardNow) await this.sender.sendContactCard(thread.chatGuid);
-          return reply.cursorTo;
+          return { cursorTo: reply.cursorTo, popped: reply.popped };
         });
-        if (cursorTo === null) return; // chef had nothing to answer — stop draining
-        cursor = cursorTo; // re-check for messages that landed mid-turn before releasing the lock
+        if (outcome === null) return; // chef had nothing to answer — stop draining
+        lastPopped = outcome.popped;
+        if (outcome.cursorTo !== null) cursor = outcome.cursorTo; // advance past mid-turn arrivals
       }
     });
   }
 
   /**
-   * Confirms the turn's fact-less tasks now that its bubbles are committing (send proves delivery).
-   * An `emit` is marked `filled` — its content just went out. The explainer-ack `elicit` is marked
-   * `asked` the turn it is first delivered (status `unasked`), and `filled` on the next inbound (its
-   * status is already `asked`) — the reply is the acknowledgment, unblocking the gated tasks.
+   * Confirms the turn's explainer-ack `elicit` now that its bubbles are committing (send proves
+   * delivery): marked `asked` the turn it is first delivered (status `unasked`), and `filled` on the
+   * next inbound (its status is already `asked`) — the reply is the acknowledgment, unblocking the
+   * gated tasks. Emits are NOT confirmed here — they complete in-loop via `update_tasks`.
    */
-  private async confirmTasks(confirm: ConfirmTask[], tx: Parameters<typeof ObjectiveRepository.prototype.applyTaskUpdates>[1]): Promise<void> {
-    const updates: TaskUpdate[] = confirm.map((t) => ({
-      taskId: t.taskId,
-      status: t.kind === 'emit' ? 'filled' : t.status === 'asked' ? 'filled' : 'asked',
-    }));
+  private async confirmAcks(confirm: ConfirmTask[], tx: Tx): Promise<void> {
+    const updates: TaskUpdate[] = confirm
+      .filter((t) => t.kind === 'elicit')
+      .map((t) => ({ taskId: t.taskId, status: t.status === 'asked' ? 'filled' : 'asked' }));
     if (updates.length) await this.objectives.applyTaskUpdates(updates, tx);
   }
+
+  /**
+   * AC-8 safety net. When a required `emit`'s content was delivered this turn but the model left it
+   * unmarked (didn't fill it via `update_tasks`), mark it `filled` and, if the objective is now
+   * complete, pop it — so the terminal onboarding flow can't stall waiting on an inbound that may
+   * never come. Scoped strictly to a delivered, still-unmarked REQUIRED emit; the normal path pops
+   * in-loop and this no-ops.
+   */
+  private async completeDeliveredEmit(confirm: ConfirmTask[], objectiveId: string, tx: Tx): Promise<void> {
+    const unmarkedEmits = confirm.filter((t) => t.kind === 'emit' && t.status !== 'filled' && t.status !== 'defaulted');
+    if (unmarkedEmits.length === 0) return;
+    await this.objectives.applyTaskUpdates(unmarkedEmits.map((t) => ({ taskId: t.taskId, status: 'filled' as const })), tx);
+    if (await this.objectives.isComplete(objectiveId, tx)) await this.objectives.completeAndPop(objectiveId, tx);
+  }
 }
+
+/** A drizzle transaction client — the type each in-transaction repo write receives. */
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
