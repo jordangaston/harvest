@@ -4,10 +4,16 @@ import type { UserPreferences } from '../models/user-preferences.js';
 import type { RankableRecipe } from '../ranking/types.js';
 import { RecipeRepository } from '../repositories/recipe-repository.js';
 import { MealPlanRepository } from '../repositories/meal-plan-repository.js';
+import { CookbookRepository } from '../repositories/cookbook-repository.js';
 import { RankingEngine } from '../ranking/ranking-engine.js';
 import { recipeMatches } from '../ranking/directive-match.js';
 import { isStandaloneMeal } from '../ranking/course.js';
 import type { CandidateRecipe, SlotCriteria, CriteriaDimension } from './types.js';
+
+/** Tier bonus folded into the candidate score so the household's own recipes lead the global corpus:
+ * imported (owned) ≻ liked ≻ saved ≻ global. The step (10) dwarfs the ranking range (0–1) and the MMR
+ * diversity swing (≤1), so tier is the primary sort and diversity only reorders within a tier. */
+const TIER_BONUS = { imported: 30, liked: 20, saved: 10, global: 0 } as const;
 
 /** A meal slot → the recipe `meal_type` facet values that fill it (brunch counts as breakfast). */
 const MEAL_TYPE_VALUES: Record<MealSlot, string[]> = {
@@ -31,11 +37,12 @@ export class CandidateProvider {
   constructor(
     private readonly recipes: RecipeRepository,
     private readonly mealPlan: MealPlanRepository,
+    private readonly cookbooks: CookbookRepository,
     private readonly ranking: RankingEngine,
   ) {}
 
   static create(db: Database): CandidateProvider {
-    return new CandidateProvider(RecipeRepository.create(db), MealPlanRepository.create(db), RankingEngine.create());
+    return new CandidateProvider(RecipeRepository.create(db), MealPlanRepository.create(db), CookbookRepository.create(db), RankingEngine.create());
   }
 
   /**
@@ -54,9 +61,12 @@ export class CandidateProvider {
     prefs: UserPreferences,
     opts: { exclude?: ReadonlySet<string>; criteria?: SlotCriteria; cooldownDays?: number } = {},
   ): Promise<CandidateRecipe[]> {
-    const [pool, recent] = await Promise.all([
+    const [pool, recent, owned, liked, saved] = await Promise.all([
       this.recipes.listDeckCandidates(userId, MEAL_TYPE_VALUES[meal]),
       this.recentlyCooked(userId, opts.cooldownDays ?? MEAL_COOLDOWN_DAYS),
+      this.recipes.ownedRecipeIds(userId),
+      this.cookbooks.systemCookbookRecipeIds(userId, 'liked'),
+      this.cookbooks.systemCookbookRecipeIds(userId, 'saved'),
     ]);
     const byId = new Map(pool.map((p) => [p.recipe.id, p]));
     const criteria = opts.criteria;
@@ -71,9 +81,11 @@ export class CandidateProvider {
       const p = byId.get(recipeId)!;
       if (mainsOnly && !isStandaloneMeal(p.recipe)) continue;
       if (criteria && !matchesCriteria(p.recipe, criteria)) continue;
-      out.push({ recipeId, score, categories: p.recipe.categories, card: p.card });
+      // Fold the tier bonus into the score so the household's own recipes lead the global corpus —
+      // the first plan should prefer what they imported/liked. MMR/pickMains sort + diversify on this.
+      out.push({ recipeId, score: TIER_BONUS[tierFor(recipeId, owned, liked, saved)] + score, categories: p.recipe.categories, card: p.card });
     }
-    return out;
+    return out.sort((a, b) => b.score - a.score);
   }
 
   /** Recipe ids cooked in the last `cooldownDays` (up to today) — the cross-week recency exclusion. */
@@ -84,6 +96,14 @@ export class CandidateProvider {
     const entries = await this.mealPlan.listRange(userId, start, end);
     return new Set(entries.map((e) => e.recipe.id));
   }
+}
+
+/** Highest applicable tier wins: owned (imported) ≻ liked ≻ saved ≻ global. */
+function tierFor(id: string, owned: Set<string>, liked: Set<string>, saved: Set<string>): keyof typeof TIER_BONUS {
+  if (owned.has(id)) return 'imported';
+  if (liked.has(id)) return 'liked';
+  if (saved.has(id)) return 'saved';
+  return 'global';
 }
 
 /** Whether a recipe satisfies an ad-hoc criteria: every `include` facet must match, no `exclude`

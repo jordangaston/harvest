@@ -80,6 +80,25 @@ describe('TC-1 — generate composes plates (main + directive sides)', () => {
   });
 });
 
+describe('F2 — tier bonus: the household own recipes lead the global corpus', () => {
+  it('picks the owned recipe over a higher-ranking-score global one for the slot', async () => {
+    const { userId, householdId } = await seedUserAndHousehold();
+    const recipes = RecipeRepository.create(db);
+    // A global recipe carrying the owner's liked cuisine (so it out-ranks on pure ranking score) vs a
+    // plain owned recipe. The tier bonus (imported) must still win the slot for the owned one.
+    await PreferenceRepository.create(db).upsertFoodPref(userId, { dimension: 'cuisine', value: 'italian', scope: 'recipe', direction: 'more', strength: 'firm' });
+    const globalId = await recipes.persist(dinnerRecipe('Global Pasta', { dishType: ['main_course'], cuisine: ['italian'] }, 30), null);
+    const ownedId = await recipes.persist(dinnerRecipe('My Stew', { dishType: ['main_course'] }, 40), userId);
+    await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
+
+    const planned = await MealPlanGeneratorService.create(db).generate(userId, householdId, '2026-09-10', '2026-09-16');
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]!.recipes[0]!.id).toBe(ownedId); // owned (imported tier) beats the global corpus
+    expect(planned[0]!.recipes[0]!.id).not.toBe(globalId);
+  });
+});
+
 describe('TC-2 — criteria filter + more-options pagination', () => {
   it('returns only fish ≤30min, then fresh options when the shown ids are excluded', async () => {
     const { userId, householdId } = await seedUserAndHousehold();

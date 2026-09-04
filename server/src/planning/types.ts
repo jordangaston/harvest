@@ -19,8 +19,8 @@ export interface SlotCriteria {
   maxTotalMinutes?: number;
 }
 
-/** A scored recipe eligible for a slot: its ranking score, the facets MMR diversifies on, and its
- * card so the presenting tool needs no second fetch. */
+/** A scored recipe eligible for a slot: its score (tier bonus + ranking score, so the household's own
+ * recipes lead), the facets MMR diversifies on, and its card so the presenting tool needs no second fetch. */
 export interface CandidateRecipe {
   recipeId: string;
   score: number;
