@@ -106,11 +106,13 @@ export class Consumer {
 
     await this.lock.withThreadLock(threadId, async () => {
       let cursor = thread.lastProcessedId;
-      // Confetti/fireworks/contact-card effects are removed for now (WI-4B/4C deferred) — they fired on
-      // a premature completion. The one-time RENAME gate stays: rename the chat to "Meal Planning" the
-      // turn the household's roster is first set (group chats only — a DM no-ops). Seeded null ⇒ pending, flipped
-      // once fired so the drain loop can't double-fire, and stamped in-txn so redelivery can't re-fire.
+      // Confetti/fireworks effects stay deferred (WI-4B) — they fired on a premature completion. Two
+      // one-time gates remain, both seeded null ⇒ pending, flipped once fired so the drain loop can't
+      // double-fire, and stamped in-txn so redelivery can't re-fire: RENAME the chat to "Meal Planning"
+      // the turn the household's roster is first set (group only — a DM no-ops), and share Chef's
+      // CONTACT CARD on the first message so the household can save her (DM + group).
       let renamePending = thread.renamedAt === null;
+      let cardPending = thread.cardedAt === null;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         if (pending.length === 0) return; // drained — nothing left
@@ -139,6 +141,7 @@ export class Consumer {
           const hasRoster =
             thread.householdId !== null && (await this.households.loadMembers(thread.householdId)).length > 0;
           const renameNow = renamePending && hasRoster;
+          const cardNow = cardPending; // the first turn we answer shares Chef's card, once per thread
 
           await this.db.transaction(async (tx) => {
             // Confirm the fact-less tasks now the turn's bubbles went out: an emit's just delivered
@@ -156,13 +159,18 @@ export class Consumer {
             // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink).
             await this.threads.advanceCursor(threadId, reply.cursorTo, tx);
             // Rename once the household exists; stamp even for a DM (which no-ops on send) so it never
-            // retries. (Confetti/fireworks/contact-card effects removed — WI-4B/4C deferred.)
+            // retries. Stamp the contact-card gate on the first answered turn. (Confetti/fireworks
+            // effects removed — WI-4B deferred.)
             if (renameNow) await this.threads.markRenamed(threadId, new Date(), tx);
+            if (cardNow) await this.threads.markCarded(threadId, new Date(), tx);
           });
 
           renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
+          cardPending = cardPending && !cardNow; // fired once; don't re-card a later turn
           // Rename the chat to "Meal Planning" once the roster is set (group only; DM no-ops).
           if (renameNow) await this.sender.renameChat(thread.chatGuid, 'Meal Planning');
+          // Share Chef's contact card on the first message so the household can save her.
+          if (cardNow) await this.sender.sendContactCard(thread.chatGuid);
           return reply.cursorTo;
         });
         if (cursorTo === null) return; // chef had nothing to answer — stop draining
