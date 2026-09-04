@@ -17,6 +17,8 @@ function planWindow(): { start: string; end: string } {
 }
 
 const meal = z.enum(['breakfast', 'lunch', 'dinner', 'snack']);
+/** A calendar date, YYYY-MM-DD — rejected with a clear tool error (not a silent 404) if malformed. */
+const dateParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
 const facetMap = z.record(z.enum(CRITERIA_DIMENSIONS), z.array(z.string())).optional();
 const criteriaSchema = z
   .object({ include: facetMap, exclude: facetMap, max_total_minutes: z.number().int().positive().optional() })
@@ -100,7 +102,7 @@ export class SlotOptionsTool implements ChefTool {
         '`limit` caps how many to return; for "more options", call again with the ids you already showed ' +
         'in `exclude_ids`. Returns { options: [{ id, title }] }. Reads only — use add_recipe_to_slot to place one.',
       inputSchema: z.object({
-        date: z.string(),
+        date: dateParam,
         meal,
         criteria: criteriaSchema,
         limit: z.number().int().positive().max(10).default(3),
@@ -148,7 +150,7 @@ export class AddRecipeToSlotTool implements ChefTool {
         'Put a recipe into a slot — a main or a side the household chose. Pass `date` (YYYY-MM-DD), `meal`, ' +
         'and `recipe_id` (an id from slot_options or the plan). It is added as their pick, so a re-plan ' +
         'leaves it alone. Returns { added: true } or a not-found rejection for an unknown recipe.',
-      inputSchema: z.object({ date: z.string(), meal, recipe_id: z.string() }),
+      inputSchema: z.object({ date: dateParam, meal, recipe_id: z.string() }),
       execute: async ({ date, meal: m, recipe_id }) => this.run(date, m, recipe_id),
     });
   }
@@ -191,7 +193,7 @@ export class RemoveRecipeFromSlotTool implements ChefTool {
         'Take a recipe out of a slot. Pass `date` (YYYY-MM-DD), `meal`, and `recipe_id`. Removes just that ' +
         'one entry (main or side); anything else in the slot stays. Returns { removed: true } or a ' +
         'not-found rejection if that recipe is not in the slot.',
-      inputSchema: z.object({ date: z.string(), meal, recipe_id: z.string() }),
+      inputSchema: z.object({ date: dateParam, meal, recipe_id: z.string() }),
       execute: async ({ date, meal: m, recipe_id }) => this.run(date, m, recipe_id),
     });
   }

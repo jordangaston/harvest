@@ -125,6 +125,41 @@ describe('TC-2 — criteria filter + more-options pagination', () => {
   });
 });
 
+describe('F4 — slot_options pagination returns a fresh, non-overlapping page', () => {
+  it('a second call excluding the first page returns different options', async () => {
+    const { userId, householdId } = await seedUserAndHousehold();
+    const recipes = RecipeRepository.create(db);
+    for (let i = 0; i < 6; i++) await recipes.persist(dinnerRecipe(`Dinner ${i}`, { dishType: ['main_course'] }, 30), userId);
+    await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
+    const gen = MealPlanGeneratorService.create(db);
+
+    const first = await gen.slotOptions(userId, '2026-09-10', 'dinner', { limit: 3 });
+    expect(first.length).toBe(3);
+    const shown = new Set(first.map((o) => o.card.id));
+    const second = await gen.slotOptions(userId, '2026-09-10', 'dinner', { limit: 3, exclude: shown });
+
+    expect(second.length).toBe(3);
+    expect(second.every((o) => !shown.has(o.card.id))).toBe(true); // fresh page, no overlap
+  });
+});
+
+describe('F3 — slot_options excludes what is already planned that week', () => {
+  it('never suggests a recipe already on the plan in the surrounding week', async () => {
+    const { userId, householdId } = await seedUserAndHousehold();
+    const recipes = RecipeRepository.create(db);
+    const plannedId = await recipes.persist(dinnerRecipe('Already Planned', { dishType: ['main_course'] }, 30), userId);
+    await recipes.persist(dinnerRecipe('Fresh Option', { dishType: ['main_course'] }, 30), userId);
+    await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
+
+    // Plan `plannedId` on a nearby day, then ask for options on another day the same week.
+    await MealPlanService.create(db).add(userId, '2026-09-11', 'dinner', plannedId, 'generated');
+    const options = await MealPlanGeneratorService.create(db).slotOptions(userId, '2026-09-10', 'dinner', { limit: 5 });
+
+    expect(options.some((o) => o.card.id === plannedId)).toBe(false); // already on the plan → excluded
+    expect(options.some((o) => o.card.title === 'Fresh Option')).toBe(true);
+  });
+});
+
 describe('TC-3 — entry-level add/remove; a manual pick survives a regenerate', () => {
   it('removes a side, adds a manual replacement, and the manual entry survives generate', async () => {
     const { userId, householdId } = await seedUserAndHousehold();

@@ -15,6 +15,9 @@ import { HouseholdPreferenceRepository } from '../repositories/household-prefere
 import type { CandidateRecipe, Slot, SlotCriteria } from './types.js';
 
 const MEALS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+/** Days on each side of a slot treated as "this week" for slot-options uniqueness — 7 covers the
+ * whole containing week wherever `date` falls. */
+const PLAN_WINDOW_DAYS = 7;
 
 /** One filled slot of the generated plan: its date/meal and the recipe cards in it, main-first. */
 export interface PlannedSlot {
@@ -102,7 +105,11 @@ export class MealPlanGeneratorService {
     opts: { criteria?: SlotCriteria; limit: number; exclude?: ReadonlySet<string> },
   ): Promise<CandidateRecipe[]> {
     const prefs = await this.userPrefs.getPreferences(userId);
-    const pool = await this.candidates.candidates(userId, meal, prefs, { criteria: opts.criteria, exclude: opts.exclude });
+    // Never suggest something already on the plan that week: exclude recipe ids planned in the ±7-day
+    // window around this slot, on top of the caller's "more options" exclusions.
+    const planned = await this.mealPlan.listRange(userId, shiftDate(date, -PLAN_WINDOW_DAYS), shiftDate(date, PLAN_WINDOW_DAYS));
+    const exclude = new Set([...(opts.exclude ?? []), ...planned.map((e) => e.recipe.id)]);
+    const pool = await this.candidates.candidates(userId, meal, prefs, { criteria: opts.criteria, exclude });
     return mmrTopN(pool, opts.limit);
   }
 
@@ -116,6 +123,9 @@ export class MealPlanGeneratorService {
 
 
 // ── pure helpers ────────────────────────────────────────────────────────────
+
+/** A YYYY-MM-DD date shifted by `days` (UTC midnight, DST-safe). */
+const shiftDate = (date: string, days: number) => new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
 
 /** Inclusive YYYY-MM-DD dates from start to end. */
 function dateRange(start: string, end: string): string[] {
