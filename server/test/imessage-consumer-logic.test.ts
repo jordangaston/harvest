@@ -690,3 +690,42 @@ describe("TC-6: a stranded kick-off recovers via the marker (AC-7)", () => {
     expect((await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!.status).toBe("active");
   });
 });
+
+describe("F1: a silent kick-off turn (tool work, no bubble) terminates instead of spinning", () => {
+  it("attempts the marker-carrying objective once per handle(), leaves the marker set for a later doorbell", async () => {
+    const { threadId, ownerId } = await seedThread();
+    await seedInbound(threadId, ownerId, "hi"); // consumed by the pop turn so the kick-off has no pending inbound
+    const { objA, taskA, objB } = await seedTwoObjectiveStack(threadId);
+    const [inbound] = await db.select().from(threadMessages).where(eq(threadMessages.direction, "inbound"));
+
+    // Chef: pop A (stamps B's marker), then every B kick-off does silent tool work — never sends, never pops.
+    let respondsForB = 0;
+    const chef: Chef = {
+      respond: async (tid, sink): Promise<ChefReply | null> => {
+        const store = ObjectiveRepository.create(db);
+        const active = (await store.loadActive(tid))!;
+        if (active.objective.id === objA) {
+          await sink.send({ kind: "text", text: "got it" });
+          await db.transaction(async (tx) => {
+            await store.applyTaskUpdates([{ taskId: taskA, status: "filled" }], tx);
+            await store.completeAndPop(objA, tx);
+          });
+          return { confirmTasks: [], cursorTo: inbound!.id, objectiveId: objA, delivered: true, popped: true };
+        }
+        respondsForB++; // a silent turn: tool work happened but no bubble shipped, nothing popped
+        return { confirmTasks: [], cursorTo: null, objectiveId: active.objective.id, delivered: false, popped: false };
+      },
+    };
+
+    // handle() #1: pops A, attempts B's kick-off once, sees no delivery → terminates (no spin).
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+    expect(respondsForB).toBe(1); // B's kick-off attempted exactly once — the spin is gone
+    const bAfter = (await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!;
+    expect(bAfter.status).toBe("active");
+    expect((bAfter.context as { kickoffPendingAt?: string } | null)?.kickoffPendingAt).toBeDefined(); // marker RETAINED
+
+    // A later doorbell re-enters via the retained marker and attempts once more.
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+    expect(respondsForB).toBe(2);
+  });
+});

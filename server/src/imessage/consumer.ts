@@ -120,14 +120,17 @@ export class Consumer {
       // a popped turn runs one more iteration against the newly-active objective even with no pending
       // inbound; a turn that only parked stops the loop.
       let lastPopped = false;
+      // Objective ids we've already attempted a kick-off for this handle() call. At most ONE kick-off
+      // attempt per objective per doorbell: a silent turn (tool work, no bubble) must not re-enter the
+      // same objective under the lock. A retained marker lets a LATER doorbell retry; a crash still
+      // recovers, but the spin can't.
+      const kickedOff = new Set<string>();
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         // With no pending inbound, a kick-off runs only when the last turn popped (chain a fresh pop
         // into its opener) OR the active objective carries the durable kickoff-pending marker (resume a
         // kick-off stranded by a crash between an earlier pop and its opener — spec AC-7). Load the
         // active objective to read that marker; no pending, no pop, no marker ⇒ drained or parked, stop.
-        // Termination is bounded by stack depth (a pop clears the marker's predecessor; the opener
-        // clears the marker), so no spin.
         const kickOff = pending.length === 0;
         const active = kickOff ? await this.objectives.loadActive(threadId) : null;
         const kickoffPending = active?.objective.context?.kickoffPendingAt !== undefined;
@@ -136,6 +139,11 @@ export class Consumer {
         // A kick-off (no pending inbound) has no trigger id — key its sends on the now-active objective
         // id (AC-9). No active objective ⇒ the stack emptied; nothing to kick off.
         if (kickOff && !active) return;
+        // One kick-off attempt per objective per handle(): if we've already tried this objective's
+        // opener this call and it's still up (silent turn — no bubble, no pop, marker retained), stop.
+        // A later doorbell re-enters via the retained marker. Termination is bounded either way.
+        if (kickOff && kickedOff.has(active!.objective.id)) return;
+        if (kickOff) kickedOff.add(active!.objective.id);
         // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids;
         // kick-off: the objective id keys the guids, and the row carries no trigger id.
         const triggerId = kickOff ? null : pending[pending.length - 1]!.id;
