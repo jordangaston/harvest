@@ -2,6 +2,7 @@ import type { Database } from '../../db.js';
 import {
   GROCERY_STORES,
   GROCERY_SHOPPING_DAYS,
+  DAYS_OF_WEEK,
   MAJOR_ALLERGENS,
   ALLERGEN_SEVERITIES,
   DIET_STRICTNESS,
@@ -188,25 +189,48 @@ class WeeklyBudgetCentsType implements FactType {
 }
 
 /** How many days a week the household cooks (a non-negative count). */
-class CookDaysCountType implements FactType {
-  readonly name = 'COOK_DAYS_COUNT';
-  readonly flavor = 'scalar' as const;
+/** Canonical Mon→Sun order for cook nights, and a loose day-name normalizer ("Mon"/"mondays" → monday). */
+const WEEK_ORDER = DAYS_OF_WEEK;
+function canonDay(d: unknown): (typeof WEEK_ORDER)[number] | null {
+  if (typeof d !== 'string') return null;
+  const s = d.trim().toLowerCase().replace(/s$/, '');
+  return WEEK_ORDER.find((w) => w === s || w.startsWith(s.slice(0, 3))) ?? null;
+}
+
+/** Which nights the household cooks, as weekdays — NOT a count and NOT weekly_meals. A plain number N
+ *  is accepted as a fallback and becomes the first N weekdays from Monday when specific nights aren't
+ *  given; the cook-nights count is just the array length. */
+class CookDaysType implements FactType {
+  readonly name = 'COOK_DAYS';
+  readonly flavor = 'catalog' as const;
   constructor(private readonly prefs: HouseholdPreferenceRepository) {}
 
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'How many days a week the household cooks.', rule: 'a non-negative whole number of days' };
+    return {
+      name: this.name,
+      flavor: this.flavor,
+      description:
+        'Which nights the household actively cooks, as weekdays — distinct from weekly_meals, which counts meals. ' +
+        'E.g. they plan 4 dinners but cook 3 nights (mon/tue/wed); leftovers or eating out cover the rest.',
+      rule: 'an array of weekday names (monday…sunday). A plain number N is also accepted and becomes the first N weekdays from Monday.',
+      values: WEEK_ORDER.map((d) => ({ value: d, label: labelFor(d) })),
+    };
   }
   validate(value: unknown): ValidateResult {
-    return Number.isInteger(value) && (value as number) >= 0 ? { ok: true } : { ok: false, reason: `${this.name}: needs a non-negative whole number` };
+    if (typeof value === 'number') return Number.isInteger(value) && value >= 0 && value <= 7 ? { ok: true } : { ok: false, reason: `${this.name}: a cook-night count must be 0-7` };
+    if (Array.isArray(value)) return value.every((d) => canonDay(d) !== null) ? { ok: true } : { ok: false, reason: `${this.name}: each entry must be a weekday (monday…sunday)` };
+    return { ok: false, reason: `${this.name}: needs an array of weekdays, or a number of nights` };
   }
-  normalize(value: unknown): number {
-    return value as number;
+  normalize(value: unknown): (typeof WEEK_ORDER)[number][] {
+    if (typeof value === 'number') return WEEK_ORDER.slice(0, value);
+    const days = new Set((value as unknown[]).map(canonDay).filter((d): d is (typeof WEEK_ORDER)[number] => d !== null));
+    return WEEK_ORDER.filter((d) => days.has(d)); // dedupe + canonical Mon→Sun order
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    await this.prefs.savePreferences(householdId(subject), { cookDaysCount: this.normalize(value) });
+    await this.prefs.savePreferences(householdId(subject), { cookDays: this.normalize(value) });
   }
   async read(subject: Subject): Promise<unknown> {
-    return (await this.prefs.getPreferences(householdId(subject))).cookDaysCount;
+    return (await this.prefs.getPreferences(householdId(subject))).cookDays;
   }
 }
 
@@ -234,26 +258,31 @@ class EatsLeftoversType implements FactType {
 }
 
 /** Per-meal counts to plan each week ({ dinner: 5, … }); missing meals default to 0. */
-class WeeklyMealsType implements FactType {
-  readonly name = 'WEEKLY_MEALS';
+/**
+ * One weekly meal count (e.g. dinners per week) as an INDEPENDENT scalar fact — so writing dinners
+ * never clobbers lunches. Backed by the household's `weekly_meals` object via read-merge-write: it
+ * touches only its own slot and leaves the others intact. One class, instantiated per meal.
+ */
+class WeeklyMealCountType implements FactType {
   readonly flavor = 'scalar' as const;
-  constructor(private readonly prefs: HouseholdPreferenceRepository) {}
+  constructor(readonly name: string, private readonly meal: 'breakfast' | 'lunch' | 'dinner', private readonly prefs: HouseholdPreferenceRepository) {}
 
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'How many of each meal to plan per week.', rule: 'an object like { breakfast, lunch, dinner, snack, kids } of non-negative counts' };
+    return { name: this.name, flavor: this.flavor, description: `How many ${this.meal}s to plan per week — a count of meals, not cooking days (see cook_days).`, rule: 'a non-negative whole number' };
   }
   validate(value: unknown): ValidateResult {
-    return WeeklyMealsSchema.safeParse(this.normalize(value)).success ? { ok: true } : { ok: false, reason: `${this.name}: needs per-meal counts` };
+    return Number.isInteger(value) && (value as number) >= 0 ? { ok: true } : { ok: false, reason: `${this.name}: needs a non-negative whole number` };
   }
-  normalize(value: unknown): unknown {
-    const v = (value ?? {}) as Record<string, number>;
-    return { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0, ...dropNulls(v) };
+  normalize(value: unknown): number {
+    return value as number;
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    await this.prefs.savePreferences(householdId(subject), { weeklyMeals: this.normalize(value) as never });
+    const hh = householdId(subject);
+    const current = (await this.prefs.getPreferences(hh)).weeklyMeals ?? { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
+    await this.prefs.savePreferences(hh, { weeklyMeals: { ...current, [this.meal]: this.normalize(value) } as never });
   }
   async read(subject: Subject): Promise<unknown> {
-    return (await this.prefs.getPreferences(householdId(subject))).weeklyMeals;
+    return (await this.prefs.getPreferences(householdId(subject))).weeklyMeals?.[this.meal] ?? null;
   }
 }
 
@@ -382,6 +411,12 @@ class AllergenType implements FactType {
     const { allergen, severity } = normalized as { allergen: (typeof MAJOR_ALLERGENS)[number]; severity: (typeof ALLERGEN_SEVERITIES)[number] };
     await this.prefs.upsertAllergen(memberId(subject), { allergen, severity });
   }
+  async retract(subject: Subject, value: unknown): Promise<boolean> {
+    const raw = typeof value === 'string' ? value : allergenId((value ?? {}) as AllergenValue);
+    const id = coerce(raw, this.candidates).value;
+    if (!id) throw new Error(`ALLERGEN: no match for "${raw}"`);
+    return this.prefs.removeAllergen(memberId(subject), id as (typeof MAJOR_ALLERGENS)[number]);
+  }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).allergens;
   }
@@ -390,7 +425,7 @@ class AllergenType implements FactType {
 // ── member: diets (catalog + strictness) ─────────────────────────────────
 
 /** The raw diet value: an id/phrasing plus optional strictness. */
-type DietValue = { value?: string; dietId?: string; strictness?: string };
+type DietValue = { value?: string; dietId?: string; strictness?: string; no_diets?: boolean };
 const isStrictness = (s: unknown): s is (typeof DIET_STRICTNESS)[number] => DIET_STRICTNESS.includes(s as never);
 
 /** A member diet, grounded to the `DIET_RULES` ids, carrying a strictness (default `strict`). */
@@ -405,23 +440,34 @@ class DietType implements FactType {
     return String(v.dietId ?? v.value ?? '');
   }
   describe(): TypeDoc {
-    return { name: this.name, flavor: this.flavor, description: 'A member diet. Value: { value: <one of the listed diets>, strictness: strict|flexible }.', values: this.candidates };
+    return { name: this.name, flavor: this.flavor, description: 'A member diet. Value: { value: <one of the listed diets>, strictness: strict|flexible }; or { no_diets: true } for none.', values: this.candidates };
   }
   search(query: string): ValuePage {
     const { value } = coerce(query, this.candidates);
     return { values: value ? this.candidates.filter((c) => c.value === value) : this.candidates };
   }
   validate(value: unknown): ValidateResult {
+    const v = (value ?? {}) as DietValue;
+    if (v.no_diets === true) return { ok: true };
     const { value: id, closest } = coerce(this.idOf(value), this.candidates);
     return id ? { ok: true } : { ok: false, reason: `DIET: no match for "${this.idOf(value)}"`, closest };
   }
   normalize(value: unknown): unknown {
     const v = (value ?? {}) as DietValue;
+    if (v.no_diets === true) return 'none';
     return { dietId: coerce(this.idOf(value), this.candidates).value!, strictness: isStrictness(v.strictness) ? v.strictness : 'strict' };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const { dietId, strictness } = this.normalize(value) as { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] };
+    const normalized = this.normalize(value);
+    if (normalized === 'none') return; // "no diet" is real data with nothing to write; the task still fills
+    const { dietId, strictness } = normalized as { dietId: string; strictness: (typeof DIET_STRICTNESS)[number] };
     await this.prefs.upsertDiet(memberId(subject), { dietId, strictness });
+  }
+  async retract(subject: Subject, value: unknown): Promise<boolean> {
+    const raw = typeof value === 'string' ? value : this.idOf(value);
+    const id = coerce(raw, this.candidates).value;
+    if (!id) throw new Error(`DIET: no match for "${raw}"`);
+    return this.prefs.removeDiet(memberId(subject), id);
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(memberId(subject))).diets;
@@ -467,26 +513,42 @@ class DirectiveType implements FactType {
         'value, direction: more|less, scope?: recipe|breakfast|lunch|dinner|snack|day|week (default ' +
         'recipe), strength?: soft|firm|strict (default soft), target?: number, unit?: count|grams|…, ' +
         'reason? }. A like is direction:more, a dislike direction:less; an aggregate limit uses a ' +
-        'day/week scope with target + unit.',
+        'day/week scope with target + unit. Pass ONE directive, or an ARRAY of them to record several preferences in one write.',
     };
   }
   async search(query: string): Promise<ValuePage> {
     const opts = await this.taste.options();
-    const q = query.toLowerCase();
     const all = [...opts.cuisines, ...opts.dish_types, ...opts.ingredients, ...this.foodCategories, ...this.nutrients];
-    return { values: all.filter((c) => c.value.includes(q) || c.label.toLowerCase().includes(q)).map((c) => ({ value: c.value, label: c.label })) };
+    // Fuzzy-rank rather than substring-match, so a plural or loose phrasing still lands ("tacos" -> taco).
+    const ranked = rank(query, all).slice(0, 10);
+    if (ranked.length) return { values: ranked.map((c) => ({ value: c.value, label: c.label })) };
+    // No catalog hit — fall back to the ingredient resolver so lookups agree with the write path
+    // (e.g. "salmon" rolls up to Fish). Without this the model sees "no match" and drops the value,
+    // even though persist() would have grounded it.
+    const base = await this.ingredients.resolve(query);
+    return { values: base ? [{ value: base.label, label: base.label }] : [] };
   }
+  // A directive value may be a single object or an array of them — a member states several
+  // preferences at once ("Italian, tacos, salmon"), and read_facts returns a list, so the model
+  // naturally batches. Both shapes are accepted; each element is validated/grounded/persisted on its own.
   validate(value: unknown): ValidateResult {
-    const v = (value ?? {}) as DirectiveValue;
-    if (!isDirectiveFacet(v.dimension)) return { ok: false, reason: `${this.name}: dimension must be cuisine, dish_type, ingredient, food_category, or nutrient` };
-    if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
-    if (!isDirection(v.direction)) return { ok: false, reason: `${this.name}: direction must be ${DIRECTIONS.join(' or ')}` };
-    if (v.scope !== undefined && !isScope(v.scope)) return { ok: false, reason: `${this.name}: scope must be one of ${DIRECTIVE_SCOPES.join(', ')}` };
-    if (v.strength !== undefined && !isStrength(v.strength)) return { ok: false, reason: `${this.name}: strength must be ${STRENGTHS.join(', ')}` };
+    const items = Array.isArray(value) ? value : [value];
+    if (items.length === 0) return { ok: false, reason: `${this.name}: needs at least one directive` };
+    for (const item of items) {
+      const v = (item ?? {}) as DirectiveValue;
+      if (!isDirectiveFacet(v.dimension)) return { ok: false, reason: `${this.name}: dimension must be cuisine, dish_type, ingredient, food_category, or nutrient` };
+      if (!v.value) return { ok: false, reason: `${this.name}: needs a value` };
+      if (!isDirection(v.direction)) return { ok: false, reason: `${this.name}: direction must be ${DIRECTIONS.join(' or ')}` };
+      if (v.scope !== undefined && !isScope(v.scope)) return { ok: false, reason: `${this.name}: scope must be one of ${DIRECTIVE_SCOPES.join(', ')}` };
+      if (v.strength !== undefined && !isStrength(v.strength)) return { ok: false, reason: `${this.name}: strength must be ${STRENGTHS.join(', ')}` };
+    }
     return { ok: true };
   }
   /** Grounding hits the DB, so it lives in `persist`; `normalize` just shapes the input. */
   normalize(value: unknown): unknown {
+    return Array.isArray(value) ? value.map((v) => this.normalizeOne(v)) : this.normalizeOne(value);
+  }
+  private normalizeOne(value: unknown) {
     const v = (value ?? {}) as DirectiveValue;
     return {
       dimension: v.dimension,
@@ -500,13 +562,46 @@ class DirectiveType implements FactType {
     };
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
-    const v = this.normalize(value) as { dimension: (typeof DIRECTIVE_FACETS)[number]; value: string; scope: DirectiveScope; direction: Direction; strength: Strength; target: number | null; unit: string | null; reason: string | null };
-    const grounded = await this.ground(v.dimension, v.value);
-    if (!grounded) throw new Error(`${this.name}: no catalog match for "${v.value}"`);
-    await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
+    const items = (Array.isArray(value) ? value : [value]).map((v) => this.normalizeOne(v)) as {
+      dimension: (typeof DIRECTIVE_FACETS)[number]; value: string; scope: DirectiveScope; direction: Direction; strength: Strength; target: number | null; unit: string | null; reason: string | null;
+    }[];
+    // Persist each directive independently: one off-catalog value shouldn't drop the rest. Ground and
+    // write what we can, then throw naming the misses so the model gets instructive feedback while the
+    // grounded ones are already saved (upsertFoodPref commits per call, not on the turn's tx).
+    const unmatched: string[] = [];
+    for (const v of items) {
+      const grounded = await this.ground(v.dimension, v.value);
+      if (!grounded) { unmatched.push(v.value); continue; }
+      await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
+    }
+    if (unmatched.length) throw new Error(`${this.name}: no catalog match for ${unmatched.map((u) => `"${u}"`).join(', ')}`);
+  }
+  async retract(subject: Subject, value: unknown): Promise<boolean> {
+    const items = (Array.isArray(value) ? value : [value]).map((v) => this.normalizeOne(v));
+    let removed = false;
+    for (const v of items) {
+      if (!v.dimension || !v.value) continue;
+      const grounded = await this.ground(v.dimension as (typeof DIRECTIVE_FACETS)[number], v.value as string);
+      if (grounded && (await this.prefs.removeFoodPref(memberId(subject), v.dimension as (typeof DIRECTIVE_FACETS)[number], grounded))) removed = true;
+    }
+    return removed;
   }
   async read(subject: Subject): Promise<unknown> {
-    return (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
+    const prefs = (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
+    if (!prefs.length) return prefs;
+    // Stored `value` is the grounded catalog id (a UUID for ingredient; a slug elsewhere) — resolve
+    // it back to the human label so the model reads "avocado", not an opaque id it can't reason over.
+    const opts = await this.taste.options();
+    const pools: Record<string, { value: string; label: string }[]> = {
+      cuisine: opts.cuisines,
+      dish_type: opts.dish_types,
+      ingredient: opts.ingredients,
+      food_category: this.foodCategories,
+      nutrient: this.nutrients,
+    };
+    const labelOf = (dimension: string, value: string): string =>
+      pools[dimension]?.find((c) => c.value === value)?.label ?? value;
+    return prefs.map((p) => ({ ...p, value: labelOf(p.dimension, p.value) }));
   }
 
   /** Grounds one value to its catalog id per dimension, reusing each dimension's tuned resolution path. */
@@ -540,9 +635,11 @@ export class FactTypeRegistry {
       new GroceryStoreType(hh),
       new GroceryShoppingDayType(hh),
       new WeeklyBudgetCentsType(hh),
-      new WeeklyMealsType(hh),
+      new WeeklyMealCountType('WEEKLY_BREAKFASTS', 'breakfast', hh),
+      new WeeklyMealCountType('WEEKLY_LUNCHES', 'lunch', hh),
+      new WeeklyMealCountType('WEEKLY_DINNERS', 'dinner', hh),
       new TimeByMealType(hh),
-      new CookDaysCountType(hh),
+      new CookDaysType(hh),
       new EatsLeftoversType(hh),
       new OwnedEquipmentType(hh),
       new GoalType(households),

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { WeeklyMealsSchema, TimeByMealSchema } from './user-preferences.js';
 
-const GROCERY_SHOPPING_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const GROCERY_SHOPPING_DAYS = DAYS_OF_WEEK;
 const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_cooker', 'pressure_cooker', 'stand_mixer', 'blender', 'food_processor', 'grill', 'dutch_oven', 'deep_fryer', 'wok', 'sous_vide', 'smoker', 'ice_cream_maker', 'waffle_iron'] as const;
 
 // Domain model for the household-scoped preferences (iMessage increment 2), 1:1 with a
@@ -15,7 +16,7 @@ export const HouseholdPreferencesSchema = z.object({
   weeklyMeals: WeeklyMealsSchema.nullable(),
   timeByMeal: TimeByMealSchema.nullable(),
   timeBudgetMinutes: z.number().int().positive().nullable(),
-  cookDaysCount: z.number().int().nonnegative().nullable(),
+  cookDays: z.array(z.enum(DAYS_OF_WEEK)).nullable(),
   eatsLeftovers: z.boolean(),
   ownedEquipment: z.array(z.enum(EQUIPMENT_TYPES)).nullable(),
   equipmentReviewed: z.boolean(),

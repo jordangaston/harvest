@@ -102,7 +102,7 @@ describe('onboarding definition', () => {
     expect(emit.fact).toBeNull();
     expect(emit.required).toBe(true);
     // Gated after the required household elicits (same_household, household_size, grocery_stores,
-    // weekly_meals, cook_days_count) — their row ids populate the emit's after_task_ids.
+    // weekly_meals, cook_days) — their row ids populate the emit's after_task_ids.
     const requiredElicitIds = rows
       .filter((r) => r.kind === 'elicit' && r.required && r.fact)
       .map((r) => r.id);
@@ -112,7 +112,7 @@ describe('onboarding definition', () => {
   it('the required household set is exactly the design contract (AC-2)', () => {
     const required = householdTaskSpecs().filter((s) => s.scope === 'household' && s.required && s.fact).map((s) => s.fact).sort();
     expect(required).toEqual(
-      ['household.same_household', 'household.grocery_stores', 'household.household_size', 'household.weekly_meals', 'household.cook_days_count'].sort(),
+      ['household.same_household', 'household.grocery_stores', 'household.household_size', 'household.dinners_per_week', 'household.cook_days'].sort(),
     );
     const requiredMember = memberTaskSpecs('m').filter((s) => s.scope === 'member' && s.required).map((s) => s.key).sort();
     expect(requiredMember).toEqual(['allergens', 'name']);

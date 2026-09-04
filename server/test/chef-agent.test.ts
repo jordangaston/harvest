@@ -85,16 +85,16 @@ describe('sendEvent grounding', () => {
 });
 
 describe('selectChefAgent (env gate, no network)', () => {
-  const prev = process.env.DEEPSEEK_API_KEY;
+  const prev = process.env.GEMINI_API_KEY;
   afterEach(() => {
-    if (prev === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = prev;
+    if (prev === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prev;
   });
 
   it('absent key -> scripted stub; present key -> real Mastra agent', () => {
-    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     expect(selectChefAgent()).toBeInstanceOf(ScriptedChefAgent);
-    process.env.DEEPSEEK_API_KEY = 'test-key-no-network';
+    process.env.GEMINI_API_KEY = 'test-key-no-network';
     expect(selectChefAgent()).toBeInstanceOf(MastraChefAgent);
   });
 });

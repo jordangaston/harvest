@@ -56,5 +56,9 @@ export interface FactType {
   /** Enumerate/ground legal values (enum/catalog only); scalar types omit it. */
   search?(query: string, pageToken?: string): Promise<ValuePage> | ValuePage;
   persist(subject: Subject, value: unknown, tx: Tx): Promise<void>;
+  /** Remove `value` from a collection fact (grounded the same way `persist` grounds it) or clear a
+   *  scalar. Returns whether anything was removed (false = it wasn't set). Types that can't be
+   *  retracted omit it. */
+  retract?(subject: Subject, value: unknown, tx: Tx): Promise<boolean>;
   read(subject: Subject): Promise<unknown>;
 }

@@ -130,7 +130,7 @@ describe("Test Case 2: null reply → no commit, no send (AC-2)", () => {
 
 describe("Test Case 3: a turn commits N rows + advances the cursor (AC-3, AC-4)", () => {
   it("commits 2 bubbles + cursor, sends twice", async () => {
-    const { threadId, ownerId } = await seedThread(["household.grocery_stores", "household.cook_days_count"]);
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores", "household.cook_days"]);
     await seedInbound(threadId, ownerId, "we shop at kroger");
     const newestId = await seedInbound(threadId, ownerId, "and cook 5 nights");
 
@@ -296,14 +296,14 @@ describe("spec-01 Test Case 4: a richlink send passes through (AC 2)", () => {
 });
 
 describe("Test Case 6: selectChef(db) returns StubChef offline (AC-6)", () => {
-  const prev = process.env.DEEPSEEK_API_KEY;
+  const prev = process.env.GEMINI_API_KEY;
   afterEach(() => {
-    if (prev === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = prev;
+    if (prev === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prev;
   });
 
   it("no key → StubChef, respond returns a fixed non-null reply, no network", async () => {
-    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     const { selectChef } = await import("../src/imessage/chef.js");
     const { threadId, ownerId } = await seedThread();
     const newestId = await seedInbound(threadId, ownerId, "hello");

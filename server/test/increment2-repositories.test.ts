@@ -301,15 +301,15 @@ describe('HouseholdPreferenceRepository', () => {
     const repo = HouseholdPreferenceRepository.create(db);
 
     const defaults = await repo.getPreferences(household.id);
-    expect(defaults).toMatchObject({ eatsLeftovers: true, householdAdults: 2, householdKids: 0, cookDaysCount: null, weeklyBudgetCents: null });
+    expect(defaults).toMatchObject({ eatsLeftovers: true, householdAdults: 2, householdKids: 0, cookDays: null, weeklyBudgetCents: null });
 
-    await repo.savePreferences(household.id, { cookDaysCount: 4 });
+    await repo.savePreferences(household.id, { cookDays: ['monday','tuesday','wednesday'] });
     const afterFirst = await repo.getPreferences(household.id);
     await new Promise((r) => setTimeout(r, 5));
     await repo.savePreferences(household.id, { weeklyBudgetCents: 15000 });
 
     const merged = await repo.getPreferences(household.id);
-    expect(merged.cookDaysCount).toBe(4);
+    expect(merged.cookDays).toEqual(['monday','tuesday','wednesday']);
     expect(merged.weeklyBudgetCents).toBe(15000);
     expect(merged.updatedAt.getTime()).toBeGreaterThanOrEqual(afterFirst.updatedAt.getTime());
   });

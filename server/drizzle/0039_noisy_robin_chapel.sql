@@ -1,0 +1,1 @@
+ALTER TABLE `household_preferences` DROP COLUMN `cook_days_count`;

@@ -2,6 +2,10 @@ import type { Objective } from '../models/objective.js';
 import type { Task } from '../models/task.js';
 import { objectiveDefinition, taskGuidance } from './objectives/index.js';
 
+/** WIP limit: how many of the eligible tasks to surface in the prompt at once. The rest stay tracked
+ *  and surface as earlier ones complete — keeps the model focused instead of chewing the whole backlog. */
+const TASK_WINDOW = 4;
+
 /** One turn's transcript entry (role + text), for tone and to avoid repetition. A household line
  *  carries a short `[m#]` handle the `send` tool can target a tapback at, and the speaker's `name`
  *  (the member who sent it) so the model can tell members apart — `undefined` when not yet known. */
@@ -51,7 +55,14 @@ export function prepareBriefing(input: BriefingInput): string {
   // members' same-named tasks (both `allergens`) stay distinct. Member tasks name whose they are.
   const nameByUser = new Map(input.members.map((m) => [m.userId, m.name]));
   const guidance = taskGuidance();
-  const unfilled = input.tasks
+  // Window to a WIP limit: only the next few tasks go in the prompt, not the whole backlog — a wall of
+  // tasks is context the model must chew through, and most of it is not actionable this turn. The rest
+  // stay tracked; a "…" tells the model more are queued. ponytail: `input.tasks` is already the eligible
+  // ready-set (loadActive drops terminal tasks and any whose `afterTaskIds` aren't done), so their order
+  // is seed order and slicing from the top is enough — no topo sort is needed while that gate holds.
+  const shown = input.tasks.slice(0, TASK_WINDOW);
+  const hidden = input.tasks.length - shown.length;
+  const unfilled = shown
     .map((t) => {
       const who = t.memberUserId ? ` for ${nameByUser.get(t.memberUserId) ?? 'member'}` : '';
       const label = t.fact ?? (t.kind === 'emit' ? 'deliver the close' : t.kind);
@@ -60,6 +71,7 @@ export function prepareBriefing(input: BriefingInput): string {
       return `- [${t.id}] ${label}${who}${marks} (${t.status})${how ? `\n    ↳ ${how}` : ''}`;
     })
     .join('\n');
+  const moreLine = hidden > 0 ? `\n- … (${hidden} more queued; fill these first)` : '';
   const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');
   // The tagged batch is the new messages; fall back to the raw trigger text if there is no transcript.
   // A household line is labelled with its speaker's name (or "unknown"), so the model never conflates
@@ -71,7 +83,7 @@ export function prepareBriefing(input: BriefingInput): string {
   return [
     `<objective name="${def.id}">\n${def.instructions}\n</objective>`,
     input.suspended?.length ? `<suspended>${input.suspended.join(', ')}</suspended>` : '',
-    `<tasks>\n${unfilled || '(none)'}\n</tasks>`,
+    `<tasks>\n${unfilled || '(none)'}${moreLine}\n</tasks>`,
     `<household>\n${members}\n</household>`,
     `<conversation>\n${replyingLine}${conversation}\n</conversation>`,
   ]

@@ -16,7 +16,7 @@ export const VOCAB = {
   dishType: [
     'main_course', 'side_dish', 'appetizer', 'salad', 'soup', 'stew', 'bread', 'pancake', 'pastry',
     'pie', 'pizza', 'pasta', 'sandwich', 'burger', 'taco', 'bowl', 'casserole', 'curry', 'stir_fry',
-    'dessert', 'cookie', 'ice_cream', 'sauce', 'beverage', 'cocktail',
+    'dessert', 'cookie', 'ice_cream', 'sauce', 'beverage', 'cocktail', 'sushi',
   ],
   primaryIngredient: [
     'seafood', 'poultry', 'beef', 'pork', 'lamb', 'egg', 'cheese', 'tofu', 'beans', 'vegetable',

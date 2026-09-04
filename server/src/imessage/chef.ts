@@ -215,7 +215,7 @@ export class StubChef implements Chef {
 
 /** The chef for the current env: the real Chef when a model key is set, else the offline stub. */
 export function selectChef(db: Database): Chef {
-  return process.env.DEEPSEEK_API_KEY ? RealChef.create(db) : new StubChef(db);
+  return process.env.GEMINI_API_KEY ? RealChef.create(db) : new StubChef(db);
 }
 
 // Re-exported through the facade so the consumer confirms a ChefReply's fact-less tasks atomically
