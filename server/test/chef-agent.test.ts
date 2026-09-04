@@ -3,6 +3,7 @@ import { ScriptedChefAgent, MastraChefAgent, selectChefAgent, sendEvent, type Ch
 import { CHEF_TAPBACK_KINDS, type ChatEvent } from '../src/chef/types.js';
 import type { BriefingInput } from '../src/chef/briefing.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
+import { onboardingObjective } from '../src/chef/objectives/onboarding.js';
 
 /** A minimal ChefTurn whose `send` sink records the events the agent flushes (sends are live). The
  *  briefing carries a registered onboarding objective so `prepareBriefing` doesn't throw. */
@@ -81,6 +82,16 @@ describe('sendEvent grounding', () => {
     expect(CHEF_TAPBACK_KINDS).not.toContain('like');
     expect(CHEF_TAPBACK_KINDS).not.toContain('dislike');
     expect([...CHEF_TAPBACK_KINDS].sort()).toEqual(['emphasize', 'laugh', 'love']);
+  });
+});
+
+describe('tool ids are provider-portable (TC-3)', () => {
+  it('every namespaced tool id matches the cross-provider function-name grammar', () => {
+    const NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+    // The onboarding objective declares all six FACTORIES keys; `chat__send` is added in the agent.
+    for (const id of [...onboardingObjective.tools, 'chat__send']) {
+      expect(id, id).toMatch(NAME);
+    }
   });
 });
 

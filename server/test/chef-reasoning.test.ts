@@ -103,14 +103,14 @@ describe('prepareBriefing (pure prompt assembly)', () => {
 });
 
 describe('buildTools (per-turn legality gate)', () => {
-  it('offers add_members whenever a household exists; drops it only when there is none', async () => {
+  it('offers household__add_members whenever a household exists; drops it only when there is none', async () => {
     const { ctx } = await seedTurn([{ key: 'household.cook_days', status: 'unasked' }]);
-    // Household exists → add_members stays available (members can be added at any point).
-    const withHh = buildTools(ctx, db, ['add_members', 'read_facts']).map((t) => t.id);
-    expect(withHh).toEqual(['add_members', 'read_facts']);
+    // Household exists → household__add_members stays available (members can be added at any point).
+    const withHh = buildTools(ctx, db, ['household__add_members', 'facts__read']).map((t) => t.id);
+    expect(withHh).toEqual(['household__add_members', 'facts__read']);
 
-    // No household at all → nothing to add members to, so add_members is dropped.
-    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['add_members', 'read_facts']).map((t) => t.id);
-    expect(noHh).toEqual(['read_facts']);
+    // No household at all → nothing to add members to, so household__add_members is dropped.
+    const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['household__add_members', 'facts__read']).map((t) => t.id);
+    expect(noHh).toEqual(['facts__read']);
   });
 });

@@ -41,7 +41,7 @@ async function householdOf(threadId: string): Promise<string> {
   return t!.h!;
 }
 
-/** The thread's owner user id (the person texting — the initiator add_members names first). */
+/** The thread's owner user id (the person texting — the initiator household__add_members names first). */
 async function ownerOf(threadId: string): Promise<string> {
   const [t] = await db.select({ o: threads.ownerUserId }).from(threads).where(eq(threads.id, threadId));
   return t!.o!;
@@ -119,7 +119,7 @@ describe('onboarding definition', () => {
   });
 
   it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['read_facts', 'fact_types', 'update_facts', 'update_tasks', 'add_members', 'import_recipe']);
+    expect(onboardingObjective.tools).toEqual(['facts__read', 'facts__catalog', 'facts__update', 'tasks__update', 'household__add_members', 'recipes__import']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();
@@ -127,7 +127,7 @@ describe('onboarding definition', () => {
     expect(def.cursor).toBeUndefined();
   });
 
-  it('elicit tasks carry their fact type so update_tasks can route the fill', () => {
+  it('elicit tasks carry their fact type so tasks__update can route the fill', () => {
     const stores = householdTaskSpecs().find((s) => s.fact === 'household.grocery_stores')!;
     expect(stores.factType).toBe('GROCERY_STORE');
     const allergens = memberTaskSpecs('m').find((s) => s.key === 'allergens')!;
