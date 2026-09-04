@@ -23,6 +23,7 @@ export interface MealPlanEntryView {
   date: string;
   meal: MealSlot;
   position: number;
+  source: MealPlanSource;
   recipe: { id: string; title: string; image_url?: string };
 }
 
