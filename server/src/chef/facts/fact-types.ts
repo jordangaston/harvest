@@ -506,7 +506,21 @@ class DirectiveType implements FactType {
     await this.prefs.upsertFoodPref(memberId(subject), { dimension: v.dimension, value: grounded, scope: v.scope, direction: v.direction, strength: v.strength, target: v.target, unit: v.unit, reason: v.reason });
   }
   async read(subject: Subject): Promise<unknown> {
-    return (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
+    const prefs = (await this.prefs.getPreferences(memberId(subject))).foodPrefs;
+    if (!prefs.length) return prefs;
+    // Stored `value` is the grounded catalog id (a UUID for ingredient; a slug elsewhere) — resolve
+    // it back to the human label so the model reads "avocado", not an opaque id it can't reason over.
+    const opts = await this.taste.options();
+    const pools: Record<string, { value: string; label: string }[]> = {
+      cuisine: opts.cuisines,
+      dish_type: opts.dish_types,
+      ingredient: opts.ingredients,
+      food_category: this.foodCategories,
+      nutrient: this.nutrients,
+    };
+    const labelOf = (dimension: string, value: string): string =>
+      pools[dimension]?.find((c) => c.value === value)?.label ?? value;
+    return prefs.map((p) => ({ ...p, value: labelOf(p.dimension, p.value) }));
   }
 
   /** Grounds one value to its catalog id per dimension, reusing each dimension's tuned resolution path. */

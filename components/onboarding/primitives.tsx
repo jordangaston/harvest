@@ -351,7 +351,7 @@ export const STORE_LOGOS: Record<string, number> = {
 };
 
 /** Dish types — the third facet the combined taste picker offers alongside cuisines + ingredients. */
-export const DISH_TYPES = ["Soups", "Salads", "Bowls", "Pasta", "Stir-fries", "Tacos", "Curries", "Sandwiches", "Pizza", "Roasts", "Stews", "Casseroles", "Grain bowls", "Wraps", "Burgers", "Noodles", "Dumplings", "Grilled", "Baked", "One-pot"];
+export const DISH_TYPES = ["Soups", "Salads", "Bowls", "Pasta", "Stir-fries", "Tacos", "Curries", "Sandwiches", "Pizza", "Roasts", "Stews", "Casseroles", "Grain bowls", "Wraps", "Burgers", "Noodles", "Dumplings", "Grilled", "Baked", "One-pot", "Sushi"];
 /** One combined corpus for the taste screens — cuisines + dish types + ingredients in a single picker. */
 export const TASTE_CORPUS = Array.from(new Set([...ALL_CUISINES, ...DISH_TYPES, ...ALL_INGREDIENTS]));
 
