@@ -48,7 +48,7 @@ export interface ChefReply {
   /** Whether any bubble was sent this turn (the sink flushed at least one) — gates the fact-less
    *  ack confirm and the AC-8 delivered-emit safety net. */
   delivered: boolean;
-  /** Whether this turn completed and popped its objective (via `update_tasks` in-loop). The drain
+  /** Whether this turn completed and popped its objective (via `tasks__update` in-loop). The drain
    *  loop runs one more kick-off iteration against the newly-active objective when true. */
   popped: boolean;
 }
@@ -120,7 +120,7 @@ export class RealChef implements Chef {
     // loaded fact-less tasks as before.
     const confirmTasks = worked ? turn.confirmTasks : [];
     // The turn popped its objective iff the one it ran against is no longer the active objective —
-    // `update_tasks`'s in-loop completeAndPop either activated a sibling (different id) or emptied the
+    // `tasks__update`'s in-loop completeAndPop either activated a sibling (different id) or emptied the
     // stack (null). Read after the run so the pop is visible.
     const stillActive = await this.objectives.loadActive(threadId);
     const popped = stillActive?.objective.id !== turn.objectiveId;

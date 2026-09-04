@@ -529,7 +529,7 @@ class DirectiveType implements FactType {
     return { values: base ? [{ value: base.label, label: base.label }] : [] };
   }
   // A directive value may be a single object or an array of them — a member states several
-  // preferences at once ("Italian, tacos, salmon"), and read_facts returns a list, so the model
+  // preferences at once ("Italian, tacos, salmon"), and facts__read returns a list, so the model
   // naturally batches. Both shapes are accepted; each element is validated/grounded/persisted on its own.
   validate(value: unknown): ValidateResult {
     const items = Array.isArray(value) ? value : [value];

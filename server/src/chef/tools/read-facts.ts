@@ -23,7 +23,7 @@ interface FactReading {
  * the turn context. `keys` filters to those defs; absent reads every registered fact. Writes nothing.
  */
 export class ReadFactsTool implements ChefTool {
-  readonly id = 'read_facts';
+  readonly id = 'facts__read';
 
   private readonly factTypes: FactTypeRegistry;
   private readonly factRegistry: FactRegistry;

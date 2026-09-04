@@ -15,7 +15,7 @@ const inputSchema = z.object({ url: z.string() });
  * thread owner is known — importing isn't gated on onboarding.
  */
 export class ImportRecipeTool implements ChefTool {
-  readonly id = 'import_recipe';
+  readonly id = 'recipes__import';
   private readonly imports: ImportService;
   private readonly links: ImessageImportRepository;
 

@@ -60,7 +60,7 @@ export class HouseholdRepository {
   }
 
   /** The non-null names of the household's current members — the app-level uniqueness set that
-   *  `add_members` checks a new name against (name lives on `users`, so there's no DB constraint). */
+   *  `household__add_members` checks a new name against (name lives on `users`, so there's no DB constraint). */
   async memberNames(householdId: string, tx: Executor = this.db): Promise<string[]> {
     const rows = await tx
       .select({ name: users.name })

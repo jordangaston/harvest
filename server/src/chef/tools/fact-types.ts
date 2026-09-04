@@ -12,7 +12,7 @@ const inputSchema = z.object({
   page_token: z.string().optional(),
 });
 
-/** The args `fact_types` runs a 2×2 over: an optional fact key, phrase, and page cursor. */
+/** The args `facts__catalog` runs a 2×2 over: an optional fact key, phrase, and page cursor. */
 type FactTypesArgs = { key?: string; query?: string; page_token?: string };
 
 /** How many enumerated values to return per page before handing back a `page_token`. */
@@ -34,7 +34,7 @@ type FactTypesResponse = BrowseResponse | DescribeResponse | GroundResponse | Se
  * against the catalogs. Writes nothing.
  */
 export class FactTypesTool implements ChefTool {
-  readonly id = 'fact_types';
+  readonly id = 'facts__catalog';
 
   private readonly factTypes: FactTypeRegistry;
   private readonly factRegistry: FactRegistry;
@@ -44,7 +44,7 @@ export class FactTypesTool implements ChefTool {
     this.factRegistry = FactRegistry.create();
   }
 
-  // `_ctx` is unused: fact_types reads no mutable turn data, only the db-wired registry.
+  // `_ctx` is unused: facts__catalog reads no mutable turn data, only the db-wired registry.
   static create(_ctx: TurnContext, db: Database): FactTypesTool {
     return new FactTypesTool(db);
   }
@@ -58,7 +58,7 @@ export class FactTypesTool implements ChefTool {
       id: this.id,
       description:
         'Look up a fact\'s legal values, or ground a loose phrase to a canonical one, before you write — ' +
-        'an off-catalog value is rejected. Address a fact by the SAME key read_facts shows (e.g. ' +
+        'an off-catalog value is rejected. Address a fact by the SAME key facts__read shows (e.g. ' +
         'allergens, food_preferences); plural/singular and case don\'t matter. No args browses every ' +
         'fact; `key` alone describes one (its values or scalar rule); `query` alone grounds a phrase ' +
         'across all facts (ranked); both search one fact\'s values. Always pass `key` when you know it — ' +
@@ -75,7 +75,7 @@ export class FactTypesTool implements ChefTool {
     return this.browse();
   }
 
-  /** The writable facts the model can address, keyed as read_facts shows them, with each type's flavor. */
+  /** The writable facts the model can address, keyed as facts__read shows them, with each type's flavor. */
   private browse(): BrowseResponse {
     const facts = this.factRegistry
       .list()

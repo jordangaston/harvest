@@ -30,7 +30,7 @@ interface TaskWriteResult {
  * per-task status and whether the objective is now complete/popped.
  */
 export class UpdateTasksTool implements ChefTool {
-  readonly id = 'update_tasks';
+  readonly id = 'tasks__update';
   private readonly db: Database;
   private readonly objectives: ObjectiveRepository;
   private readonly factTypes: FactTypeRegistry;
@@ -56,7 +56,7 @@ export class UpdateTasksTool implements ChefTool {
         'Fill the objective tasks you now have answers for, each by its [id] from the briefing. Batch ' +
         'every task you can answer this turn into one call — except a task marked (solo), which must go ' +
         'alone (a batch with one is rejected). For something the household mentions that no task asks ' +
-        'about, use update_facts instead. Returns each task filled/rejected (with the reason and ' +
+        'about, use facts__update instead. Returns each task filled/rejected (with the reason and ' +
         'closest valid values) and whether the objective is now complete (and popped — if so, stop ' +
         'working it, it is done).',
       inputSchema,

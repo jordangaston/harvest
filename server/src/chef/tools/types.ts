@@ -3,7 +3,7 @@ import type { Task } from '../../models/task.js';
 
 /**
  * One turn's mutable DATA, shared by every tool built for that turn. A tool reads the current
- * `householdId`/`members` at execute time (not at build time), so `add_members` running earlier
+ * `householdId`/`members` at execute time (not at build time), so `household__add_members` running earlier
  * in a turn flows the new roster to a later `save_*` in the same turn. Infra (the db, the
  * registries) is NOT here — each tool captures its own via `create(ctx, db)` (CLAUDE.md: tools
  * create their own dependencies), so this stays turn data only.
@@ -22,7 +22,7 @@ export interface TurnContext {
    *  (null only in a degenerate thread with no household row). */
   householdId: string | null;
   members: Array<{ userId: string; name?: string }>;
-  /** The turn's loaded, eligible non-terminal tasks — what `update_tasks` resolves task ids against. */
+  /** The turn's loaded, eligible non-terminal tasks — what `tasks__update` resolves task ids against. */
   tasks: Task[];
 }
 

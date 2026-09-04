@@ -46,7 +46,7 @@ const ALIASES: Record<string, string> = {
   carb: 'carbohydrate',
 };
 
-/** The catalog kinds `fact_types` grounds against. */
+/** The catalog kinds `facts__catalog` grounds against. */
 export type CatalogKind = 'taste' | 'store' | 'equipment' | 'diet' | 'allergen' | 'food_category' | 'nutrient';
 
 /** The code-tuple catalogs (taste is DB-backed, handled by the tool). */

@@ -158,7 +158,7 @@ export class Consumer {
 
           // The household exists from the first inbound now, so household-existence no longer marks
           // the moment a chat becomes a real household — the ROSTER does. Rename once members are
-          // present (the turn `add_members` ran), re-reading after respond so the same-turn roster shows.
+          // present (the turn `household__add_members` ran), re-reading after respond so the same-turn roster shows.
           const hasRoster =
             thread.householdId !== null && (await this.households.loadMembers(thread.householdId)).length > 0;
           const renameNow = renamePending && hasRoster;
@@ -167,11 +167,11 @@ export class Consumer {
           await this.db.transaction(async (tx) => {
             // Confirm the explainer-ack now the turn's bubbles went out: asked when first delivered,
             // filled by the next inbound. The emit is no longer confirmed here — it completes in-loop
-            // via update_tasks (the pop lives in the tool). The AC-8 safety net below covers a
+            // via tasks__update (the pop lives in the tool). The AC-8 safety net below covers a
             // delivered-but-unmarked required emit so the terminal flow can't stall.
             if (delivered) await this.confirmAcks(reply.confirmTasks, tx);
             // AC-8 only when the turn did NOT already pop in-loop — a popped turn marked its emit via
-            // update_tasks, so re-filling/re-popping here would double-activate a suspended sibling.
+            // tasks__update, so re-filling/re-popping here would double-activate a suspended sibling.
             if (delivered && !reply.popped) await this.completeDeliveredEmit(reply.confirmTasks, reply.objectiveId, tx);
             // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
             // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink). A kick-off
@@ -203,7 +203,7 @@ export class Consumer {
    * Confirms the turn's explainer-ack `elicit` now that its bubbles are committing (send proves
    * delivery): marked `asked` the turn it is first delivered (status `unasked`), and `filled` on the
    * next inbound (its status is already `asked`) — the reply is the acknowledgment, unblocking the
-   * gated tasks. Emits are NOT confirmed here — they complete in-loop via `update_tasks`.
+   * gated tasks. Emits are NOT confirmed here — they complete in-loop via `tasks__update`.
    */
   private async confirmAcks(confirm: ConfirmTask[], tx: Tx): Promise<void> {
     const updates: TaskUpdate[] = confirm
@@ -214,7 +214,7 @@ export class Consumer {
 
   /**
    * AC-8 safety net. When a required `emit`'s content was delivered this turn but the model left it
-   * unmarked (didn't fill it via `update_tasks`), mark it `filled` and, if the objective is now
+   * unmarked (didn't fill it via `tasks__update`), mark it `filled` and, if the objective is now
    * complete, pop it — so the terminal onboarding flow can't stall waiting on an inbound that may
    * never come. Scoped strictly to a delivered, still-unmarked REQUIRED emit; the normal path pops
    * in-loop and this no-ops.
