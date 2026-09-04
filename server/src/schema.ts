@@ -48,8 +48,10 @@ export const GROCERY_STORES = [
   'wakefern', 'sprouts_farmers',
 ] as const;
 const RECIPE_SOURCES = ['social_media', 'recipe_websites', 'printed_handwritten'] as const;
-// iMessage increment-2 household shopping day (no user_preferences column mirrors it).
-export const GROCERY_SHOPPING_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+// The days of the week, Monday-first. The canonical weekday vocab reused wherever a weekday is stored.
+export const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+// iMessage increment-2 household shopping day — a weekday (aliases DAYS_OF_WEEK; kept for its callers).
+export const GROCERY_SHOPPING_DAYS = DAYS_OF_WEEK;
 // iMessage increment-2 objective stack + slot scoreboard (D2-6).
 export const OBJECTIVE_STATUSES = ['active', 'suspended', 'complete'] as const;
 export const TASK_KINDS = ['elicit', 'emit'] as const;
@@ -793,7 +795,10 @@ export const householdPreferences = sqliteTable('household_preferences', {
   timeLunchMinutes: integer('time_lunch_minutes'),
   timeDinnerMinutes: integer('time_dinner_minutes'),
   timeBudgetMinutes: integer('time_budget_minutes'),
-  cookDaysCount: integer('cook_days_count'),
+  // Which nights the household cooks, as weekdays (e.g. ["monday","tuesday","wednesday"]) — distinct
+  // from weekly_meals (meal counts). Count of cook nights = array length. Replaces the old scalar
+  // cook_days_count; the web-onboarding users.cook_days_count column is a separate flow, untouched.
+  cookDays: text('cook_days', { mode: 'json' }).$type<(typeof DAYS_OF_WEEK)[number][]>(),
   eatsLeftovers: integer('eats_leftovers', { mode: 'boolean' }).notNull().default(true),
   ownedEquipment: text('owned_equipment', { mode: 'json' }).$type<(typeof EQUIPMENT_TYPES)[number][]>(),
   equipmentReviewed: integer('equipment_reviewed', { mode: 'boolean' }).notNull().default(false),

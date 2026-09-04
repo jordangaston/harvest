@@ -31,3 +31,21 @@ export async function writeFact(factType: FactType, subject: Subject, value: unk
   }
   return { ok: true, value: normalized };
 }
+
+/**
+ * The retraction counterpart to `writeFact`: remove a value from a collection fact (allergens,
+ * diets, food_preferences, …) or clear a scalar, through the fact's type. A type without `retract`
+ * can't be removed — that's an instructive rejection, not a crash. Removing an absent value is an
+ * idempotent no-op reported as `{ ok: true }` with a note, so a correction never breaks the turn.
+ *
+ * @param value - The raw value identifying what to remove (grounded by the type, like `persist`).
+ */
+export async function retractFact(factType: FactType, subject: Subject, value: unknown, tx: Tx): Promise<WriteResult> {
+  if (!factType.retract) return { ok: false, reason: `${factType.name} can't be removed — set a new value instead` };
+  try {
+    const removed = await factType.retract(subject, value, tx);
+    return { ok: true, value: removed ? value : `(nothing to remove)` };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}

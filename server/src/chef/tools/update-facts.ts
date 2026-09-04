@@ -3,16 +3,24 @@ import { z } from 'zod';
 import type { Database } from '../../db.js';
 import { FactRegistry } from '../facts/registry.js';
 import { FactTypeRegistry } from '../facts/fact-types.js';
-import { writeFact } from '../facts/write-fact.js';
+import { writeFact, retractFact } from '../facts/write-fact.js';
 import type { Subject } from '../facts/fact-type.js';
 import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({
-  updates: z.array(z.object({ key: z.string(), value: z.unknown(), member_user_id: z.string().optional() })),
+  updates: z.array(
+    z.object({
+      key: z.string(),
+      value: z.unknown(),
+      member_user_id: z.string().optional(),
+      op: z.enum(['set', 'remove']).optional(),
+    }),
+  ),
 });
 
-/** One out-of-band fact write: a registry key, its value, and an optional target member. */
-type FactWriteInput = { key: string; value: unknown; member_user_id?: string };
+/** One out-of-band fact write: a registry key, its value, an optional target member, and whether to
+ *  set (default) or remove the value. */
+type FactWriteInput = { key: string; value: unknown; member_user_id?: string; op?: 'set' | 'remove' };
 
 /** One out-of-band write's verdict, echoing the key. */
 interface FactWriteResult {
@@ -56,8 +64,9 @@ export class UpdateFactsTool implements ChefTool {
       description:
         'Record a fact the household volunteers that no active task is asking for — a member\'s allergy, ' +
         'a store they like. `member_user_id` targets a member-scoped fact (omit it when there is only one ' +
-        'member). Advances no task; for anything a task is asking about, use update_tasks. Returns ' +
-        'filled/rejected per key, with the reason and closest valid values.',
+        'member). Set op:"remove" with the value to retract a previously recorded value when they correct ' +
+        'or narrow it ("actually just peanuts", "I like avocado now"). Advances no task; for anything a ' +
+        'task is asking about, use update_tasks. Returns filled/rejected per key, with reason and closest values.',
       inputSchema,
       execute: async ({ updates }) => this.run(updates),
     });
@@ -69,7 +78,7 @@ export class UpdateFactsTool implements ChefTool {
     return { results };
   }
 
-  private async writeOne({ key, value, member_user_id }: FactWriteInput): Promise<FactWriteResult> {
+  private async writeOne({ key, value, member_user_id, op }: FactWriteInput): Promise<FactWriteResult> {
     // Forgiving: accept the key or the type name, any case/plurality. Echo the CANONICAL key back so
     // the model converges on it. `unknown fact` keeps the raw input — there's no canonical form to show.
     const def = this.factRegistry.resolve(key);
@@ -82,7 +91,7 @@ export class UpdateFactsTool implements ChefTool {
     const subject = this.subjectFor(def.scope, member_user_id);
     if (!subject) return { key: def.key, status: 'rejected', reason: `${def.key} needs a household or member to write to` };
 
-    const res = await writeFact(type, subject, value, this.db);
+    const res = op === 'remove' ? await retractFact(type, subject, value, this.db) : await writeFact(type, subject, value, this.db);
     if (res.ok) return { key: def.key, status: 'filled' };
     return { key: def.key, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
   }

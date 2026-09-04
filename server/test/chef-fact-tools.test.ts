@@ -104,7 +104,7 @@ describe('update_tasks solo-batch rejection', () => {
     await db.insert(threads).values({ id: threadId, chatGuid: `g-${threadId}`, ownerUserId: owner, householdId: hh.id });
     const specs: TaskSpec[] = [
       { key: 'store', kind: 'elicit', fact: 'household.grocery_stores', factType: 'GROCERY_STORE', scope: 'household', required: true, solo: true },
-      { key: 'days', kind: 'elicit', fact: 'household.cook_days_count', factType: 'COOK_DAYS_COUNT', scope: 'household', required: true },
+      { key: 'days', kind: 'elicit', fact: 'household.cook_days', factType: 'COOK_DAYS', scope: 'household', required: true },
     ];
     const objective = await objectives.pushObjective({ threadId, definition: 'onboarding', tasks: specs, position: 'top' });
     // loadActive now hides non-solo tasks while a solo is pending (solo-exclusive rule), so build the
@@ -275,8 +275,8 @@ describe('full scripted onboarding (TC-6)', () => {
     const { ctx } = await reloadCtx(base);
     const fills = [
       { fact: 'household.grocery_stores', value: 'trader joes' },
-      { fact: 'household.weekly_meals', value: { dinner: 5 } },
-      { fact: 'household.cook_days_count', value: 5 },
+      { fact: 'household.dinners_per_week', value: 4 },
+      { fact: 'household.cook_days', value: 5 },
       { fact: 'name', value: 'Sam' },
       { fact: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true } },
     ];

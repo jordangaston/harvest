@@ -67,7 +67,7 @@ const DEFAULTS = (householdId: string): HouseholdPreferences => ({
   weeklyMeals: null,
   timeByMeal: null,
   timeBudgetMinutes: null,
-  cookDaysCount: null,
+  cookDays: null,
   eatsLeftovers: true,
   ownedEquipment: null,
   equipmentReviewed: false,

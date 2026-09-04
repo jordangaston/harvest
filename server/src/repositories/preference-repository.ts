@@ -159,6 +159,38 @@ export class PreferenceRepository {
     });
   }
 
+  /** Removes one allergen from a member (a retraction, e.g. "actually just peanuts"). Returns whether
+   *  a row was deleted — false when it wasn't set (an idempotent no-op). */
+  async removeAllergen(userId: string, allergen: (typeof MAJOR_ALLERGENS)[number], tx?: Executor): Promise<boolean> {
+    let removed = false;
+    await this.on(tx, async (t) => {
+      const r = await t.delete(userAllergens).where(and(eq(userAllergens.userId, userId), eq(userAllergens.allergen, allergen)));
+      removed = (r.rowsAffected ?? 0) > 0;
+    });
+    return removed;
+  }
+
+  /** Removes one diet from a member (a retraction). Returns whether a row was deleted. */
+  async removeDiet(userId: string, dietId: string, tx?: Executor): Promise<boolean> {
+    let removed = false;
+    await this.on(tx, async (t) => {
+      const r = await t.delete(userDiets).where(and(eq(userDiets.userId, userId), eq(userDiets.dietId, dietId)));
+      removed = (r.rowsAffected ?? 0) > 0;
+    });
+    return removed;
+  }
+
+  /** Removes a member's food directive at `(dimension, value)` across all scopes (a retraction, e.g.
+   *  "I actually like avocado now"). Returns whether any row was deleted. */
+  async removeFoodPref(userId: string, dimension: DirectiveDimension, value: string, tx?: Executor): Promise<boolean> {
+    let removed = false;
+    await this.on(tx, async (t) => {
+      const r = await t.delete(userFoodPrefs).where(and(eq(userFoodPrefs.userId, userId), eq(userFoodPrefs.dimension, dimension), eq(userFoodPrefs.value, value)));
+      removed = (r.rowsAffected ?? 0) > 0;
+    });
+    return removed;
+  }
+
   /** Sets ONLY `user_preferences.skill_level`, materializing the row first. Touches no other slice. */
   async setSkillLevel(userId: string, level: (typeof DIFFICULTY_BANDS)[number], tx?: Executor): Promise<void> {
     await this.on(tx, async (t) => {

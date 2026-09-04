@@ -46,8 +46,10 @@ export function householdTaskSpecs(): TaskSpec[] {
     hh('grocery_stores', req, 'Ground each store with fact_types(household.grocery_stores, "<store>"); acknowledge and drop any it does not return.'),
     hh('grocery_shopping_day'),
     hh('weekly_budget_cents'),
-    hh('weekly_meals', req),
-    hh('cook_days_count', req),
+    hh('dinners_per_week', req, 'How many dinners to plan per week (e.g. 4) — a count of meals, not cooking days.'),
+    hh('lunches_per_week', false, 'How many lunches to plan per week (e.g. 5).'),
+    hh('breakfasts_per_week', false, 'How many breakfasts to plan per week.'),
+    hh('cook_days', req, 'Which NIGHTS they cook, as weekdays (e.g. Mon/Tue/Wed) — separate from the meal counts; leftovers or eating out cover meals they don\'t cook. If they give only a number, ask which nights; if they don\'t say, use that many starting Monday.'),
     hh('time_by_meal'),
     hh('eats_leftovers'),
     hh('owned_equipment', false, 'Ground each item with fact_types(household.owned_equipment, "<item>"); drop anything off-catalog.'),
@@ -58,7 +60,7 @@ export function householdTaskSpecs(): TaskSpec[] {
       kind: 'emit',
       scope: 'household',
       required: req,
-      after: ['household.same_household', 'household.household_size', 'household.grocery_stores', 'household.weekly_meals', 'household.cook_days_count'],
+      after: ['household.same_household', 'household.household_size', 'household.grocery_stores', 'household.dinners_per_week', 'household.cook_days'],
     },
   ];
 }

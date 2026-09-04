@@ -1,0 +1,1 @@
+ALTER TABLE `household_preferences` ADD `cook_days` text;

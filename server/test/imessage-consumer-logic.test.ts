@@ -130,7 +130,7 @@ describe("Test Case 2: null reply → no commit, no send (AC-2)", () => {
 
 describe("Test Case 3: a turn commits N rows + advances the cursor (AC-3, AC-4)", () => {
   it("commits 2 bubbles + cursor, sends twice", async () => {
-    const { threadId, ownerId } = await seedThread(["household.grocery_stores", "household.cook_days_count"]);
+    const { threadId, ownerId } = await seedThread(["household.grocery_stores", "household.cook_days"]);
     await seedInbound(threadId, ownerId, "we shop at kroger");
     const newestId = await seedInbound(threadId, ownerId, "and cook 5 nights");
 

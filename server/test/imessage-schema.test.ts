@@ -89,9 +89,9 @@ describe("increment-2 schema", () => {
     ).resolves.toBeDefined();
 
     // Two household-scoped tasks (member NULL) with the same fact coexist — SQLite treats NULL as distinct.
-    await db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days_count", scope: "household", required: true });
+    await db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days", scope: "household", required: true });
     await expect(
-      db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days_count", scope: "household", required: true }),
+      db.insert(tasks).values({ objectiveId, kind: "elicit", fact: "household.cook_days", scope: "household", required: true }),
     ).resolves.toBeDefined();
   });
 
