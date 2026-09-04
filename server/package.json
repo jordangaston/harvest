@@ -7,6 +7,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "reset:thread": "tsx scripts/reset-real-thread.ts",
     "seed:reference": "tsx scripts/seed-reference.ts",
     "seed:cuisines": "tsx scripts/seed-cuisines.ts",
     "seed:taste": "tsx scripts/curate-taste-ingredients.ts",

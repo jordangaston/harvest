@@ -3,11 +3,13 @@ import type { Task } from '../models/task.js';
 import { objectiveDefinition, taskGuidance } from './objectives/index.js';
 
 /** One turn's transcript entry (role + text), for tone and to avoid repetition. A household line
- *  carries a short `[m#]` handle the `send` tool can target a tapback at. */
+ *  carries a short `[m#]` handle the `send` tool can target a tapback at, and the speaker's `name`
+ *  (the member who sent it) so the model can tell members apart — `undefined` when not yet known. */
 export interface TranscriptLine {
   role: 'household' | 'chef';
   text: string;
   handle?: string;
+  name?: string;
 }
 
 /** A household member as the briefing names them (never invents a value the tools didn't return). */
@@ -60,7 +62,10 @@ export function prepareBriefing(input: BriefingInput): string {
     .join('\n');
   const members = input.members.map((m) => `- ${m.name} (${m.handle}) — member_user_id: ${m.userId}`).join('\n');
   // The tagged batch is the new messages; fall back to the raw trigger text if there is no transcript.
-  const conversation = input.transcript.map((l) => `${l.handle ? `[${l.handle}] ` : ''}${l.role}: ${l.text}`).join('\n') || input.trigger;
+  // A household line is labelled with its speaker's name (or "unknown"), so the model never conflates
+  // who said what; a chef line stays "chef".
+  const speaker = (l: TranscriptLine): string => (l.role === 'chef' ? 'chef' : l.name ?? 'unknown');
+  const conversation = input.transcript.map((l) => `${l.handle ? `[${l.handle}] ` : ''}${speaker(l)}: ${l.text}`).join('\n') || input.trigger;
   const replyingLine = input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : '';
 
   return [

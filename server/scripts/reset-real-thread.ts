@@ -1,12 +1,16 @@
 import 'dotenv/config';
-import { inArray, eq, isNull } from 'drizzle-orm';
+import { inArray, eq } from 'drizzle-orm';
 import { dbFromEnv } from '../src/edge-db.js';
 import {
   threads, threadMessages, objectives, tasks, households, householdMembers, householdPreferences,
   users, userAllergens, userDiets, userFoodPrefs, userPreferences,
+  recipes, importJobs, recipeTasteProfiles,
 } from '../src/schema.js';
-const HANDLE = '+15128267702';
-const CHAT = 'any;-;+15128267702';
+
+// The handle to wipe: CLI arg, else RESET_HANDLE, else the default test number. The chat guid is
+// derived so the two never drift. Usage: `npm run reset:thread -- +15551234567`.
+const HANDLE = process.argv[2] ?? process.env.RESET_HANDLE ?? '+15128267702';
+const CHAT = `any;-;${HANDLE}`;
 const db = dbFromEnv();
 
 // Full purge for a clean onboarding rerun: the real thread AND the initiator's household + every
@@ -31,6 +35,13 @@ if (hhIds.length) {
 }
 const wipeUsers = [...new Set([...(initiator ? [initiator.id] : []), ...memberIds])];
 if (wipeUsers.length) {
+  // Recipes + import jobs the user created hold non-cascade FKs to users, so purge them before the
+  // user row. Order: import_jobs → recipe_taste_profiles (both non-cascade on recipes) → recipes
+  // (remaining children cascade). Only user-owned recipes; NULL-owner globals are the shared corpus.
+  const ownedRecipeIds = (await db.select({ id: recipes.id }).from(recipes).where(inArray(recipes.userId, wipeUsers))).map((r) => r.id);
+  await db.delete(importJobs).where(inArray(importJobs.userId, wipeUsers));
+  if (ownedRecipeIds.length) await db.delete(recipeTasteProfiles).where(inArray(recipeTasteProfiles.recipeId, ownedRecipeIds));
+  await db.delete(recipes).where(inArray(recipes.userId, wipeUsers));
   for (const tbl of [userAllergens, userDiets, userFoodPrefs, userPreferences]) await db.delete(tbl).where(inArray(tbl.userId, wipeUsers));
   // proxy members (name-only, no handle) are throwaway; delete them. The initiator re-upserts on next inbound.
   await db.delete(users).where(inArray(users.id, wipeUsers));

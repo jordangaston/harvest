@@ -29,11 +29,21 @@ const DEFS: FactDef[] = [
   { key: 'name', description: "A member's display name", factType: 'NAME', scope: 'member', access: 'writable' },
   { key: 'allergens', description: "A member's allergens", factType: 'ALLERGEN', scope: 'member', access: 'writable' },
   { key: 'diets', description: "A member's diets", factType: 'DIET', scope: 'member', access: 'writable' },
-  { key: 'food_preferences', description: "A member's food directives — like/dislike (direction) and scoped moderation (target/unit) over a cuisine, dish_type, ingredient, food_category, or nutrient", factType: 'SET_DIRECTIVE', scope: 'member', access: 'writable' },
+  { key: 'food_preferences', description: "A member's food directives — like/dislike (direction) and scoped moderation (target/unit) over a cuisine, dish_type, ingredient, food_category, or nutrient", factType: 'FOOD_PREFERENCE', scope: 'member', access: 'writable' },
   { key: 'skill_level', description: "A member's cooking skill", factType: 'SKILL_LEVEL', scope: 'member', access: 'writable' },
 ];
 
 const BY_KEY = new Map(DEFS.map((d) => [d.key, d]));
+
+/** A forgiving lookup slug: lowercase, strip every non-alphanumeric, drop a trailing plural `s` — so
+ *  "allergens"/"ALLERGEN"/"Allergen" collapse to one token, as do "food_preferences"/"FOOD_PREFERENCE".
+ *  Lets the model address a fact by its key OR its type name, in any case or plurality. */
+const normKey = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+
+// Index every def by its key AND its factType name; the key is added last so it wins any collision.
+const BY_NORM = new Map<string, FactDef>();
+for (const d of DEFS) BY_NORM.set(normKey(d.factType), d);
+for (const d of DEFS) BY_NORM.set(normKey(d.key), d);
 
 /**
  * The flat registry of onboarding facts — key → definition. Flat-file, not a persisted table.
@@ -48,6 +58,10 @@ export class FactRegistry {
 
   get(key: string): FactDef | undefined {
     return BY_KEY.get(key);
+  }
+  /** Forgiving lookup for model input: exact key first, then key-or-type-name in any case/plurality. */
+  resolve(loose: string): FactDef | undefined {
+    return BY_KEY.get(loose) ?? BY_NORM.get(normKey(loose));
   }
   list(): FactDef[] {
     return DEFS;

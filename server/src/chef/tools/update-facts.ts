@@ -70,19 +70,21 @@ export class UpdateFactsTool implements ChefTool {
   }
 
   private async writeOne({ key, value, member_user_id }: FactWriteInput): Promise<FactWriteResult> {
-    const def = this.factRegistry.get(key);
+    // Forgiving: accept the key or the type name, any case/plurality. Echo the CANONICAL key back so
+    // the model converges on it. `unknown fact` keeps the raw input — there's no canonical form to show.
+    const def = this.factRegistry.resolve(key);
     if (!def) return { key, status: 'rejected', reason: `unknown fact "${key}"` };
-    if (def.access === 'derived') return { key, status: 'rejected', reason: `${key} is derived/read-only` };
+    if (def.access === 'derived') return { key: def.key, status: 'rejected', reason: `${def.key} is derived/read-only` };
 
     const type = this.factTypes.get(def.factType);
-    if (!type) return { key, status: 'rejected', reason: `no fact type for "${key}"` };
+    if (!type) return { key: def.key, status: 'rejected', reason: `no fact type for "${def.key}"` };
 
     const subject = this.subjectFor(def.scope, member_user_id);
-    if (!subject) return { key, status: 'rejected', reason: `${key} needs a household or member to write to` };
+    if (!subject) return { key: def.key, status: 'rejected', reason: `${def.key} needs a household or member to write to` };
 
     const res = await writeFact(type, subject, value, this.db);
-    if (res.ok) return { key, status: 'filled' };
-    return { key, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
+    if (res.ok) return { key: def.key, status: 'filled' };
+    return { key: def.key, status: 'rejected', reason: res.reason, missing: res.missing, closest: res.closest };
   }
 
   /** The subject a fact writes to: the turn's household, or the named/only member for a member fact. */

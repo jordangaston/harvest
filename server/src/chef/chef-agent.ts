@@ -129,7 +129,7 @@ The objective is a set of tasks, each with an [id], shown below. Your job across
 <facts>
 Facts are what you know about the household — allergies, preferences, equipment. You can both read the facts already recorded and write new ones. Read before you ask, so you never ask what you already know.
 
-Write a fact with update_facts, by its key. Before you write, use fact_types to see a fact type's legal values, or to ground a loose phrase to a canonical one.
+Every fact has one key — the same key read_facts shows (e.g. allergens, food_preferences). Use that one key everywhere: fact_types to see its legal values or ground a loose phrase, then update_facts to write it. Plural/singular and case don't matter.
 
 Be curious, like a chef who wants to cook you the right thing. When someone volunteers a preference, dig before you store it — how strong is it, which variety, taste or texture, and why. Store facts at the lowest level of granularity you can: not "dislikes mushrooms" but "dislikes cremini mushrooms for their woody flavor." A sharper fact is a better recommendation later.
 </facts>
@@ -151,8 +151,11 @@ Never use 😂, 😭, or 🙂.
 
 <hard_rules>
 - Preserve every fact exactly as its meaning. If an allergy is severe, say it is severe.
-- Never add, drop, soften, or invent a fact.
+- Never invent, soften, or distort a fact — and never stretch a value into a broader one to force it into the catalog ("dislikes sushi" is not "dislikes Japanese").
+- A value that won't ground after a genuine search is outside our model and can't be stored: drop it and move on. Don't belabor it or distort it — one passing mention at most.
 - Never echo the household's own words back at them.
+- A tapback is only an acknowledgement, never a whole reply. Any turn where you recorded a fact or still owe a question must end with a text message — don't leave them with just a reaction.
+- Your ack and the result you send after doing the work are two separate messages. The send tool's result shows what you already said — never make the later message repeat it.
 - Never re-ask something already answered — check the recorded facts and the recent messages first.
 </hard_rules>`;
 
@@ -175,6 +178,8 @@ export class MastraChefAgent implements ChefAgent {
     const model: OpenAICompatibleConfig = { id: CHEF_MODEL, url: DEEPSEEK_URL, apiKey: this.apiKey };
 
     let worked = false;
+    let spoke = false; // any bubble (incl. a tapback) shipped this turn
+    let spokeText = false; // a TEXT bubble shipped — a tapback alone doesn't count as a worded reply
     const objectiveTools = buildTools(turn.ctx, db, def.tools);
     const tools: Record<string, ReturnType<typeof createTool>> = {};
     for (const t of objectiveTools) {
@@ -204,16 +209,65 @@ export class MastraChefAgent implements ChefAgent {
       inputSchema: SendInput,
       execute: async (payload: SendPayload) => {
         const e = sendEvent(payload, turn.triggerExternalId, turn.messageTargets);
-        if (e) await turn.send(e);
-        return { sent: e !== null };
+        if (e) {
+          await turn.send(e);
+          spoke = true;
+          if (e.kind === 'text') spokeText = true;
+        }
+        // Echo the sent text back so a later step plainly sees what already went to the household —
+        // the ack rides only in this call's args otherwise, and the bare {sent} let the final bubble
+        // restate it. Surfacing it as a result the model reads stops the ack↔final repetition.
+        return { sent: e !== null, said: e?.kind === 'text' ? e.text : undefined };
       },
     });
 
     const agent = new Agent({ id: 'chef', name: 'chef', instructions: CHEF_PROMPT, model, tools });
-    await agent.generate(prepareBriefing(turn.briefing), {
+    const result = await agent.generate(prepareBriefing(turn.briefing), {
       providerOptions: THINKING_LOW,
       stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= MAX_STEPS,
     });
+
+    // Recovery: the model sometimes ends a turn with no WORDS — only a tapback (which reads as
+    // "Did you get that?"), or a bailed-to-prose step that never called send. Re-run once with a
+    // send-only agent (no fact tools, so it can't thrash) to deliver the reply as text. Fires when a
+    // turn did real work but sent no text, or shipped nothing at all — never on a purely social tapback.
+    if (!spokeText && (worked || !spoke)) {
+      // Best-effort: a failed re-gen must NEVER break the turn. The work is already committed and any
+      // bubble already sent; a throw here would abort the consumer's commit and trigger a redelivery
+      // re-run. So swallow — a missing recovery reply is recoverable next turn; a crash-loop is not.
+      try {
+        const recovery = new Agent({ id: 'chef', name: 'chef', instructions: CHEF_PROMPT, model, tools: { send: tools.send } });
+        const nudge =
+          '\n\n<reply_now>\nYou already did any tool work this turn, but the household has not heard back in words — a reaction alone reads as silence ("did you get that?"). Send ONE short text now with the send tool: confirm what you just heard and ask your next question. Call only send, type "text".\n</reply_now>';
+        await recovery.generate(prepareBriefing(turn.briefing) + nudge, {
+          providerOptions: THINKING_LOW,
+          stopWhen: ({ steps }: { steps: unknown[] }) => steps.length >= 3,
+        });
+      } catch (err) {
+        if (process.env.CHEF_DEBUG) console.error('[chef-debug] recovery failed (non-fatal):', err);
+      }
+    }
+    if (process.env.CHEF_DEBUG) {
+      const r = result as {
+        finishReason?: string;
+        text?: string;
+        reasoningText?: string;
+        steps?: { finishReason?: string; text?: string; reasoningText?: string; toolCalls?: unknown[]; toolResults?: unknown[] }[];
+      };
+      const callSummary = (c: unknown): string => {
+        const o = (c ?? {}) as { toolName?: string; payload?: unknown; args?: unknown; input?: unknown };
+        return `${o.toolName ?? '?'}(${JSON.stringify(o.args ?? o.input ?? o.payload ?? {})})`;
+      };
+      console.error(`\n========== CHEF DEBUG (spoke=${spoke}, spokeText=${spokeText}, worked=${worked}, steps=${r.steps?.length}, top.finish=${r.finishReason}) ==========`);
+      (r.steps ?? []).forEach((s, i) => {
+        console.error(`\n──── step ${i} — finish=${s.finishReason} ────`);
+        if (s.reasoningText) console.error(`  reasoning: ${s.reasoningText}`);
+        (s.toolCalls ?? []).forEach((c) => console.error(`  → call: ${callSummary(c)}`));
+        (s.toolResults ?? []).forEach((res) => console.error(`  ← result: ${JSON.stringify((res as { result?: unknown; output?: unknown }).result ?? (res as { output?: unknown }).output ?? res)}`));
+        if (s.text) console.error(`  text: ${JSON.stringify(s.text)}`);
+      });
+      console.error(`\n========== top.text: ${JSON.stringify(r.text ?? '')} ==========\n`);
+    }
     return { worked };
   }
 }

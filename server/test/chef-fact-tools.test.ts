@@ -142,7 +142,7 @@ describe('update_facts (TC-3)', () => {
   });
 });
 
-describe('food directive via update_facts → SET_DIRECTIVE', () => {
+describe('food directive via update_facts → FOOD_PREFERENCE', () => {
   it('grounds + persists a composite nutrient directive', async () => {
     const { ctx, memberId } = await seedTurn([]);
     const res = await UpdateFactsTool.create(ctx, db).run([
@@ -170,23 +170,27 @@ describe('fact_types 2×2 (TC-4)', () => {
 
     const browse = await tool.run({});
     expect(browse.kind).toBe('browse');
-    if (browse.kind === 'browse') expect(browse.types.some((t) => t.name === 'GROCERY_STORE')).toBe(true);
+    if (browse.kind === 'browse') expect(browse.facts.some((f) => f.key === 'household.grocery_stores')).toBe(true);
 
-    const describe = await tool.run({ fact_type: 'GROCERY_STORE' });
+    const describe = await tool.run({ key: 'household.grocery_stores' });
     expect(describe.kind).toBe('describe');
     if (describe.kind === 'describe') expect(describe.values!.length).toBeGreaterThan(0);
 
-    const scalar = await tool.run({ fact_type: 'WEEKLY_BUDGET_CENTS' });
+    // Forgiving key: the type name, singular, wrong case all resolve to the same fact.
+    const loose = await tool.run({ key: 'GROCERY_STORE' });
+    if (loose.kind === 'describe') expect(loose.key).toBe('household.grocery_stores');
+
+    const scalar = await tool.run({ key: 'household.weekly_budget_cents' });
     if (scalar.kind === 'describe') expect(scalar.rule).toBeTruthy();
 
     const ground = await tool.run({ query: 'trader joes' });
     expect(ground.kind).toBe('ground');
     if (ground.kind === 'ground') {
-      expect(ground.matches[0]!.fact_type).toBe('GROCERY_STORE');
+      expect(ground.matches[0]!.key).toBe('household.grocery_stores');
       expect(ground.matches[0]!.value).toBe('trader_joes');
     }
 
-    const search = await tool.run({ fact_type: 'GROCERY_STORE', query: 'trader' });
+    const search = await tool.run({ key: 'household.grocery_stores', query: 'trader' });
     expect(search.kind).toBe('search');
     if (search.kind === 'search') expect(search.matches.some((m) => m.value === 'trader_joes')).toBe(true);
   });
@@ -194,10 +198,10 @@ describe('fact_types 2×2 (TC-4)', () => {
   it('pages a large catalog via page_token', async () => {
     const { ctx } = await seedTurn([]);
     const tool = FactTypesTool.create(ctx, db);
-    // OWNED_EQUIPMENT has many values — describe should page.
-    const page1 = await tool.run({ fact_type: 'OWNED_EQUIPMENT' });
+    // owned_equipment has many values — describe should page.
+    const page1 = await tool.run({ key: 'household.owned_equipment' });
     if (page1.kind === 'describe' && page1.page_token) {
-      const page2 = await tool.run({ fact_type: 'OWNED_EQUIPMENT', page_token: page1.page_token });
+      const page2 = await tool.run({ key: 'household.owned_equipment', page_token: page1.page_token });
       if (page2.kind === 'describe') expect(page2.values![0]!.value).not.toBe(page1.values![0]!.value);
     }
   });

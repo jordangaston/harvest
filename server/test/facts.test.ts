@@ -139,7 +139,7 @@ describe('a targeted member write touches only its own slice', () => {
 
   it('a food_category moderation write lands via upsertFoodPref (negative target, direction less)', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5 }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5 }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5 }));
@@ -150,7 +150,7 @@ describe('a targeted member write touches only its own slice', () => {
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
     await writeFact(type(reg, 'DIET'), member, { value: 'vegan', strictness: 'strict' }, db);
 
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more' }, db);
     expect(res.ok).toBe(true);
 
     expect(await db.select().from(userAllergens).where(eq(userAllergens.userId, memberId))).toHaveLength(1);
@@ -161,7 +161,7 @@ describe('a targeted member write touches only its own slice', () => {
 
   it('an allergen write preserves a previously upsert-written directive', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5, reason: 'trying to limit' }, db);
+    await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'food_category', value: 'red_meat', direction: 'less', target: -0.5, reason: 'trying to limit' }, db);
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
 
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
@@ -173,7 +173,7 @@ describe('a targeted member write touches only its own slice', () => {
     const { member, memberId, reg } = await seedHousehold();
     await writeFact(type(reg, 'ALLERGEN'), member, { value: 'peanut', severity: 'severe', confirmed: true }, db);
     await writeFact(type(reg, 'DIET'), member, { value: 'vegan', strictness: 'strict' }, db);
-    await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more' }, db);
+    await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more' }, db);
 
     await writeFact(type(reg, 'SKILL_LEVEL'), member, 'advanced', db);
 
@@ -227,7 +227,7 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
     await db.insert(tasteIngredients).values([{ id: 'ti-fish', label: 'Fish', section: 'Meat & Seafood', foodGroup: 10 }]);
     await db.update(fdcFoods).set({ baseIngredientId: 'ti-fish' }).where(eq(fdcFoods.fdcId, SALMON_FDC_ID));
 
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'ingredient', value: 'salmon', direction: 'more' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'ingredient', value: 'salmon', direction: 'more' }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'ingredient', value: 'ti-fish', direction: 'more' }));
@@ -236,7 +236,7 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
   it('a directive value that fails grounding rejects instructively instead of throwing (review #4)', async () => {
     const { member, reg } = await seedHousehold();
     // DirectiveType.persist throws on a grounding miss; writeFact must convert it to { ok: false }.
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'ingredient', value: 'zzzznope', direction: 'more' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'ingredient', value: 'zzzznope', direction: 'more' }, db);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/no catalog match/i);
   });
@@ -249,10 +249,10 @@ describe('TC-6 — parity with save_* (reuse the chef-tools input matrix)', () =
   });
 });
 
-describe('SET_DIRECTIVE — nutrient grounding (WI-2 TC-1 / AC-1)', () => {
+describe('FOOD_PREFERENCE — nutrient grounding (WI-2 TC-1 / AC-1)', () => {
   it('grounds "saturated fat"/"sodium"/"added sugar" to canonical nutrients', async () => {
     const { member, reg } = await seedHousehold();
-    const t = type(reg, 'SET_DIRECTIVE');
+    const t = type(reg, 'FOOD_PREFERENCE');
     for (const [phrase, id] of [['saturated fat', 'saturated_fat'], ['sodium', 'sodium'], ['added sugar', 'sugar']] as const) {
       const res = await writeFact(t, member, { dimension: 'nutrient', value: phrase, direction: 'less' }, db);
       expect(res.ok, phrase).toBe(true);
@@ -261,16 +261,16 @@ describe('SET_DIRECTIVE — nutrient grounding (WI-2 TC-1 / AC-1)', () => {
 
   it('rejects a non-nutrient with closest suggestions', async () => {
     const { member, reg } = await seedHousehold();
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'nutrient', value: 'unicorn dust', direction: 'less' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'nutrient', value: 'unicorn dust', direction: 'less' }, db);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/no catalog match/i);
   });
 });
 
-describe('SET_DIRECTIVE — composite persist (WI-2 TC-2 / AC-2, AC-3)', () => {
+describe('FOOD_PREFERENCE — composite persist (WI-2 TC-2 / AC-2, AC-3)', () => {
   it('persists a day-scope nutrient directive with every field set', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'nutrient', value: 'saturated fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'nutrient', value: 'saturated fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'nutrient', value: 'saturated_fat', scope: 'day', direction: 'less', strength: 'firm', target: 20, unit: 'grams' }));
@@ -278,17 +278,17 @@ describe('SET_DIRECTIVE — composite persist (WI-2 TC-2 / AC-2, AC-3)', () => {
 
   it('persists a recipe-scope cuisine like equivalently to the old FOOD_PREFERENCE (AC-3)', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more', strength: 'soft' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'cuisine', value: 'thai', direction: 'more', strength: 'soft' }, db);
     expect(res.ok).toBe(true);
     const prefs = await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId));
     expect(prefs).toContainEqual(expect.objectContaining({ dimension: 'cuisine', value: 'thai', scope: 'recipe', direction: 'more', strength: 'soft' }));
   });
 });
 
-describe('SET_DIRECTIVE — enum validation (WI-2 TC-3 / AC-5)', () => {
+describe('FOOD_PREFERENCE — enum validation (WI-2 TC-3 / AC-5)', () => {
   it('rejects an illegal scope naming the legal ones, writes nothing', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    const res = await writeFact(type(reg, 'SET_DIRECTIVE'), member, { dimension: 'nutrient', value: 'sodium', direction: 'less', scope: 'fortnight' }, db);
+    const res = await writeFact(type(reg, 'FOOD_PREFERENCE'), member, { dimension: 'nutrient', value: 'sodium', direction: 'less', scope: 'fortnight' }, db);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/scope.*recipe.*week/i);
     expect(await db.select().from(userFoodPrefs).where(eq(userFoodPrefs.userId, memberId))).toHaveLength(0);
@@ -296,7 +296,7 @@ describe('SET_DIRECTIVE — enum validation (WI-2 TC-3 / AC-5)', () => {
 
   it('rejects an illegal direction and an illegal strength', async () => {
     const { member, reg } = await seedHousehold();
-    const t = type(reg, 'SET_DIRECTIVE');
+    const t = type(reg, 'FOOD_PREFERENCE');
     expect((await writeFact(t, member, { dimension: 'cuisine', value: 'thai', direction: 'love' }, db)).ok).toBe(false);
     expect((await writeFact(t, member, { dimension: 'cuisine', value: 'thai', direction: 'more', strength: 'maybe' }, db)).ok).toBe(false);
   });
@@ -305,7 +305,7 @@ describe('SET_DIRECTIVE — enum validation (WI-2 TC-3 / AC-5)', () => {
 describe('food_category catalog (WI-2 AC-4)', () => {
   it('grounds vegetable and fruit', async () => {
     const { member, memberId, reg } = await seedHousehold();
-    const t = type(reg, 'SET_DIRECTIVE');
+    const t = type(reg, 'FOOD_PREFERENCE');
     for (const value of ['vegetable', 'fruit']) {
       const res = await writeFact(t, member, { dimension: 'food_category', value, direction: 'more' }, db);
       expect(res.ok, value).toBe(true);

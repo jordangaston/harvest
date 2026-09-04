@@ -43,14 +43,14 @@ export function householdTaskSpecs(): TaskSpec[] {
     { key: 'household.household_size', kind: 'elicit', fact: 'household.household_size', factType: 'HOUSEHOLD_SIZE', scope: 'household', required: req },
     // Model-filled household elicits.
     hh('goals'),
-    hh('grocery_stores', req, 'Ground each store with fact_types(GROCERY_STORE, "<store>"); acknowledge and drop any it does not return.'),
+    hh('grocery_stores', req, 'Ground each store with fact_types(household.grocery_stores, "<store>"); acknowledge and drop any it does not return.'),
     hh('grocery_shopping_day'),
     hh('weekly_budget_cents'),
     hh('weekly_meals', req),
     hh('cook_days_count', req),
     hh('time_by_meal'),
     hh('eats_leftovers'),
-    hh('owned_equipment', false, 'Ground each item with fact_types(OWNED_EQUIPMENT, "<item>"); drop anything off-catalog.'),
+    hh('owned_equipment', false, 'Ground each item with fact_types(household.owned_equipment, "<item>"); drop anything off-catalog.'),
     // The close: a required emit gated after every required elicit (delivered via the reply plan,
     // confirmed at send-time by the consumer).
     {
@@ -78,16 +78,18 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
     member(
       'food_preferences',
       false,
-      'Capture the member\'s food directives — likes, dislikes, and any limits or targets. Ground each ' +
-        'value with fact_types(SET_DIRECTIVE, "<phrase>"), then write it via update_facts as a directive ' +
-        '{ dimension, value, direction, strength, scope, target?, unit? }. direction: more for a like, ' +
+      'Capture the member\'s food likes, dislikes, and any limits or targets. Ground each ' +
+        'value with fact_types(food_preferences, "<phrase>"), then write it with update_facts under key ' +
+        'food_preferences, value { dimension, value, direction, strength, scope, target?, unit? }. direction: more for a like, ' +
         'less for a dislike or something to cut back. strength: soft (a mild lean), firm (a strong ' +
         'preference), strict (a hard rule they never break) — infer it ("hate"/"never" → firm/strict, ' +
         '"prefer"/"a bit" → soft). scope defaults to recipe; use a meal slot for a per-meal rule ("veg ' +
         'with every dinner" → scope:dinner), or day/week with a target for a limit ("red meat no more ' +
         'than 3x a week" → scope:week, target:3, unit:count; "120g protein a day" → scope:day, ' +
         'target:120, unit:grams). If a like is broad ("anything with chicken"), drill down (fajitas / ' +
-        'creamy pasta / stir-fry?) before writing.',
+        'creamy pasta / stir-fry?) before writing. If a value is rejected as "no catalog match", ground it once ' +
+        'with fact_types; if that finds nothing either, it is outside our model — skip that one value and move on ' +
+        '(don\'t distort it into a broader match).',
     ),
     member('skill_level'),
   ].map((t) => ({ ...t, memberUserId }));

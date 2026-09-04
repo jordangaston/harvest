@@ -2,26 +2,27 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { Database } from '../../db.js';
 import { FactTypeRegistry } from '../facts/fact-types.js';
+import { FactRegistry } from '../facts/registry.js';
 import { score, slugify, type Candidate } from './catalog.js';
 import type { ChefTool, TurnContext } from './types.js';
 
 const inputSchema = z.object({
-  fact_type: z.string().optional(),
+  key: z.string().optional(),
   query: z.string().optional(),
   page_token: z.string().optional(),
 });
 
-/** The args `fact_types` runs a 2×2 over: an optional type, phrase, and page cursor. */
-type FactTypesArgs = { fact_type?: string; query?: string; page_token?: string };
+/** The args `fact_types` runs a 2×2 over: an optional fact key, phrase, and page cursor. */
+type FactTypesArgs = { key?: string; query?: string; page_token?: string };
 
 /** How many enumerated values to return per page before handing back a `page_token`. */
 const PAGE_SIZE = 25;
 /** Ground only offers matches at or above this prefix-overlap score (mirrors catalog's floor). */
 const GROUND_FLOOR = 0.5;
 
-type BrowseResponse = { kind: 'browse'; types: { name: string; flavor: string; description: string }[] };
-type DescribeResponse = { kind: 'describe'; name: string; flavor: string; description: string; values?: Candidate[]; rule?: string; page_token?: string };
-type GroundResponse = { kind: 'ground'; matches: { value: string; fact_type: string; score: number }[] };
+type BrowseResponse = { kind: 'browse'; facts: { key: string; flavor: string; description: string }[] };
+type DescribeResponse = { kind: 'describe'; key: string; flavor: string; description: string; values?: Candidate[]; rule?: string; page_token?: string };
+type GroundResponse = { kind: 'ground'; matches: { value: string; key: string; score: number }[] };
 type SearchResponse = { kind: 'search'; matches: Candidate[]; page_token?: string };
 type FactTypesResponse = BrowseResponse | DescribeResponse | GroundResponse | SearchResponse;
 
@@ -36,9 +37,11 @@ export class FactTypesTool implements ChefTool {
   readonly id = 'fact_types';
 
   private readonly factTypes: FactTypeRegistry;
+  private readonly factRegistry: FactRegistry;
 
   private constructor(db: Database) {
     this.factTypes = FactTypeRegistry.create(db);
+    this.factRegistry = FactRegistry.create();
   }
 
   // `_ctx` is unused: fact_types reads no mutable turn data, only the db-wired registry.
@@ -54,55 +57,66 @@ export class FactTypesTool implements ChefTool {
     return createTool({
       id: this.id,
       description:
-        'Look up a fact type\'s legal values, or ground a loose phrase to a canonical one, before you ' +
-        'write — an off-catalog value is rejected. No args browses every type; `fact_type` alone ' +
-        'describes one (its values or scalar rule); `query` alone grounds a phrase across all types ' +
-        '(ranked); both search one type\'s values. Always pass `fact_type` when you know it — a bare ' +
-        '`query` is the expensive cross-type fallback. Long lists page via page_token. Reads only.',
+        'Look up a fact\'s legal values, or ground a loose phrase to a canonical one, before you write — ' +
+        'an off-catalog value is rejected. Address a fact by the SAME key read_facts shows (e.g. ' +
+        'allergens, food_preferences); plural/singular and case don\'t matter. No args browses every ' +
+        'fact; `key` alone describes one (its values or scalar rule); `query` alone grounds a phrase ' +
+        'across all facts (ranked); both search one fact\'s values. Always pass `key` when you know it — ' +
+        'a bare `query` is the expensive cross-fact fallback. Long lists page via page_token. Reads only.',
       inputSchema,
       execute: async (input) => this.run(input),
     });
   }
 
-  async run({ fact_type, query, page_token }: FactTypesArgs): Promise<FactTypesResponse> {
-    if (fact_type && query) return this.search(fact_type, query, page_token);
-    if (fact_type) return this.describe(fact_type, page_token);
+  async run({ key, query, page_token }: FactTypesArgs): Promise<FactTypesResponse> {
+    if (key && query) return this.search(key, query, page_token);
+    if (key) return this.describe(key, page_token);
     if (query) return this.ground(query);
     return this.browse();
   }
 
+  /** The writable facts the model can address, keyed as read_facts shows them, with each type's flavor. */
   private browse(): BrowseResponse {
-    return { kind: 'browse', types: this.factTypes.list() };
+    const facts = this.factRegistry
+      .list()
+      .filter((d) => d.access === 'writable')
+      .map((d) => ({ key: d.key, flavor: this.factTypes.get(d.factType)?.flavor ?? 'unknown', description: d.description }));
+    return { kind: 'browse', facts };
   }
 
-  private describe(name: string, pageToken?: string): DescribeResponse {
-    const type = this.factTypes.get(name);
-    if (!type) return { kind: 'describe', name, flavor: 'unknown', description: `no such fact type "${name}"` };
+  private describe(loose: string, pageToken?: string): DescribeResponse {
+    const def = this.factRegistry.resolve(loose);
+    const type = def && this.factTypes.get(def.factType);
+    if (!def || !type) return { kind: 'describe', key: loose, flavor: 'unknown', description: `no such fact "${loose}"` };
     const doc = type.describe();
-    const base = { kind: 'describe' as const, name: doc.name, flavor: doc.flavor, description: doc.description };
+    const base = { kind: 'describe' as const, key: def.key, flavor: doc.flavor, description: doc.description };
     if (doc.rule) return { ...base, rule: doc.rule };
     const page = paginate(doc.values ?? [], pageToken);
     return { ...base, values: page.items, page_token: page.next };
   }
 
-  /** Rank a loose phrase against every enumerable type's values, cross-type, keeping the fact_type. */
+  /** Rank a loose phrase against every enumerable fact's values, cross-fact, keeping the canonical key. */
   private ground(query: string): GroundResponse {
     const slug = slugify(query);
-    const matches: { value: string; fact_type: string; score: number }[] = [];
+    const keyByType = new Map(this.factRegistry.list().map((d) => [d.factType, d.key]));
+    const matches: { value: string; key: string; score: number }[] = [];
     for (const { name } of this.factTypes.list()) {
+      const key = keyByType.get(name);
+      if (!key) continue; // a type with no writable key — the model can't address it
       const values = this.factTypes.get(name)?.describe().values;
       if (!values) continue; // scalar type — nothing to ground against
       for (const cand of values) {
         const s = score(slug, cand);
-        if (s >= GROUND_FLOOR) matches.push({ value: cand.value, fact_type: name, score: s });
+        if (s >= GROUND_FLOOR) matches.push({ value: cand.value, key, score: s });
       }
     }
     matches.sort((a, b) => b.score - a.score);
     return { kind: 'ground', matches: matches.slice(0, PAGE_SIZE) };
   }
 
-  private async search(name: string, query: string, pageToken?: string): Promise<SearchResponse> {
-    const type = this.factTypes.get(name);
+  private async search(loose: string, query: string, pageToken?: string): Promise<SearchResponse> {
+    const def = this.factRegistry.resolve(loose);
+    const type = def && this.factTypes.get(def.factType);
     if (!type?.search) return { kind: 'search', matches: [] };
     const result = await type.search(query, pageToken);
     return { kind: 'search', matches: result.values, page_token: result.pageToken };
