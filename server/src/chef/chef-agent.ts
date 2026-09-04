@@ -23,7 +23,10 @@ const MAX_STEPS = 14;
 /** The tools whose use means the turn did real work — it persisted/changed something. Calling any of
  *  these flips the turn's `worked` flag, which gates the consumer's fact-less-task confirm. A pure
  *  read (`facts__read`/`facts__catalog`) or a `chat__send` does not count. */
-const MUTATING_TOOL_IDS = new Set(['tasks__update', 'facts__update', 'household__add_members', 'recipes__import']);
+const MUTATING_TOOL_IDS = new Set([
+  'tasks__update', 'facts__update', 'household__add_members', 'recipes__import',
+  'mealplan__generate', 'mealplan__add_recipe_to_slot', 'mealplan__remove_recipe_from_slot',
+]);
 
 /**
  * One turn's inputs to the single chef agent. `briefing`/`ctx` build the objective tools and the
