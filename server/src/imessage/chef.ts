@@ -8,6 +8,7 @@ import type { ChatEvent } from '../chef/types.js';
 import type { Task } from '../models/task.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
+import { firstMealPlanObjective, firstMealPlanTaskSpecs } from '../chef/objectives/first-meal-plan.js';
 
 /** How many recent messages (both sides) the briefing shows as conversation context. */
 const CONVERSATION_WINDOW = 20;
@@ -141,7 +142,11 @@ export class RealChef implements Chef {
     // kick-off never seeds onboarding.
     let active = await this.objectives.loadActive(threadId);
     if (!active && pending.length > 0) {
+      // Seed onboarding active (top) and first_meal_plan suspended (bottom), so onboarding's pop
+      // chains straight into the first-meal-plan kick-off (F-01 / meal-plan WI). The bottom push is
+      // lock-free and never demotes the active onboarding.
       await this.objectives.pushObjective({ threadId, definition: onboardingObjective.id, tasks: householdTaskSpecs(), position: 'top' });
+      await this.objectives.pushObjective({ threadId, definition: firstMealPlanObjective.id, tasks: firstMealPlanTaskSpecs(), position: 'bottom' });
       active = await this.objectives.loadActive(threadId);
     }
     // Kick-off gate: with no pending inbound, run only when the active objective has eligible
