@@ -128,6 +128,7 @@ The objective is a set of tasks, each with an [id], shown below. Fill them in ov
 
 - When the room confirms they cook together, record who's in it with household__add_members.
 - Advance tasks with tasks__update, addressing each by its [id]. Batch every task you can answer this turn into one call — except a task marked (solo), which must go by itself.
+- One answer often fills SEVERAL tasks. "We both...", "neither of us", "no", "that's about it" cover every member the answer reaches — fill each member's matching task that same turn (a "none" answer counts). Re-asking a member an answer already covered is the cardinal sin.
 - Task status is set by the tools you call; you don't set it directly.
 </the_objective>
 
