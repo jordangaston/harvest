@@ -170,9 +170,30 @@ export class ObjectiveRepository {
   /**
    * Applies the reasoning component's task-status updates within the turn's transaction — status
    * only. Value validation lives in `writeFact` (WI-2); this method just transitions status by id.
+   * The single chokepoint both `asked`-flip paths route through (the chef's `tasks__update` and the
+   * consumer's `confirmAcks`), so a flip to `asked` stamps `nudged_at = now` here — the heartbeat
+   * ladder's start-of-silence for that task (WI-02 AC-3).
    */
   async applyTaskUpdates(updates: TaskUpdate[], tx: Tx): Promise<void> {
-    for (const update of updates) await tx.update(tasks).set({ status: update.status }).where(eq(tasks.id, update.taskId));
+    for (const update of updates)
+      await tx
+        .update(tasks)
+        .set(update.status === 'asked' ? { status: update.status, nudgedAt: new Date() } : { status: update.status })
+        .where(eq(tasks.id, update.taskId));
+  }
+
+  /**
+   * Commits one heartbeat nudge for the given quiet `asked` tasks (WI-02 arm 1): increments each
+   * task's `follow_ups_sent` and stamps `nudged_at = now`, advancing the follow-up ladder. Called
+   * delivered-only (the nudge bubble went out) inside the turn's commit transaction, so a silent or
+   * failed turn leaves the ladder unchanged and the next beat retries.
+   */
+  async nudgeFollowUps(taskIds: string[], now: Date, tx: Tx): Promise<void> {
+    for (const taskId of taskIds)
+      await tx
+        .update(tasks)
+        .set({ followUpsSent: sql`${tasks.followUpsSent} + 1`, nudgedAt: now })
+        .where(eq(tasks.id, taskId));
   }
 
   /**

@@ -133,7 +133,51 @@ the objective in this `handle()` call.
 
 ## Test Run
 
-To be filled during execution.
+Vitest, run per-file with `pkill -f vitest` between runs (libSQL file locks).
+
+### `actionable()` table test (Test Case 1 / AC-2)
+
+```
+$ npx vitest run test/heartbeat-actionable.test.ts
+ ✓ test/heartbeat-actionable.test.ts (8 tests) 2ms
+   - arm 1 due exactly at the rung, not a hair under
+   - arm 1 each rung keyed by follow_ups_sent
+   - arm 1 exhausted (follow_ups_sent = ladder length) never due
+   - arm 1 null nudged_at on an asked task → due immediately
+   - arm 2 an eligible unasked ELICIT is actionable
+   - arm 2 excludes an unasked emit (asks questions, never re-delivers content)
+   - terminal tasks never actionable
+   - returns exactly the due/eligible mix across arms
+ Test Files  1 passed (1)   Tests  8 passed (8)
+```
+
+### Consumer heartbeat arm (Test Cases 2–7 / AC-3..9)
+
+```
+$ npx vitest run test/imessage-consumer-logic.test.ts
+ ✓ test/imessage-consumer-logic.test.ts (30 tests) 1382ms
+   WI-02 TC-2 quiet ask past its rung → nudge commits ladder state (guid <objectiveId>:hb:<taskId>:1)
+   WI-02 TC-3 eligible unasked elicit → ask turn, asked-flip stamps nudged_at, follow_ups_sent stays 0
+   WI-02 TC-4 nothing actionable → silent no-op (chef never invoked)
+   WI-02 TC-5 pending inbound wins → normal turn, ladder untouched
+   WI-02 TC-6 redelivery idempotent → ask no longer due at rung 1 → no-op
+   WI-02 TC-7 silent chef → no commit, attempt bounded once per objective per handle()
+   (+ all 23 pre-existing consumer tests still pass)
+ Test Files  1 passed (1)   Tests  30 passed (30)
+```
+
+### Full server suite (from clean)
+
+```
+$ npx vitest run --pool=forks --poolOptions.forks.singleFork=true
+ Test Files  2 failed | 81 passed (83)
+ Tests  2 failed | 617 passed | 1 skipped (620)
+```
+
+The 2 failures are `apify-fetcher.test.ts` / `lamatok-fetcher.test.ts` "falls back to the
+stub when no fetch keys are set" — the local `.env` has real `HIKER_API_KEY` / `LAMATOK_API_KEY`,
+so the selector correctly returns the live fetcher instead of the stub. Environment-dependent,
+pre-existing, and untouched by this work item.
 
 ## Deployment Strategy
 

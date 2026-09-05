@@ -38,6 +38,9 @@ export interface BriefingInput {
   suspended?: string[];
   /** When the trigger is a threaded reply, a snippet of the parent message it answers. */
   replyingTo?: string;
+  /** WI-02 heartbeat: this is a proactive follow-up (no inbound) on the named tasks — a one-line
+   *  instruction to nudge the quiet asks / ask the eligible unasked ones among them. */
+  heartbeat?: { taskIds: string[] };
 }
 
 /**
@@ -79,12 +82,19 @@ export function prepareBriefing(input: BriefingInput): string {
   const speaker = (l: TranscriptLine): string => (l.role === 'chef' ? 'chef' : l.name ?? 'unknown');
   const conversation = input.transcript.map((l) => `${l.handle ? `[${l.handle}] ` : ''}${speaker(l)}: ${l.text}`).join('\n') || input.trigger;
   const replyingLine = input.replyingTo ? `↳ replying to: "${input.replyingTo}"\n` : '';
+  // A heartbeat turn has no inbound to answer — this line tells the model why it woke and which tasks
+  // to advance (nudge the quiet asks, ask the eligible unasked ones), so it re-engages the household
+  // rather than treating the silence as nothing to do.
+  const heartbeatLine = input.heartbeat?.taskIds.length
+    ? `<heartbeat>\nThe household has gone quiet. Follow up now on these task ids: ${input.heartbeat.taskIds.join(', ')}. Nudge the ones already asked and ask the ones not yet asked — one warm, natural message, no pressure.\n</heartbeat>`
+    : '';
 
   return [
     `<objective name="${def.id}">\n${def.instructions}\n</objective>`,
     input.suspended?.length ? `<suspended>${input.suspended.join(', ')}</suspended>` : '',
     `<tasks>\n${unfilled || '(none)'}${moreLine}\n</tasks>`,
     `<household>\n${members}\n</household>`,
+    heartbeatLine,
     `<conversation>\n${replyingLine}${conversation}\n</conversation>`,
   ]
     .filter(Boolean)

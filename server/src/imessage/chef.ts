@@ -54,14 +54,21 @@ export interface ChefReply {
   popped: boolean;
 }
 
+/** The heartbeat intent (WI-02): the actionable task ids a bare-doorbell follow-up turn should
+ *  advance — quiet `asked` tasks to nudge and eligible `unasked` tasks to ask. Folded into the turn
+ *  context as one instruction line; absent on a normal (inbound-driven) turn. */
+export interface HeartbeatIntent {
+  taskIds: string[];
+}
+
 /**
  * The consumer's entire view of the reasoning layer. `respond` loads the thread's own context,
  * reasons (validated tool writes land mid-turn), and sends its bubbles live through `sink` — then
  * returns what to commit (confirmations, cursor, delivered) or null when nothing past the cursor is
- * pending.
+ * pending. `heartbeat` (WI-02) turns a bare doorbell into a proactive follow-up on the named tasks.
  */
 export interface Chef {
-  respond(threadId: string, sink: OutboundSink): Promise<ChefReply | null>;
+  respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent): Promise<ChefReply | null>;
 }
 
 /**
@@ -91,11 +98,11 @@ export class RealChef implements Chef {
     );
   }
 
-  async respond(threadId: string, sink: OutboundSink): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
 
-    const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId);
+    const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId, heartbeat);
     if (!turn) return null;
 
     // One agent runs the whole turn: it acks, calls the objective tools to persist what the household
@@ -135,7 +142,7 @@ export class RealChef implements Chef {
    * TRIGGERLESS kick-off turn (no trigger id, no targets, no pending line) so the model reads "here's
    * the next objective" and delivers/asks its opener.
    */
-  private async loadTurn(threadId: string, householdId: string | null, cursor: string | null, ownerUserId: string) {
+  private async loadTurn(threadId: string, householdId: string | null, cursor: string | null, ownerUserId: string, heartbeat?: HeartbeatIntent) {
     const pending = await this.threads.loadPendingInbound(threadId, cursor);
     // A fresh thread has no objective — seed onboarding (its household slots) on the first inbound
     // so the conversation is resumable from the DB alone (F-01 step 2). Only on a real inbound: a
@@ -190,6 +197,7 @@ export class RealChef implements Chef {
       transcript,
       trigger: pending.map((m) => m.body ?? '').join('\n'),
       replyingTo: parent?.body ? parent.body.slice(0, MAX_REPLY_PARENT_SNIPPET) : undefined,
+      heartbeat: heartbeat && heartbeat.taskIds.length ? { taskIds: heartbeat.taskIds } : undefined,
     };
     const turnCtx: TurnContext = {
       threadId,
@@ -225,7 +233,7 @@ export class StubChef implements Chef {
     this.threads = ThreadRepository.create(db);
   }
 
-  async respond(threadId: string, sink: OutboundSink): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, _heartbeat?: HeartbeatIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
     const pending = await this.threads.loadPendingInbound(threadId, thread.lastProcessedId);
