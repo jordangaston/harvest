@@ -1,3 +1,4 @@
 {
-  "devCommand": "npm run dev"
+  "devCommand": "npm run dev",
+  "crons": [{ "path": "/crons/dispatch", "schedule": "* * * * *" }]
 }
