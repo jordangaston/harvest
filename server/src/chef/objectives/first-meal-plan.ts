@@ -47,11 +47,11 @@ export const firstMealPlanObjective = {
   id: 'first_meal_plan',
   instructions:
     "Goal: give this household their first week of meals and land it. Work the three tasks in order.\n" +
-    '- generate: call mealplan__generate once, then present the week: a short warm intro naming the days, ' +
-    'then share EACH planned recipe by sending its `url` (one chat__send per recipe, type "richlink") — ' +
-    'each lands as a tappable recipe card. Group them by meal (dinners first, then lunches), a brief text ' +
-    'label before each group. Never describe a recipe in prose instead of sending its card. Fill the ' +
-    'generate task via tasks__update once the cards are out.\n' +
+    '- generate: call mealplan__generate once, then present the week: a short warm intro (dinners and ' +
+    'lunches, a highlight or two), then send `plan_url` (one chat__send, type "richlink") — the whole week ' +
+    'lands as a single tappable card they can browse, dinners first. Never list every recipe in prose; the ' +
+    'card is the menu. Re-share `plan_url` whenever they ask what is planned. Fill the generate task via ' +
+    'tasks__update once the card is out.\n' +
     '- feedback: ask if there is anything they would change. If they want a swap, use mealplan__slot_options ' +
     'with their criteria (an ingredient, a time cap), share each option as its card (send its `url`), let ' +
     'them pick, and place it with mealplan__add_recipe_to_slot (drop one with remove_recipe_from_slot). ' +

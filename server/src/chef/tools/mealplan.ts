@@ -14,6 +14,12 @@ function recipeUrl(id: string): string | undefined {
   return base ? `${base}/r/${id}` : undefined;
 }
 
+/** The public plan-page URL for a user — the whole upcoming week as one tappable card (`/p/:userId`). */
+function planUrl(userId: string): string | undefined {
+  const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
+  return base ? `${base}/p/${userId}` : undefined;
+}
+
 /** The planning window: the next 7 days starting tomorrow (the plan is always forward-looking). */
 function planWindow(): { start: string; end: string } {
   const day = 86_400_000;
@@ -64,18 +70,21 @@ export class GenerateMealPlanTool implements ChefTool {
       description:
         'Fill the household\'s week with meals and get the plan back to present. Uses their recorded meal ' +
         'counts and cook nights, ranked to their tastes; each slot gets a main plus any sides their per-meal ' +
-        'rules call for. Takes no input. Returns { plan: [{ date, meal, recipes: [{ id, title, url }] }] } for the ' +
-        'coming 7 days (main first in each slot). Call it once, then share each recipe by sending its `url` ' +
-        '(type "richlink") — it lands as a tappable recipe card.',
+        'rules call for. Takes no input. Returns { plan_url, plan: [{ date, meal, recipes: [{ id, title, url }] }] } ' +
+        'for the coming 7 days (main first in each slot). Call it once, then share `plan_url` (one send, type ' +
+        '"richlink") — the whole week lands as a single tappable card. Re-share it anytime they ask what is planned.',
       inputSchema: z.object({}),
       execute: async () => this.run(),
     });
   }
 
-  async run(): Promise<{ plan: { date: string; meal: string; recipes: { id: string; title: string; url?: string }[] }[] }> {
+  async run(): Promise<{ plan_url?: string; plan: { date: string; meal: string; recipes: { id: string; title: string; url?: string }[] }[] }> {
     const { start, end } = planWindow();
     const planned = await this.generator.generate(this.ctx.initiatorUserId, this.ctx.householdId!, start, end);
-    return { plan: planned.map((s) => ({ date: s.date, meal: s.meal, recipes: s.recipes.map((r) => ({ id: r.id, title: r.title, url: recipeUrl(r.id) })) })) };
+    return {
+      plan_url: planUrl(this.ctx.initiatorUserId),
+      plan: planned.map((s) => ({ date: s.date, meal: s.meal, recipes: s.recipes.map((r) => ({ id: r.id, title: r.title, url: recipeUrl(r.id) })) })),
+    };
   }
 }
 
