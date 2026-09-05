@@ -16,9 +16,11 @@ import { CHEF_TAPBACK_KINDS, type ChatEvent, type TapbackKind } from './types.js
 const CHEF_MODEL = 'google/gemini-3.8-flash';
 const CHEF_OPTS = { google: { thinkingConfig: { thinkingLevel: 'low' } } } as const;
 // One turn: an ack, a batch of tool fills, then the result bubbles. A dense message (several members +
-// grounded allergens/dislikes) can legitimately take ~10 steps, so give headroom above that — thinking
-// is `low`, so each step is cheap (~1.3s) and the cap is a runaway guard, not a latency lever.
-const MAX_STEPS = 14;
+// grounded allergens/dislikes) can take ~10 steps, and the meal-plan kick-off legitimately sends a
+// card per planned recipe (a 9-slot week ≈ 9 richlinks + intro + labels + the task fill) — so the cap
+// sits above both. Thinking is `low`, so each step is cheap (~1.3s); this is a runaway guard, not a
+// latency lever.
+const MAX_STEPS = 24;
 
 /** The tools whose use means the turn did real work — it persisted/changed something. Calling any of
  *  these flips the turn's `worked` flag, which gates the consumer's fact-less-task confirm. A pure

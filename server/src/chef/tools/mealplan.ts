@@ -7,6 +7,13 @@ import { CRITERIA_DIMENSIONS, type SlotCriteria } from '../../planning/types.js'
 import { NotFoundError } from '../../errors.js';
 import type { ChefTool, TurnContext } from './types.js';
 
+/** The public recipe-page URL for a recipe id, or undefined when `PUBLIC_APP_URL` is unset — the
+ *  same origin the import flow's card uses, so a shared recipe always lands as a tappable app card. */
+function recipeUrl(id: string): string | undefined {
+  const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
+  return base ? `${base}/r/${id}` : undefined;
+}
+
 /** The planning window: the next 7 days starting tomorrow (the plan is always forward-looking). */
 function planWindow(): { start: string; end: string } {
   const day = 86_400_000;
@@ -57,17 +64,18 @@ export class GenerateMealPlanTool implements ChefTool {
       description:
         'Fill the household\'s week with meals and get the plan back to present. Uses their recorded meal ' +
         'counts and cook nights, ranked to their tastes; each slot gets a main plus any sides their per-meal ' +
-        'rules call for. Takes no input. Returns { plan: [{ date, meal, recipes: [{ id, title }] }] } for the ' +
-        'coming 7 days (main first in each slot). Call it once, then walk them through it.',
+        'rules call for. Takes no input. Returns { plan: [{ date, meal, recipes: [{ id, title, url }] }] } for the ' +
+        'coming 7 days (main first in each slot). Call it once, then share each recipe by sending its `url` ' +
+        '(type "richlink") — it lands as a tappable recipe card.',
       inputSchema: z.object({}),
       execute: async () => this.run(),
     });
   }
 
-  async run(): Promise<{ plan: { date: string; meal: string; recipes: { id: string; title: string }[] }[] }> {
+  async run(): Promise<{ plan: { date: string; meal: string; recipes: { id: string; title: string; url?: string }[] }[] }> {
     const { start, end } = planWindow();
     const planned = await this.generator.generate(this.ctx.initiatorUserId, this.ctx.householdId!, start, end);
-    return { plan: planned.map((s) => ({ date: s.date, meal: s.meal, recipes: s.recipes.map((r) => ({ id: r.id, title: r.title })) })) };
+    return { plan: planned.map((s) => ({ date: s.date, meal: s.meal, recipes: s.recipes.map((r) => ({ id: r.id, title: r.title, url: recipeUrl(r.id) })) })) };
   }
 }
 
@@ -100,7 +108,8 @@ export class SlotOptionsTool implements ChefTool {
         'under 30 minutes". Pass `date` (YYYY-MM-DD) and `meal`; optional `criteria` narrows by ' +
         'include/exclude facets (ingredient, cuisine, dish_type, food_category) and `max_total_minutes`. ' +
         '`limit` caps how many to return; for "more options", call again with the ids you already showed ' +
-        'in `exclude_ids`. Returns { options: [{ id, title }] }. Reads only — use add_recipe_to_slot to place one.',
+        'in `exclude_ids`. Returns { options: [{ id, title, url }] } — share each option by sending its `url` ' +
+        '(type "richlink") so it lands as a tappable card. Reads only — use add_recipe_to_slot to place one.',
       inputSchema: z.object({
         date: dateParam,
         meal,
@@ -113,13 +122,13 @@ export class SlotOptionsTool implements ChefTool {
     });
   }
 
-  async run(date: string, m: 'breakfast' | 'lunch' | 'dinner' | 'snack', criteria: SlotCriteria | undefined, limit: number, excludeIds?: string[]): Promise<{ options: { id: string; title: string }[] }> {
+  async run(date: string, m: 'breakfast' | 'lunch' | 'dinner' | 'snack', criteria: SlotCriteria | undefined, limit: number, excludeIds?: string[]): Promise<{ options: { id: string; title: string; url?: string }[] }> {
     const options = await this.generator.slotOptions(this.ctx.initiatorUserId, date, m, {
       criteria,
       limit,
       exclude: excludeIds ? new Set(excludeIds) : undefined,
     });
-    return { options: options.map((o) => ({ id: o.card.id, title: o.card.title })) };
+    return { options: options.map((o) => ({ id: o.card.id, title: o.card.title, url: recipeUrl(o.card.id) })) };
   }
 }
 

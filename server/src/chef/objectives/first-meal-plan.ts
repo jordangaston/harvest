@@ -47,14 +47,16 @@ export const firstMealPlanObjective = {
   id: 'first_meal_plan',
   instructions:
     "Goal: give this household their first week of meals and land it. Work the three tasks in order.\n" +
-    '- generate: call mealplan__generate once, then present the week warmly — the mains, and a note on ' +
-    'any sides. Do not list every macro; a couple of highlights. Fill the generate task via tasks__update ' +
-    'once you have delivered it.\n' +
+    '- generate: call mealplan__generate once, then present the week: a short warm intro naming the days, ' +
+    'then share EACH planned recipe by sending its `url` (one chat__send per recipe, type "richlink") — ' +
+    'each lands as a tappable recipe card. Group them by meal (dinners first, then lunches), a brief text ' +
+    'label before each group. Never describe a recipe in prose instead of sending its card. Fill the ' +
+    'generate task via tasks__update once the cards are out.\n' +
     '- feedback: ask if there is anything they would change. If they want a swap, use mealplan__slot_options ' +
-    'with their criteria (an ingredient, a time cap), let them pick, and place it with ' +
-    'mealplan__add_recipe_to_slot (drop one with remove_recipe_from_slot). They can ask for more options ' +
-    '(call slot_options again, excluding what you already showed). When they are happy or say nothing to ' +
-    'change, fill the feedback task.\n' +
+    'with their criteria (an ingredient, a time cap), share each option as its card (send its `url`), let ' +
+    'them pick, and place it with mealplan__add_recipe_to_slot (drop one with remove_recipe_from_slot). ' +
+    'They can ask for more options (call slot_options again, excluding what you already showed). When they ' +
+    'are happy or say nothing to change, fill the feedback task.\n' +
     '- confirm: get a final "looks good" and fill the confirm task — that completes the plan.',
   tools: FIRST_MEAL_PLAN_TOOLS,
 };

@@ -47,18 +47,29 @@ class LiveOutboundSink implements OutboundSink {
   }
 
   /** Sends one event live and returns its platform id(s): text→`send`, tapback→`sendReaction`,
-   *  richlink→`sendLink`. */
+   *  richlink→`sendRecipeCard` for our own recipe pages (tappable app card, same as the import
+   *  flow) and `sendLink` for any other URL. The card-vs-link choice lives here, the one delivery
+   *  chokepoint — the model just sends the URL. */
   private async deliver(event: ChatEvent): Promise<string[]> {
     switch (event.kind) {
       case 'text':
         return this.sender.send(this.chatGuid, [event.text]);
       case 'richlink':
-        return this.sender.sendLink(this.chatGuid, event.url);
+        return isRecipePageUrl(event.url)
+          ? this.sender.sendRecipeCard(this.chatGuid, event.url)
+          : this.sender.sendLink(this.chatGuid, event.url);
       case 'tapback':
         await this.sender.sendReaction(this.chatGuid, event.target, TAPBACK_GLYPHS[event.emoji]);
         return []; // a reaction returns no targetable platform id
     }
   }
+}
+
+/** Whether `url` is one of our own recipe pages (`PUBLIC_APP_URL/r/:id`) — the URLs that render as
+ *  tappable app cards rather than plain rich links. False when `PUBLIC_APP_URL` is unset. */
+function isRecipePageUrl(url: string): boolean {
+  const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
+  return !!base && url.startsWith(`${base}/r/`);
 }
 
 /**

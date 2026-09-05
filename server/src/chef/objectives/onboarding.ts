@@ -74,7 +74,9 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
       req,
       'If an allergen is named without a severity, ask mild/moderate/severe, then write it with confirmed:true ' +
         '(an unconfirmed allergen is never saved). If the member confirms none, write no_allergens:true — "none" ' +
-        'fills this task. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
+        'fills this task. An answer that covers the whole household ("just Ash has one", "that\'s about it") ' +
+        'confirms none for every member it leaves out — write no_allergens:true for each of them that same turn; ' +
+        'never re-ask a member it covered. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
     ),
     member('diets', false, 'If they follow no diet, write no_diets:true — "none" fills this task, so you never re-ask. Otherwise, if strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
     member(
