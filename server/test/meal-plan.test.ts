@@ -130,3 +130,20 @@ describe("meal-plan auth", () => {
     expect((await h.app.request("/v1/meal-plan/00000000-0000-0000-0000-000000000000", { method: "DELETE" })).status).toBe(401);
   });
 });
+
+describe("GET /p/:userId — the plan page", () => {
+  it("links each recipe as /r/:id?plan=<userId> (locks the arg order), and /r/ renders the back link", async () => {
+    const me = await h.mintBearer();
+    const recipeId = await RecipeRepository.create(h.db).persist(RECIPE, me.userId);
+    const date = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10); // inside the page's window
+    await addEntry(me.token, { date, meal: "dinner", recipe_id: recipeId });
+
+    const plan = await h.app.request(`/p/${me.userId}`);
+    expect(plan.status).toBe(200);
+    const html = await plan.text();
+    expect(html).toContain(`/r/${recipeId}?plan=${me.userId}`); // the userId, never the origin
+
+    const recipe = await h.app.request(`/r/${recipeId}?plan=${me.userId}`);
+    expect(await recipe.text()).toContain(`href="/p/${me.userId}"`); // the way back
+  });
+});

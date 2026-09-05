@@ -103,9 +103,10 @@ app.get("/r/:id", async (c) => {
 app.get("/p/:userId", async (c) => {
   const today = new Date().toISOString().slice(0, 10);
   const end = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-  const entries = await mealPlan.listRange(c.req.param("userId")!, today, end);
+  const userId = c.req.param("userId")!;
+  const entries = await mealPlan.listRange(userId, today, end);
   c.header("cache-control", "no-store");
-  return c.html(renderPlanPage(entries, new URL(c.req.url).origin));
+  return c.html(renderPlanPage(entries, userId, new URL(c.req.url).origin));
 });
 
 /** POST /v1/otps — sends an SMS verification code. Public. 502 if the send fails. */
