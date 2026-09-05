@@ -21,15 +21,16 @@ export const FOLLOW_UP_LADDER = [
  *   `nudgedAt` has reached the current rung `LADDER[followUpsSent]`. A null `nudgedAt` on an `asked`
  *   task is treated as due immediately (it predates the feature or missed a stamp; a nudge is the safe
  *   recovery).
- * - **Arm 2 (eligible unasked ELICIT):** an `unasked` elicit — a question the objective can still ask;
- *   its gates are already satisfied by `loadActive`, no ladder wait. An `unasked` *emit* is excluded:
- *   its status can't tell an already-delivered close (a parked kick-off) from an undelivered one, and
- *   re-running it would re-send content — a delivered-but-unmarked emit is the consumer's AC-8 net's
- *   job, not the heartbeat's. So the heartbeat asks questions; it never re-delivers emits.
+ * - **Arm 2 (eligible unasked work):** an `unasked` task — elicit or emit — whose gates are already
+ *   satisfied by `loadActive`; no ladder wait. Re-delivery is safe by guid scoping (the consumer's
+ *   job): an emit-bearing heartbeat turn rides the objective-id scope that kick-offs use, so content
+ *   an earlier attempt already sent — from EITHER arm — is silently swallowed by the sink and the
+ *   turn continues to mark the emit done. Elicit asks ride the `:hb:` scope, whose `:n` counter
+ *   advances only on a delivered commit, so crashed attempts regenerate the same prefix and dedupe.
  */
 export function actionable(tasks: Task[], now: Date): Task[] {
   return tasks.filter((t) => {
-    if (t.status === 'unasked') return t.kind === 'elicit';
+    if (t.status === 'unasked') return true;
     if (t.status !== 'asked' || t.followUpsSent >= FOLLOW_UP_LADDER.length) return false;
     const since = t.nudgedAt ? now.getTime() - t.nudgedAt.getTime() : Infinity;
     return since >= FOLLOW_UP_LADDER[t.followUpsSent]!;

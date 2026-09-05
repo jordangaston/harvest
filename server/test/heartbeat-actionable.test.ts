@@ -63,9 +63,9 @@ describe("actionable — WI-02 AC-2", () => {
     expect(actionable([eligible], NOW)).toEqual([eligible]);
   });
 
-  it("arm 2 excludes an unasked emit — the heartbeat asks questions, never re-delivers content", () => {
+  it("arm 2 includes an unasked emit — retries reuse the same guid scope, so re-delivery dedupes", () => {
     const emit = task({ status: "unasked", kind: "emit", fact: null });
-    expect(actionable([emit], NOW)).toEqual([]);
+    expect(actionable([emit], NOW)).toEqual([emit]);
   });
 
   it("terminal tasks are never actionable", () => {

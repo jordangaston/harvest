@@ -86,7 +86,7 @@ export function prepareBriefing(input: BriefingInput): string {
   // to advance (nudge the quiet asks, ask the eligible unasked ones), so it re-engages the household
   // rather than treating the silence as nothing to do.
   const heartbeatLine = input.heartbeat?.taskIds.length
-    ? `<heartbeat>\nThe household has gone quiet. Follow up now on these task ids: ${input.heartbeat.taskIds.join(', ')}. Nudge the ones already asked and ask the ones not yet asked — one warm, natural message, no pressure.\n</heartbeat>`
+    ? `<heartbeat>\nThe household has gone quiet. Follow up now on these task ids: ${input.heartbeat.taskIds.join(', ')}. Nudge the ones already asked, ask the ones not yet asked, and deliver any that emit content (then mark them done) — one warm, natural message, no pressure.\n</heartbeat>`
     : '';
 
   return [

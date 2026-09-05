@@ -778,6 +778,73 @@ describe("WI-02 TC-3: an eligible unasked task triggers an ask turn (AC-6, AC-3)
   });
 });
 
+describe("WI-04: an eligible unasked emit heartbeat-fires and delivers (arm 2 includes emits)", () => {
+  it("chef gets the intent naming the emit; delivery rides a stable guid scope; ladder untouched", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+
+    const intents: (HeartbeatIntent | undefined)[] = [];
+    const chef: Chef = {
+      respond: async (_tid, sink, heartbeat): Promise<ChefReply> => {
+        intents.push(heartbeat);
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        await db.transaction((tx) => ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx));
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents[0]).toEqual({ taskIds: [emitId] });
+    expect(sender.calls).toHaveLength(1);
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound[0]!.messageGuid).toBe(`${objectiveId}#0`); // emits ride the kick-off's objective scope
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(after!.status).toBe("filled");
+    expect(after!.followUpsSent).toBe(0);
+  });
+
+  it("a retry after a crashed attempt swallows the duplicate silently and still marks the emit done", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+    const sender = new StubSpectrumSender();
+
+    // Crashed attempt: the bubble journals + sends live, then the turn dies before any commit —
+    // the emit is delivered on the phone but still `unasked` in the DB.
+    const crashingChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply | null> => {
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        return null;
+      },
+    };
+    await new Consumer(db, sender, crashingChef, new StubThreadLock()).handle({ threadId });
+    expect(sender.calls).toHaveLength(1); // went out before the "crash"
+
+    // Retry beat: same unasked emit → same guid scope → the send is swallowed, the turn continues,
+    // and the emit gets marked done.
+    const retryChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply> => {
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        await db.transaction((tx) => ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx));
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    await new Consumer(db, sender, retryChef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.calls).toHaveLength(1); // the duplicate was swallowed — exactly one bubble ever
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound).toHaveLength(1); // one journal row, not two
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(after!.status).toBe("filled"); // the retry still marked it done
+  });
+});
+
 describe("WI-02 TC-4: nothing actionable → silent no-op (AC-4)", () => {
   it("an ask nudged 1 minute ago never invokes the chef, sends nothing, changes nothing", async () => {
     const { threadId } = await seedThread();

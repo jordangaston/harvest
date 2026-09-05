@@ -158,7 +158,13 @@ export class Consumer {
         // fresh state, so a nudge can never race a reply that already answered. `now` is read once per
         // iteration — the ladder measures elapsed time from each task's `nudged_at`.
         const now = new Date();
-        const heartbeatTasks = firstIteration && kickOff && !lastPopped && !kickoffPending && active ? actionable(active.tasks, now) : [];
+        const due = firstIteration && kickOff && !lastPopped && !kickoffPending && active ? actionable(active.tasks, now) : [];
+        // Emits take the turn when due (WI-04): their sends must ride the OBJECTIVE-ID guid scope —
+        // the scope every emit delivery uses — so a retry of content a kick-off already sent is
+        // swallowed by the sink, the chef keeps going, and the emit still gets marked done. Nudge
+        // bubbles must never ride that colliding scope, so any due nudges wait for the next beat.
+        const dueEmits = due.filter((t) => t.kind === 'emit');
+        const heartbeatTasks = dueEmits.length > 0 ? dueEmits : due;
         const heartbeat = heartbeatTasks.length > 0;
         if (kickOff && !lastPopped && !kickoffPending && !heartbeat) return;
 
@@ -171,11 +177,18 @@ export class Consumer {
         if (kickOff && kickedOff.has(active!.objective.id)) return;
         if (kickOff) kickedOff.add(active!.objective.id);
         // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids.
-        // Heartbeat: the guid is `<objectiveId>:hb:<taskId>:<n>` (n = the first nudged task's next
-        // rung), deterministic so a redelivered beat dedupes. Kick-off: the objective id keys the guids.
+        // Heartbeat nudges/asks: `<objectiveId>:hb:<taskId>:<n>` (n = task[0]'s `followUpsSent + 1`).
+        // n advances only on a DELIVERED commit, so a crashed attempt regenerates the SAME prefix and
+        // the sink swallows its already-sent bubbles; only a successful nudge opens a fresh scope,
+        // which the NEXT rung's genuinely-new message needs. Heartbeat EMITS and kick-offs share the
+        // objective-id scope — one idempotency domain for an objective's content, whichever arm sends
+        // it. ponytail: cross-turn ordinal collisions in that shared scope would swallow a future
+        // MID-objective emit's content; none exists today — per-bubble guid scoping if one is added.
         const triggerId = kickOff ? null : pending[pending.length - 1]!.id;
         const guidPrefix = heartbeat
-          ? `${active!.objective.id}:hb:${heartbeatTasks[0]!.id}:${heartbeatTasks[0]!.followUpsSent + 1}`
+          ? dueEmits.length > 0
+            ? active!.objective.id
+            : `${active!.objective.id}:hb:${heartbeatTasks[0]!.id}:${heartbeatTasks[0]!.followUpsSent + 1}`
           : kickOff
             ? active!.objective.id
             : triggerId!;
