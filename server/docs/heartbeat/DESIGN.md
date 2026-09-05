@@ -118,8 +118,9 @@ actionable(tasks, now) =
     and followUpsSent < LADDER.length
     and now - nudgedAt >= LADDER[followUpsSent]
   ∪
-  // Arm 2 — eligible work never delivered: the objective can advance right now
+  // Arm 2 — an eligible question never asked: the objective can advance right now
   tasks where status = 'unasked'
+    and kind = 'elicit'
     and every task in afterTaskIds is terminal   // the existing eligibility gate
 ```
 
@@ -129,12 +130,14 @@ ask. `nudgedAt` is stamped whenever a task flips to `asked` (the existing chokep
 `confirmAcks` and `tasks__update`) and again on each committed nudge. After nudge #6 the
 task stays `asked` but is never due again (see Q-01).
 
-**Arm 2 — eligible unasked work.** No ladder wait: if a turn ended leaving an eligible
-elicit unasked or an emit undelivered (a parked turn, a gate that opened as the turn
-closed, a crash), the next beat picks it up and the chef runs its normal ask/deliver
-behaviour. This generalizes the existing `kickoffPendingAt` crash-recovery arm from
-"resume a stranded opener" to "advance whenever advancing is possible". Solo-task
-exclusivity applies as it does in a normal turn.
+**Arm 2 — eligible unasked elicits.** No ladder wait: if a turn ended leaving an
+eligible elicit unasked (a parked turn, a gate that opened as the turn closed, a
+crash), the next beat picks it up and the chef asks it via its normal behaviour. This
+generalizes the existing `kickoffPendingAt` crash-recovery arm from "resume a stranded
+opener" to "ask whenever asking is possible". **Emits are excluded** (as built in
+WI-02): the heartbeat asks questions, it never re-delivers content — emits deliver
+through kick-off and normal turns, and stranded openers are already recovered by the
+`kickoffPendingAt` arm. Solo-task exclusivity applies as it does in a normal turn.
 
 Multiple actionable tasks resolve in ONE turn — the chef sees all of them and composes
 one message; the commit advances every `asked` task it nudged (arm-2 tasks advance
@@ -457,3 +460,4 @@ maintained. Promote it to a direct dependency.
 |---|---|---|
 | 2026-09-05 | Claude (w/ Jordan) | Initial draft |
 | 2026-09-05 | Claude (w/ Jordan) | Broaden trigger: heartbeat fires on ANY actionable work (quiet asks on the ladder OR eligible unasked tasks — "can the objective advance?"); add cost decision: dynamic table + sweep vs. platform cron per thread |
+| 2026-09-05 | Claude | Arm 2 narrowed to elicits (as built in WI-02): the heartbeat asks questions, never re-delivers emit content |

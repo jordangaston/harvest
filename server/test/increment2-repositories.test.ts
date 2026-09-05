@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { type Database } from '../src/db.js';
-import { users, threads, objectives, tasks } from '../src/schema.js';
+import { users, threads, objectives, tasks, dynamicCronJobs } from '../src/schema.js';
 import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
+import { nextRun } from '../src/crons/next-run.js';
+import { backfillHeartbeats } from '../src/crons/backfill-heartbeats.js';
 import { HouseholdRepository } from '../src/repositories/household-repository.js';
 import { HouseholdPreferenceRepository } from '../src/repositories/household-preference-repository.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
@@ -291,6 +293,87 @@ describe('HouseholdRepository', () => {
     const members = await repo.loadMembers(household.id);
     expect(members.map((m) => m.userId).sort()).toEqual([a, b].sort());
     expect(members.find((m) => m.userId === a)).toMatchObject({ name: 'Ada', imessageHandle: '+15550000001' });
+  });
+});
+
+describe('heartbeat lifecycle (O-02)', () => {
+  const now = new Date('2026-09-05T10:02:00Z');
+
+  /** The thread's single `thread_heartbeat` row, or undefined. */
+  async function heartbeat(threadId: string) {
+    const [row] = await db
+      .select()
+      .from(dynamicCronJobs)
+      .where(and(eq(dynamicCronJobs.ownerId, threadId), eq(dynamicCronJobs.jobType, 'thread_heartbeat')));
+    return row;
+  }
+
+  it('activation creates the row, then resume unpauses and preserves a custom cron (TC-1, AC-1)', async () => {
+    const threadId = await seedThread();
+    const store = ObjectiveRepository.create(db);
+
+    // (a) First objective push activates → a fresh unpaused row at the default cadence.
+    const active = await store.pushObjective({ threadId, definition: 'onboard', tasks: [], position: 'top' });
+    const created = await heartbeat(threadId);
+    expect(created).toMatchObject({ ownerType: 'thread', isPaused: false, cronExpression: '*/5 * * * *', input: { threadId } });
+    expect(created!.nextRunAt.getTime()).toBeGreaterThan(Date.now());
+
+    // (b) Pause + custom cron manually, then complete with a suspended successor on the stack → resume.
+    const suspended = await seedObjective(threadId, 'suspended', -1);
+    await db
+      .update(dynamicCronJobs)
+      .set({ isPaused: true, cronExpression: '*/10 * * * *' })
+      .where(eq(dynamicCronJobs.ownerId, threadId));
+
+    const successor = await db.transaction((tx) => store.completeAndPop(active.id, tx));
+    expect(successor?.id).toBe(suspended);
+    const resumed = await heartbeat(threadId);
+    expect(resumed!.isPaused).toBe(false);
+    expect(resumed!.cronExpression).toBe('*/10 * * * *'); // custom cadence survives resume
+    expect(resumed!.nextRunAt).toEqual(nextRun('*/10 * * * *', resumed!.updatedAt));
+
+    // Still exactly one row (unique index held).
+    const all = await db.select().from(dynamicCronJobs).where(eq(dynamicCronJobs.ownerId, threadId));
+    expect(all).toHaveLength(1);
+  });
+
+  it('emptying the stack pauses the row (TC-2, AC-2)', async () => {
+    const threadId = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    const active = await store.pushObjective({ threadId, definition: 'onboard', tasks: [], position: 'top' });
+    expect((await heartbeat(threadId))!.isPaused).toBe(false);
+
+    const none = await db.transaction((tx) => store.completeAndPop(active.id, tx));
+    expect(none).toBeNull();
+    expect((await heartbeat(threadId))!.isPaused).toBe(true);
+    const [done] = await db.select().from(objectives).where(eq(objectives.id, active.id));
+    expect(done!.status).toBe('complete');
+  });
+
+  it('backfill covers active-objective threads and is idempotent (TC-3, AC-3)', async () => {
+    // A: active objective, no row. B: no active objective. C: active objective, pre-existing paused row.
+    const a = await seedThread();
+    await seedObjective(a, 'active', 0);
+    const b = await seedThread();
+    await seedObjective(b, 'suspended', 0);
+    const c = await seedThread();
+    await seedObjective(c, 'active', 0);
+    await db.insert(dynamicCronJobs).values({
+      jobType: 'thread_heartbeat', ownerType: 'thread', ownerId: c, input: { threadId: c },
+      cronExpression: '*/5 * * * *', nextRunAt: new Date('2000-01-01T00:00:00Z'), isPaused: true,
+    });
+
+    const run1 = await backfillHeartbeats(db, now);
+    expect(run1).toEqual({ created: 1, resumed: 1, skipped: 0 });
+    expect((await heartbeat(a))!.isPaused).toBe(false);
+    expect(await heartbeat(b)).toBeUndefined();
+    expect((await heartbeat(c))!.isPaused).toBe(false);
+
+    const before = await db.select().from(dynamicCronJobs);
+    const run2 = await backfillHeartbeats(db, new Date(now.getTime() + 60_000));
+    expect(run2).toEqual({ created: 0, resumed: 0, skipped: 2 });
+    // Run 2 touched nothing — every row identical (updated_at and next_run_at unchanged).
+    expect(await db.select().from(dynamicCronJobs)).toEqual(before);
   });
 });
 

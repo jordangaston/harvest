@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { objectives, tasks } from '../schema.js';
 import { ObjectiveSchema, type Objective } from '../models/objective.js';
 import { TaskSchema, type Task } from '../models/task.js';
+import { CronJobsRepository } from '../crons/cron-jobs-repository.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -49,7 +50,11 @@ const isTerminal = (status: Task['status']) => (TERMINAL as readonly string[]).i
  * updates (`applyTaskUpdates`), and on completion pops the objective and activates the next.
  */
 export class ObjectiveRepository {
-  constructor(private readonly db: Database) {}
+  private readonly heartbeats: CronJobsRepository;
+
+  constructor(private readonly db: Database) {
+    this.heartbeats = CronJobsRepository.create(db);
+  }
 
   /** Wire from a caller-supplied db. */
   static create(db: Database) {
@@ -133,6 +138,9 @@ export class ObjectiveRepository {
     const objective = ObjectiveSchema.parse(row);
 
     if (input.tasks.length) await this.insertTasks(objective.id, input.tasks, tx);
+    // O-02: an objective becoming active is when the thread's heartbeat should beat. A bottom push
+    // inserts `suspended` (it becomes active later via completeAndPop) — no heartbeat yet.
+    if (active) await this.heartbeats.upsertHeartbeat(input.threadId, new Date(), tx);
     return objective;
   }
 
@@ -237,9 +245,15 @@ export class ObjectiveRepository {
       .where(and(eq(objectives.threadId, done.threadId), eq(objectives.status, 'suspended')))
       .orderBy(desc(objectives.stackPosition))
       .limit(1);
-    if (!next) return null;
+    if (!next) {
+      // O-02: the stack emptied — the thread has no active objective, so silence its heartbeat.
+      await this.heartbeats.pause(done.threadId, tx);
+      return null;
+    }
     const context = { ...(next.context ?? {}), kickoffPendingAt: new Date().toISOString() };
     await tx.update(objectives).set({ status: 'active', context }).where(eq(objectives.id, next.id));
+    // O-02: a successor became active — resume the heartbeat (preserving any custom cadence).
+    await this.heartbeats.upsertHeartbeat(done.threadId, new Date(), tx);
     return ObjectiveSchema.parse({ ...next, status: 'active', context });
   }
 

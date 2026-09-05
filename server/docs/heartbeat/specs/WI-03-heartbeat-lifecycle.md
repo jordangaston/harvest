@@ -71,7 +71,31 @@ resumed. Run 2 changes no rows (compare `updated_at`/values).
 
 ## Test Run
 
-To be filled during execution.
+Lifecycle + backfill cover the three test cases as new tests in
+`test/increment2-repositories.test.ts` (`describe('heartbeat lifecycle (O-02)')`), run
+against a `file:` libSQL DB migrated from the generated DDL.
+
+```
+$ pkill -f vitest; ulimit -n 30000; npx vitest run test/increment2-repositories.test.ts
+
+ ✓ test/increment2-repositories.test.ts (17 tests) 764ms
+   ✓ heartbeat lifecycle (O-02) > activation creates the row, then resume unpauses and preserves a custom cron (TC-1, AC-1)
+   ✓ heartbeat lifecycle (O-02) > emptying the stack pauses the row (TC-2, AC-2)
+   ✓ heartbeat lifecycle (O-02) > backfill covers active-objective threads and is idempotent (TC-3, AC-3)
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+```
+
+Full suite from clean (canonical command):
+
+```
+$ pkill -f vitest; ulimit -n 30000; npm test
+
+ Test Files  83 passed (83)
+      Tests  622 passed | 1 skipped (623)
+   Duration  10.25s
+```
 
 ## Deployment Strategy
 
