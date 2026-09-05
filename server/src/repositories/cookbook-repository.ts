@@ -126,6 +126,17 @@ export class CookbookRepository {
     return row!.id;
   }
 
+  /** The recipe ids in the caller's system cookbook of `slug` (e.g. 'liked'/'saved'); empty when
+   *  the cookbook doesn't exist yet. Read-only — used to tier meal-plan candidates. */
+  async systemCookbookRecipeIds(userId: string, slug: string): Promise<Set<string>> {
+    const rows = await this.db
+      .select({ recipeId: cookbookRecipes.recipeId })
+      .from(cookbooks)
+      .innerJoin(cookbookRecipes, eq(cookbookRecipes.cookbookId, cookbooks.id))
+      .where(and(eq(cookbooks.userId, userId), eq(cookbooks.systemSlug, slug)));
+    return new Set(rows.map((r) => r.recipeId));
+  }
+
   /** Idempotently files a recipe into a cookbook (no-op if already a member). */
   async addRecipe(userId: string, cookbookId: string, recipeId: string): Promise<void> {
     await this.db.insert(cookbookRecipes).values({ cookbookId, recipeId }).onConflictDoNothing();

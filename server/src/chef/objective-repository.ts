@@ -80,17 +80,19 @@ export class ObjectiveRepository {
     // This replaces the ineffective static `after:[EXPLAINER_ACK_KEY]` those rows can't resolve to.
     const soloPending = all.some((t) => t.solo && t.required && !isTerminal(t.status));
 
-    // ponytail: "close fires last" rule. A required `emit` (the onboarding close) is eligible only
-    // when every required `elicit` currently loaded is terminal — its static `after` can't name member
-    // tasks that don't exist at seed time, so gate it in code here. Generalization point for a future
-    // multi-emit objective: order emits among themselves via `after` and keep this last-elicit gate.
+    // ponytail: "close fires last" rule. A TRAILING required `emit` (the onboarding close) is eligible
+    // only when every required `elicit` currently loaded is terminal — its static `after` can't name
+    // member tasks that don't exist at seed time, so gate it in code here. It does NOT apply to a
+    // LEADING emit that other tasks are gated after (first_meal_plan's `generate`, which its feedback
+    // elicit follows): that emit is explicitly ordered by `after`, so it leads instead of trailing.
     const requiredElicitsDone = all.every((t) => !(t.kind === 'elicit' && t.required) || isTerminal(t.status));
+    const gatedUpon = new Set(all.flatMap((t) => t.afterTaskIds));
 
     const eligible = all.filter((t) => {
       if (isTerminal(t.status)) return false;
       if (!t.afterTaskIds.every((id) => terminalIds.has(id))) return false;
       if (soloPending && !t.solo) return false;
-      if (t.kind === 'emit' && t.required && !requiredElicitsDone) return false;
+      if (t.kind === 'emit' && t.required && !requiredElicitsDone && !gatedUpon.has(t.id)) return false;
       return true;
     });
     return { objective, tasks: eligible };
@@ -197,7 +199,10 @@ export class ObjectiveRepository {
   /**
    * Marks the objective `complete` (with `completed_at`), then activates the
    * highest-`stack_position` `suspended` sibling on the same thread. Because the completed
-   * row is no longer active, activating the next never trips the one-active index.
+   * row is no longer active, activating the next never trips the one-active index. The activated
+   * successor is stamped `kickoff_pending` (in `context`), a durable marker the consumer's drain loop
+   * uses to resume a stranded kick-off after a crash between this pop and its opener (spec AC-7); the
+   * consumer clears it once the opener delivers.
    * @returns The newly-activated objective, or null when the stack is now empty.
    */
   async completeAndPop(objectiveId: string, tx: Tx): Promise<Objective | null> {
@@ -212,8 +217,20 @@ export class ObjectiveRepository {
       .orderBy(desc(objectives.stackPosition))
       .limit(1);
     if (!next) return null;
-    await tx.update(objectives).set({ status: 'active' }).where(eq(objectives.id, next.id));
-    return ObjectiveSchema.parse({ ...next, status: 'active' });
+    const context = { ...(next.context ?? {}), kickoffPendingAt: new Date().toISOString() };
+    await tx.update(objectives).set({ status: 'active', context }).where(eq(objectives.id, next.id));
+    return ObjectiveSchema.parse({ ...next, status: 'active', context });
+  }
+
+  /**
+   * Clears the kickoff-pending marker on an objective once its kick-off opener has delivered — so a
+   * later bare doorbell no longer re-enters it (spec AC-7). Idempotent: a no-op if already clear.
+   */
+  async clearKickoffPending(objectiveId: string, tx: Tx): Promise<void> {
+    const [row] = await tx.select({ context: objectives.context }).from(objectives).where(eq(objectives.id, objectiveId));
+    if (!row?.context || row.context.kickoffPendingAt === undefined) return;
+    const { kickoffPendingAt: _drop, ...rest } = row.context;
+    await tx.update(objectives).set({ context: rest }).where(eq(objectives.id, objectiveId));
   }
 
   /**

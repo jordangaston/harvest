@@ -16,14 +16,19 @@ import { CHEF_TAPBACK_KINDS, type ChatEvent, type TapbackKind } from './types.js
 const CHEF_MODEL = 'google/gemini-3.8-flash';
 const CHEF_OPTS = { google: { thinkingConfig: { thinkingLevel: 'low' } } } as const;
 // One turn: an ack, a batch of tool fills, then the result bubbles. A dense message (several members +
-// grounded allergens/dislikes) can legitimately take ~10 steps, so give headroom above that — thinking
-// is `low`, so each step is cheap (~1.3s) and the cap is a runaway guard, not a latency lever.
-const MAX_STEPS = 14;
+// grounded allergens/dislikes) can take ~10 steps, and the meal-plan kick-off legitimately sends a
+// card per planned recipe (a 9-slot week ≈ 9 richlinks + intro + labels + the task fill) — so the cap
+// sits above both. Thinking is `low`, so each step is cheap (~1.3s); this is a runaway guard, not a
+// latency lever.
+const MAX_STEPS = 24;
 
 /** The tools whose use means the turn did real work — it persisted/changed something. Calling any of
  *  these flips the turn's `worked` flag, which gates the consumer's fact-less-task confirm. A pure
  *  read (`facts__read`/`facts__catalog`) or a `chat__send` does not count. */
-const MUTATING_TOOL_IDS = new Set(['tasks__update', 'facts__update', 'household__add_members', 'recipes__import']);
+const MUTATING_TOOL_IDS = new Set([
+  'tasks__update', 'facts__update', 'household__add_members', 'recipes__import',
+  'mealplan__generate', 'mealplan__add_recipe_to_slot', 'mealplan__remove_recipe_from_slot',
+]);
 
 /**
  * One turn's inputs to the single chef agent. `briefing`/`ctx` build the objective tools and the
@@ -123,6 +128,7 @@ The objective is a set of tasks, each with an [id], shown below. Fill them in ov
 
 - When the room confirms they cook together, record who's in it with household__add_members.
 - Advance tasks with tasks__update, addressing each by its [id]. Batch every task you can answer this turn into one call — except a task marked (solo), which must go by itself.
+- One answer often fills SEVERAL tasks. "We both...", "neither of us", "no", "that's about it" cover every member the answer reaches — fill each member's matching task that same turn (a "none" answer counts). Re-asking a member an answer already covered is the cardinal sin.
 - Task status is set by the tools you call; you don't set it directly.
 </the_objective>
 

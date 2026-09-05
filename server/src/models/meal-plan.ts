@@ -9,11 +9,13 @@ export const MealPlanEntrySchema = z.object({
   meal: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
   recipeId: z.string().uuid(),
   position: z.number().int(),
+  source: z.enum(['generated', 'manual']),
   createdAt: z.date(),
 });
 
 export type MealPlanEntry = z.infer<typeof MealPlanEntrySchema>;
 export type MealSlot = MealPlanEntry['meal'];
+export type MealPlanSource = MealPlanEntry['source'];
 
 /** An entry joined with its recipe's card — what a plan read returns. */
 export interface MealPlanEntryView {
@@ -21,6 +23,7 @@ export interface MealPlanEntryView {
   date: string;
   meal: MealSlot;
   position: number;
+  source: MealPlanSource;
   recipe: { id: string; title: string; image_url?: string };
 }
 

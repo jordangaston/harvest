@@ -75,20 +75,21 @@ export class UpdateTasksTool implements ChefTool {
     }
 
     const results: TaskWriteResult[] = [];
-    const emitFilled: string[] = []; // emit fills defer their status set into the completion txn below
+    const deferredFilled: string[] = []; // fact-less fills defer their status set into the completion txn below
     for (const { update, task } of resolved) {
       const r = await this.fillOne(update.task_id, update.value, task);
       results.push(r);
-      if (r.status === 'filled' && task?.kind === 'emit') emitFilled.push(update.task_id);
+      if (r.status === 'filled' && task && isFactless(task)) deferredFilled.push(update.task_id);
     }
 
-    // An emit fill has no `writeFact`, so its status set can share ONE transaction with the completion
-    // check + pop — no nested-tx/libSQL-deadlock conflict (unlike the elicit path, whose writeFact runs
-    // in its own tx). Set the emit(s) filled, then complete-and-pop iff the objective is now done.
+    // A fact-less fill (an emit, or an elicit with no factType — feedback/confirm) has no `writeFact`,
+    // so its status set can share ONE transaction with the completion check + pop — no
+    // nested-tx/libSQL-deadlock conflict (unlike the elicit-with-fact path, whose writeFact runs in its
+    // own tx). Set them filled, then complete-and-pop iff the objective is now done.
     let objectiveComplete = false;
     let popped = false;
     await this.db.transaction(async (tx) => {
-      if (emitFilled.length) await this.objectives.applyTaskUpdates(emitFilled.map((taskId) => ({ taskId, status: 'filled' as const })), tx);
+      if (deferredFilled.length) await this.objectives.applyTaskUpdates(deferredFilled.map((taskId) => ({ taskId, status: 'filled' as const })), tx);
       objectiveComplete = await this.objectives.isComplete(this.ctx.objectiveId, tx);
       if (objectiveComplete) {
         await this.objectives.completeAndPop(this.ctx.objectiveId, tx);
@@ -100,9 +101,10 @@ export class UpdateTasksTool implements ChefTool {
 
   private async fillOne(taskId: string, value: unknown, task?: Task): Promise<TaskWriteResult> {
     if (!task) return { task_id: taskId, status: 'rejected', reason: 'not an eligible task this turn' };
-    // An emit delivers content — no fact to write. Mark it filled (status set deferred to run's
-    // completion txn); its bubbles ship via the send tool.
-    if (task.kind === 'emit') return { task_id: taskId, status: 'filled' };
+    // A fact-less task has no fact to write — an emit delivers content, a factType-less elicit just
+    // elicits an acknowledgement (feedback/confirm). Mark it filled (status set deferred to run's
+    // completion txn); any bubbles ship via the send tool.
+    if (isFactless(task)) return { task_id: taskId, status: 'filled' };
     if (task.kind !== 'elicit' || !task.factType) return { task_id: taskId, status: 'rejected', reason: 'not a fillable elicit task' };
 
     const type = this.factTypes.get(task.factType);
@@ -127,4 +129,11 @@ export class UpdateTasksTool implements ChefTool {
     if (task.scope === 'household') return this.ctx.householdId ? { scope: 'household', householdId: this.ctx.householdId } : null;
     return task.memberUserId ? { scope: 'member', userId: task.memberUserId } : null;
   }
+}
+
+/** A task `tasks__update` fills with no fact row: an `emit` (delivers content) or a NON-solo
+ *  factType-less `elicit` (elicits an acknowledgement — the meal-plan feedback/confirm). The `solo`
+ *  explainer-ack is excluded: it keeps its consumer-driven asked→filled path (spec Deliverable 5). */
+function isFactless(task: Task): boolean {
+  return task.kind === 'emit' || (!task.factType && !task.solo);
 }

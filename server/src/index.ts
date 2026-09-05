@@ -5,6 +5,7 @@ import type { Database } from "./db.js";
 import { toPublicUser } from "./models/user.js";
 import { ImportService } from "./import-service.js";
 import { renderRecipePage } from "./recipe-page.js";
+import { renderPlanPage } from "./plan-page.js";
 import { ThreadRepository } from "./repositories/thread-repository.js";
 import { HouseholdRepository } from "./repositories/household-repository.js";
 import { verifyWebhook } from "./imessage/webhook-verify.js";
@@ -86,11 +87,26 @@ app.get("/r/:id", async (c) => {
   try {
     const recipe = await recipes.get(c.req.param("id")!);
     c.header("cache-control", "public, s-maxage=3600, stale-while-revalidate=604800");
-    return c.html(renderRecipePage(recipe, new URL(c.req.url).origin));
+    // `?plan=<userId>` marks an arrival from the plan page → render a back-to-your-week link
+    // (the iMessage sheet has no browser chrome). Distinct query string = distinct CDN cache key.
+    const plan = c.req.query("plan");
+    return c.html(renderRecipePage(recipe, new URL(c.req.url).origin, plan ? `/p/${plan}` : undefined));
   } catch (error) {
     if (error instanceof NotFoundError) return c.html(RECIPE_NOT_FOUND_HTML, 404);
     throw error;
   }
+});
+
+/** GET /p/:userId — the user's upcoming week as one page (the iMessage plan card's target). Public
+ * by unguessable uuid, same trust model as /r/:id. `no-store`: the plan mutates during the feedback
+ * loop (swaps land between opens), so every tap shows the current week. */
+app.get("/p/:userId", async (c) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const end = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const userId = c.req.param("userId")!;
+  const entries = await mealPlan.listRange(userId, today, end);
+  c.header("cache-control", "no-store");
+  return c.html(renderPlanPage(entries, userId, new URL(c.req.url).origin));
 });
 
 /** POST /v1/otps — sends an SMS verification code. Public. 502 if the send fails. */

@@ -10,6 +10,8 @@ import { sendingChef, CollectingSink } from "./helpers/chef-double.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
 import { ObjectiveRepository } from "../src/chef/objective-repository.js";
+import { objectiveDefinition } from "../src/chef/objectives/index.js";
+import { firstMealPlanTaskSpecs } from "../src/chef/objectives/first-meal-plan.js";
 import { ThreadRepository } from "../src/repositories/thread-repository.js";
 import { HouseholdRepository } from "../src/repositories/household-repository.js";
 import { ScriptedChefAgent } from "../src/chef/chef-agent.js";
@@ -586,5 +588,144 @@ describe("TC-7: kick-off sends key on the objective id; redelivery is a clean no
     expect(sender.calls.length).toBe(sentBefore); // no duplicate sends
     expect((await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!.status).toBe("active");
     expect((await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId).toBe(newestId);
+  });
+});
+
+describe("TC-4: onboarding pops into the first_meal_plan kick-off (AC-5)", () => {
+  it("kick-off runs against first_meal_plan; its definition lists the mealplan tools", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "that's everything, thanks");
+    const store = ObjectiveRepository.create(db);
+    // The new seeding path: onboarding active (one required task), first_meal_plan suspended below it.
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    await store.pushObjective({ threadId, definition: "first_meal_plan", tasks: firstMealPlanTaskSpecs(), position: "bottom" });
+    const [closeTask] = await db.select().from(tasks).where(eq(tasks.objectiveId, onboarding.id));
+
+    const kickOffObjectives: string[] = [];
+    const chef: Chef = {
+      respond: async (tid, sink): Promise<ChefReply | null> => {
+        const active = (await store.loadActive(tid))!;
+        if (active.objective.definition === "onboarding") {
+          await sink.send({ kind: "text", text: "all set" });
+          await db.transaction(async (tx) => {
+            await store.applyTaskUpdates([{ taskId: closeTask!.id, status: "filled" }], tx);
+            await store.completeAndPop(onboarding.id, tx);
+          });
+          return { confirmTasks: [], cursorTo: newestId, objectiveId: onboarding.id, delivered: true, popped: true };
+        }
+        kickOffObjectives.push(active.objective.definition); // the kick-off turn ran against this objective
+        await sink.send({ kind: "text", text: "here's your first menu" });
+        return { confirmTasks: [], cursorTo: null, objectiveId: active.objective.id, delivered: true, popped: false };
+      },
+    };
+
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    expect(kickOffObjectives).toEqual(["first_meal_plan"]); // onboarding popped straight into it
+    const def = objectiveDefinition("first_meal_plan")!;
+    for (const id of ["mealplan__generate", "mealplan__slot_options", "mealplan__add_recipe_to_slot", "mealplan__remove_recipe_from_slot"])
+      expect(def.tools).toContain(id);
+  });
+});
+
+/**
+ * A chef that pops A in turn 1, then CRASHES on its first B kick-off (before B's opener sends), and on
+ * any later kick-off delivers B's opener. Mirrors chainingChef's pop, with a one-shot crash injected
+ * between the pop and the opener — the exact window the kickoff-pending marker recovers (spec AC-7).
+ */
+function crashingKickoffChef(taskA: string, objA: string, objB: string, cursorTo: string): { chef: Chef; crashed: () => boolean } {
+  let firstKickoff = true;
+  const chef: Chef = {
+    respond: async (threadId, sink): Promise<ChefReply | null> => {
+      const store = ObjectiveRepository.create(db);
+      const active = await store.loadActive(threadId);
+      if (!active) return null;
+      if (active.objective.id === objA) {
+        await sink.send({ kind: "text", text: "got it" });
+        await db.transaction(async (tx) => {
+          await store.applyTaskUpdates([{ taskId: taskA, status: "filled" }], tx);
+          await store.completeAndPop(objA, tx); // stamps B with the kickoff-pending marker
+        });
+        return { confirmTasks: [], cursorTo, objectiveId: objA, delivered: true, popped: true };
+      }
+      // B's kick-off. Crash once before delivering — the opener never sends, B is stranded with its marker.
+      if (firstKickoff) { firstKickoff = false; throw new Error("crash before B's kick-off delivers"); }
+      await sink.send({ kind: "text", text: "here's your first menu" });
+      return { confirmTasks: [], cursorTo: null, objectiveId: active.objective.id, delivered: true, popped: false };
+    },
+  };
+  return { chef, crashed: () => !firstKickoff };
+}
+
+describe("TC-6: a stranded kick-off recovers via the marker (AC-7)", () => {
+  it("crash mid-kick-off → redeliver re-enters via the marker, delivers B's opener once, clears it; a third handle no-ops", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const newestId = await seedInbound(threadId, ownerId, "we shop at kroger");
+    const { objA, taskA, objB } = await seedTwoObjectiveStack(threadId);
+
+    const { chef } = crashingKickoffChef(taskA, objA, objB, newestId);
+    const sender = new StubSpectrumSender();
+
+    // Handle #1: pop A, then crash before B's opener — A committed, B active + marker set, opener unsent.
+    await expect(new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId })).rejects.toThrow("crash before");
+    expect((await db.select().from(objectives).where(eq(objectives.id, objA)))[0]!.status).toBe("complete");
+    const bAfterCrash = (await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!;
+    expect(bAfterCrash.status).toBe("active");
+    expect((bAfterCrash.context as { kickoffPendingAt?: string } | null)?.kickoffPendingAt).toBeDefined();
+    const openerRowsBefore = (await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).filter((r) => r.messageGuid.startsWith(`${objB}#`));
+    expect(openerRowsBefore).toHaveLength(0); // the opener never went out
+
+    // Handle #2 (bare redelivery): no pending inbound, no fresh pop — the MARKER re-enters the kick-off.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    const openerRows = (await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"))).filter((r) => r.messageGuid.startsWith(`${objB}#`));
+    expect(openerRows).toHaveLength(1); // opener delivered exactly once, keyed on B's objective id
+    expect(openerRows[0]!.messageGuid).toBe(`${objB}#0`);
+    const bRecovered = (await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!;
+    expect((bRecovered.context as { kickoffPendingAt?: string } | null)?.kickoffPendingAt).toBeUndefined(); // marker cleared
+    const sentAfterRecovery = sender.calls.length;
+
+    // Handle #3 (another bare doorbell): marker cleared, nothing pending → a clean no-op.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    expect(sender.calls.length).toBe(sentAfterRecovery); // no duplicate opener
+    expect((await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!.status).toBe("active");
+  });
+});
+
+describe("F1: a silent kick-off turn (tool work, no bubble) terminates instead of spinning", () => {
+  it("attempts the marker-carrying objective once per handle(), leaves the marker set for a later doorbell", async () => {
+    const { threadId, ownerId } = await seedThread();
+    await seedInbound(threadId, ownerId, "hi"); // consumed by the pop turn so the kick-off has no pending inbound
+    const { objA, taskA, objB } = await seedTwoObjectiveStack(threadId);
+    const [inbound] = await db.select().from(threadMessages).where(eq(threadMessages.direction, "inbound"));
+
+    // Chef: pop A (stamps B's marker), then every B kick-off does silent tool work — never sends, never pops.
+    let respondsForB = 0;
+    const chef: Chef = {
+      respond: async (tid, sink): Promise<ChefReply | null> => {
+        const store = ObjectiveRepository.create(db);
+        const active = (await store.loadActive(tid))!;
+        if (active.objective.id === objA) {
+          await sink.send({ kind: "text", text: "got it" });
+          await db.transaction(async (tx) => {
+            await store.applyTaskUpdates([{ taskId: taskA, status: "filled" }], tx);
+            await store.completeAndPop(objA, tx);
+          });
+          return { confirmTasks: [], cursorTo: inbound!.id, objectiveId: objA, delivered: true, popped: true };
+        }
+        respondsForB++; // a silent turn: tool work happened but no bubble shipped, nothing popped
+        return { confirmTasks: [], cursorTo: null, objectiveId: active.objective.id, delivered: false, popped: false };
+      },
+    };
+
+    // handle() #1: pops A, attempts B's kick-off once, sees no delivery → terminates (no spin).
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+    expect(respondsForB).toBe(1); // B's kick-off attempted exactly once — the spin is gone
+    const bAfter = (await db.select().from(objectives).where(eq(objectives.id, objB)))[0]!;
+    expect(bAfter.status).toBe("active");
+    expect((bAfter.context as { kickoffPendingAt?: string } | null)?.kickoffPendingAt).toBeDefined(); // marker RETAINED
+
+    // A later doorbell re-enters via the retained marker and attempts once more.
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+    expect(respondsForB).toBe(2);
   });
 });

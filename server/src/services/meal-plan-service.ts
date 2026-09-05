@@ -1,7 +1,7 @@
 import type { Database } from '../db.js';
 import { MealPlanRepository } from '../repositories/meal-plan-repository.js';
 import { RecipeRepository } from '../repositories/recipe-repository.js';
-import type { MealPlanEntryView, MealSlot } from '../models/meal-plan.js';
+import type { MealPlanEntryView, MealPlanSource, MealSlot } from '../models/meal-plan.js';
 import { NotFoundError } from '../errors.js';
 
 /**
@@ -35,11 +35,12 @@ export class MealPlanService {
    * @param date - ISO date.
    * @param meal - Meal slot.
    * @param recipeId - Recipe to assign.
+   * @param source - Who set it ('manual' by default; the planner passes 'generated').
    * @throws {NotFoundError} 404 if the recipe id is unknown.
    */
-  async add(userId: string, date: string, meal: MealSlot, recipeId: string): Promise<MealPlanEntryView> {
+  async add(userId: string, date: string, meal: MealSlot, recipeId: string, source: MealPlanSource = 'manual'): Promise<MealPlanEntryView> {
     if (!(await this.recipes.exists(recipeId))) throw new NotFoundError();
-    return this.entries.add(userId, date, meal, recipeId);
+    return this.entries.add(userId, date, meal, recipeId, source);
   }
 
   /**
@@ -50,5 +51,14 @@ export class MealPlanService {
    */
   async remove(userId: string, entryId: string): Promise<void> {
     if (!(await this.entries.remove(userId, entryId))) throw new NotFoundError();
+  }
+
+  /**
+   * Removes one recipe from a (date, meal) slot — the entry-level "take this off the plan" the Chef
+   * offers. Drops a single matching entry, main or side.
+   * @throws {NotFoundError} 404 if that recipe isn't in the slot.
+   */
+  async removeFromSlot(userId: string, date: string, meal: MealSlot, recipeId: string): Promise<void> {
+    if (!(await this.entries.removeFromSlot(userId, date, meal, recipeId))) throw new NotFoundError();
   }
 }

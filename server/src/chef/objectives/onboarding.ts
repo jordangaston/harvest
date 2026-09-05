@@ -74,9 +74,11 @@ export function memberTaskSpecs(memberUserId: string): TaskSpec[] {
       req,
       'If an allergen is named without a severity, ask mild/moderate/severe, then write it with confirmed:true ' +
         '(an unconfirmed allergen is never saved). If the member confirms none, write no_allergens:true — "none" ' +
-        'fills this task. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
+        'fills this task. An answer that covers the whole household ("just Ash has one", "that\'s about it") ' +
+        'confirms none for every member it leaves out — write no_allergens:true for each of them that same turn; ' +
+        'never re-ask a member it covered. Restate a saved allergy as a consequence ("peanuts never enter this kitchen").',
     ),
-    member('diets', false, 'If they follow no diet, write no_diets:true — "none" fills this task, so you never re-ask. Otherwise, if strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
+    member('diets', false, 'If they follow no diet, write no_diets:true — "none" fills this task, so you never re-ask. A "no" that covers the household fills no_diets:true for every member it covers, that same turn. Otherwise, if strictness is unstated, ask strict (never breaks it) or flexible (bends occasionally) before writing it through.'),
     member(
       'food_preferences',
       false,
@@ -116,7 +118,9 @@ export const onboardingObjective = {
     'diets, tastes, and skill — following each task\'s fill guidance. If a required task stays unanswered ' +
     'after the room moves on, send one reworded follow-up then state a default. When every required task is ' +
     'filled the close becomes eligible — deliver it (a celebration, "drop a recipe here anytime," and the ' +
-    'promise of a first menu); the objective pops once its bubbles send.',
+    'promise of a first menu), then fill the close task via tasks__update by its [id] THAT SAME TURN — ' +
+    'that completes onboarding and hands you the meal-plan objective. Delivering the close without filling ' +
+    'it leaves the household waiting on a menu that never comes.',
   tools: ONBOARDING_TOOLS,
 };
 

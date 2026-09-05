@@ -4,6 +4,7 @@ import { ReadFactsTool } from './read-facts.js';
 import { FactTypesTool } from './fact-types.js';
 import { UpdateFactsTool } from './update-facts.js';
 import { UpdateTasksTool } from './update-tasks.js';
+import { GenerateMealPlanTool, SlotOptionsTool, AddRecipeToSlotTool, RemoveRecipeFromSlotTool } from './mealplan.js';
 import type { Database } from '../../db.js';
 import type { ChefTool, TurnContext } from './types.js';
 
@@ -15,6 +16,10 @@ const FACTORIES: Record<string, (ctx: TurnContext, db: Database) => ChefTool> = 
   facts__catalog: FactTypesTool.create,
   facts__update: UpdateFactsTool.create,
   tasks__update: UpdateTasksTool.create,
+  mealplan__generate: GenerateMealPlanTool.create,
+  mealplan__slot_options: SlotOptionsTool.create,
+  mealplan__add_recipe_to_slot: AddRecipeToSlotTool.create,
+  mealplan__remove_recipe_from_slot: RemoveRecipeFromSlotTool.create,
 };
 
 /**
