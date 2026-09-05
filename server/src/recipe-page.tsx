@@ -12,11 +12,11 @@ import { RECIPE_CSS_HREF } from './recipe-page.styles.js';
  * @param recipe - the public recipe to render (title, image, ingredients, steps, meta).
  * @param origin - the page's own absolute origin (for Open Graph `og:url`); optional.
  */
-export function renderRecipePage(recipe: PublicRecipe, origin?: string): string {
-  return '<!doctype html>' + renderToStaticMarkup(<RecipePage recipe={recipe} origin={origin} />);
+export function renderRecipePage(recipe: PublicRecipe, origin?: string, backHref?: string): string {
+  return '<!doctype html>' + renderToStaticMarkup(<RecipePage recipe={recipe} origin={origin} backHref={backHref} />);
 }
 
-function RecipePage({ recipe, origin }: { recipe: PublicRecipe; origin?: string }) {
+function RecipePage({ recipe, origin, backHref }: { recipe: PublicRecipe; origin?: string; backHref?: string }) {
   return (
     <html lang="en">
       <head>
@@ -37,7 +37,14 @@ function RecipePage({ recipe, origin }: { recipe: PublicRecipe; origin?: string 
       </head>
       <body className="min-h-screen bg-base-200 text-base-content">
         <main className="mx-auto max-w-2xl pb-12">
-          <div className="px-6 py-4 font-serif text-xl font-bold text-primary">Harvest</div>
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="font-serif text-xl font-bold text-primary">Harvest</div>
+            {backHref ? (
+              <a href={backHref} className="link link-primary font-semibold no-underline">
+                ← Your week
+              </a>
+            ) : null}
+          </div>
           <div className="card overflow-hidden rounded-none bg-base-100 shadow-md sm:rounded-box">
             <figure>
               <Hero recipe={recipe} />

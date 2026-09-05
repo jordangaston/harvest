@@ -15,11 +15,11 @@ const MEAL_LABEL: Record<MealSlot, string> = { dinner: 'Dinners', lunch: 'Lunche
  * @param entries - the window's plan entries (main first per slot by `position`).
  * @param origin - the page's own absolute origin (for links + Open Graph); optional.
  */
-export function renderPlanPage(entries: MealPlanEntryView[], origin?: string): string {
-  return '<!doctype html>' + renderToStaticMarkup(<PlanPage entries={entries} origin={origin} />);
+export function renderPlanPage(entries: MealPlanEntryView[], userId: string, origin?: string): string {
+  return '<!doctype html>' + renderToStaticMarkup(<PlanPage entries={entries} userId={userId} origin={origin} />);
 }
 
-function PlanPage({ entries, origin }: { entries: MealPlanEntryView[]; origin?: string }) {
+function PlanPage({ entries, userId, origin }: { entries: MealPlanEntryView[]; userId: string; origin?: string }) {
   return (
     <html lang="en">
       <head>
@@ -43,7 +43,7 @@ function PlanPage({ entries, origin }: { entries: MealPlanEntryView[]; origin?: 
             <div className="card mx-4 bg-base-100 p-8 text-center shadow-md sm:rounded-box">No meals planned yet.</div>
           ) : (
             MEAL_ORDER.filter((m) => entries.some((e) => e.meal === m)).map((meal) => (
-              <MealSection key={meal} meal={meal} entries={entries.filter((e) => e.meal === meal)} origin={origin} />
+              <MealSection key={meal} meal={meal} entries={entries.filter((e) => e.meal === meal)} userId={userId} origin={origin} />
             ))
           )}
           <div className="mt-8 text-center text-sm text-neutral">Planned with Harvest</div>
@@ -54,7 +54,7 @@ function PlanPage({ entries, origin }: { entries: MealPlanEntryView[]; origin?: 
 }
 
 /** One meal's section: a day card per planned date, main first, sides beneath it. */
-function MealSection({ meal, entries, origin }: { meal: MealSlot; entries: MealPlanEntryView[]; origin?: string }) {
+function MealSection({ meal, entries, userId, origin }: { meal: MealSlot; entries: MealPlanEntryView[]; userId: string; origin?: string }) {
   const dates = [...new Set(entries.map((e) => e.date))].sort();
   return (
     <section className="mt-6 px-4">
@@ -68,7 +68,7 @@ function MealSection({ meal, entries, origin }: { meal: MealSlot; entries: MealP
                 .filter((e) => e.date === date)
                 .sort((a, b) => a.position - b.position)
                 .map((e, i) => (
-                  <RecipeRow key={e.id} entry={e} side={i > 0} origin={origin} />
+                  <RecipeRow key={e.id} entry={e} side={i > 0} userId={userId} origin={origin} />
                 ))}
             </div>
           </div>
@@ -78,10 +78,12 @@ function MealSection({ meal, entries, origin }: { meal: MealSlot; entries: MealP
   );
 }
 
-/** One tappable recipe row — thumbnail, title, a "with" prefix on sides. Links into `/r/:id`. */
-function RecipeRow({ entry, side, origin }: { entry: MealPlanEntryView; side: boolean; origin?: string }) {
+/** One tappable recipe row — thumbnail, title, a "with" prefix on sides. Links into `/r/:id` with
+ *  `?plan=` so the recipe page can render a back-to-your-week link (the iMessage sheet has no
+ *  browser chrome, so without it a tapped recipe is a dead end). */
+function RecipeRow({ entry, side, userId, origin }: { entry: MealPlanEntryView; side: boolean; userId: string; origin?: string }) {
   return (
-    <a href={`${origin ?? ''}/r/${entry.recipe.id}`} className="flex items-center gap-3 rounded-box p-1 no-underline">
+    <a href={`${origin ?? ''}/r/${entry.recipe.id}?plan=${encodeURIComponent(userId)}`} className="flex items-center gap-3 rounded-box p-1 no-underline">
       {entry.recipe.image_url ? (
         <img src={entry.recipe.image_url} alt="" className="h-12 w-12 shrink-0 rounded-box object-cover" />
       ) : (

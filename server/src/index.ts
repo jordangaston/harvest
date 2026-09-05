@@ -87,7 +87,10 @@ app.get("/r/:id", async (c) => {
   try {
     const recipe = await recipes.get(c.req.param("id")!);
     c.header("cache-control", "public, s-maxage=3600, stale-while-revalidate=604800");
-    return c.html(renderRecipePage(recipe, new URL(c.req.url).origin));
+    // `?plan=<userId>` marks an arrival from the plan page → render a back-to-your-week link
+    // (the iMessage sheet has no browser chrome). Distinct query string = distinct CDN cache key.
+    const plan = c.req.query("plan");
+    return c.html(renderRecipePage(recipe, new URL(c.req.url).origin, plan ? `/p/${plan}` : undefined));
   } catch (error) {
     if (error instanceof NotFoundError) return c.html(RECIPE_NOT_FOUND_HTML, 404);
     throw error;

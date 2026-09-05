@@ -22,17 +22,19 @@ describe('renderPlanPage', () => {
         entry(),
         entry({ id: 'e2', position: 1, recipe: { id: 'r2', title: 'Elote Corn' } }),
       ],
+      'u1',
       'https://harvest.example',
     );
     expect(html.indexOf('Dinners')).toBeLessThan(html.indexOf('Lunches'));
     expect(html).toContain('Monday · Sep 7');
     expect(html).toContain('Chicken &lt;b&gt;Tinga&lt;/b&gt; Tacos'); // escaped, not injected
     expect(html).toContain('with '); // the position-1 side reads as an accompaniment
-    expect(html).toContain('https://harvest.example/r/r1');
-    expect(html).toContain('https://harvest.example/r/r2');
+    // Each row links into the recipe with ?plan= so the recipe page can render its way back.
+    expect(html).toContain('https://harvest.example/r/r1?plan=u1');
+    expect(html).toContain('https://harvest.example/r/r2?plan=u1');
   });
 
   it('renders the empty state when nothing is planned', () => {
-    expect(renderPlanPage([], 'https://harvest.example')).toContain('No meals planned yet');
+    expect(renderPlanPage([], 'u1', 'https://harvest.example')).toContain('No meals planned yet');
   });
 });
