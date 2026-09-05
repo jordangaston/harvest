@@ -1,8 +1,11 @@
 @import "tailwindcss";
-/* Scope class detection to the one page that uses these styles, so the built asset's content
+/* Scope class detection to the pages that use these styles, so the built asset's content
    hash is deterministic (auto-detection would scan all of server/, incl. tests + .output, and
-   churn the hash on unrelated edits). @source is a Tailwind build directive, not authored CSS. */
+   churn the hash on unrelated edits). @source is a Tailwind build directive, not authored CSS.
+   EVERY SSR page that links RECIPE_CSS_HREF must be listed here — a missing entry ships that
+   page unstyled (its classes never enter the build). */
 @source "../src/recipe-page.tsx";
+@source "../src/plan-page.tsx";
 
 /* Single golden-hour theme (the recipe card is intentionally one theme, no dark counterpart). */
 @plugin "daisyui" {
