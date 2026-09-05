@@ -44,7 +44,7 @@ async function seedThread(triggerExternalId: string | null): Promise<{ ownerId: 
   return { ownerId: owner.id, threadId: thread!.id, ctx };
 }
 
-describe('import_recipe.run', () => {
+describe('recipes__import.run', () => {
   it('starts an import for the owner and links it to the thread with the trigger id (AC1)', async () => {
     const { ownerId, threadId, ctx } = await seedThread('msg-guid-42');
 
@@ -79,14 +79,14 @@ describe('import_recipe.run', () => {
   });
 });
 
-describe('import_recipe reachability', () => {
+describe('recipes__import reachability', () => {
   // The reasoner builds its per-turn tools from objectiveDefinition(objective).tools, and every turn
   // (mid-onboarding AND post-onboarding, which re-seeds onboarding) runs the onboarding objective —
-  // so import_recipe is reachable whenever a link is dropped iff onboarding declares it.
+  // so recipes__import is reachable whenever a link is dropped iff onboarding declares it.
   it('is in the onboarding objective the reasoner runs every turn', async () => {
     const { ctx } = await seedThread(null);
-    expect(objectiveDefinition('onboarding')!.tools).toContain('import_recipe');
+    expect(objectiveDefinition('onboarding')!.tools).toContain('recipes__import');
     const built = buildTools(ctx, db, onboardingObjective.tools);
-    expect(built.map((t) => t.id)).toContain('import_recipe');
+    expect(built.map((t) => t.id)).toContain('recipes__import');
   });
 });

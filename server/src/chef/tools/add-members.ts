@@ -15,7 +15,7 @@ const inputSchema = z.object({
  * proxy members. Sets `ctx.members` in place so a tool built later this turn sees the roster.
  */
 export class AddMembersTool implements ChefTool {
-  readonly id = 'add_members';
+  readonly id = 'household__add_members';
 
   private constructor(private readonly ctx: TurnContext, private readonly db: Database) {}
 

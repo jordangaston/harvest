@@ -64,7 +64,7 @@ async function seedTurn(specs: TaskSpec[]): Promise<{ ctx: TurnContext; tasks: T
 const storeTask: TaskSpec = { key: 'store', kind: 'elicit', fact: 'household.grocery_stores', factType: 'GROCERY_STORE', scope: 'household', required: true };
 const allergenTask = (memberUserId: string): TaskSpec => ({ key: 'allergens', kind: 'elicit', fact: 'allergens', factType: 'ALLERGEN', scope: 'member', memberUserId, required: true });
 
-describe('update_tasks (TC-1)', () => {
+describe('tasks__update (TC-1)', () => {
   it('fills a grounded store, advances the task, reports objectiveComplete', async () => {
     const { ctx, tasks, householdId } = await seedTurn([storeTask]);
     const task = tasks[0]!;
@@ -79,7 +79,7 @@ describe('update_tasks (TC-1)', () => {
 
 const emitTask: TaskSpec = { key: 'close', kind: 'emit', scope: 'household', required: true };
 
-describe('update_tasks fills an emit and pops (TC-1, AC-1/2/3)', () => {
+describe('tasks__update fills an emit and pops (TC-1, AC-1/2/3)', () => {
   it('marks a required emit filled with no fact write, completes + pops the objective in-loop', async () => {
     const { ctx, tasks, objectiveId } = await seedTurn([emitTask]);
     const emit = tasks[0]!;
@@ -95,7 +95,7 @@ describe('update_tasks fills an emit and pops (TC-1, AC-1/2/3)', () => {
   });
 });
 
-describe('update_tasks fills the last elicit and pops (TC-2, AC-2/3)', () => {
+describe('tasks__update fills the last elicit and pops (TC-2, AC-2/3)', () => {
   it('when no emit remains, the last required elicit completes + pops; a suspended sibling activates', async () => {
     const { ctx, tasks, objectiveId } = await seedTurn([
       storeTask,
@@ -121,7 +121,7 @@ describe('update_tasks fills the last elicit and pops (TC-2, AC-2/3)', () => {
   });
 });
 
-describe('update_tasks non-terminal fill does not pop (TC-3, AC-5)', () => {
+describe('tasks__update non-terminal fill does not pop (TC-3, AC-5)', () => {
   it('filling one of two required elicits leaves the objective active, popped false', async () => {
     const { ctx, tasks, objectiveId } = await seedTurn([
       storeTask,
@@ -137,7 +137,7 @@ describe('update_tasks non-terminal fill does not pop (TC-3, AC-5)', () => {
   });
 });
 
-describe('update_tasks instructive rejection (TC-2)', () => {
+describe('tasks__update instructive rejection (TC-2)', () => {
   it('rejects an allergen missing severity/confirmed and leaves the task open', async () => {
     const owner = await makeUser();
     const { ctx, tasks } = await seedTurnForMember(owner);
@@ -153,7 +153,7 @@ describe('update_tasks instructive rejection (TC-2)', () => {
   });
 });
 
-describe('update_tasks solo-batch rejection', () => {
+describe('tasks__update solo-batch rejection', () => {
   it('rejects the whole batch when a solo task is batched with another', async () => {
     const owner = await makeUser();
     const repo = HouseholdRepository.create(db);
@@ -168,7 +168,7 @@ describe('update_tasks solo-batch rejection', () => {
     ];
     const objective = await objectives.pushObjective({ threadId, definition: 'onboarding', tasks: specs, position: 'top' });
     // loadActive now hides non-solo tasks while a solo is pending (solo-exclusive rule), so build the
-    // turn's task set from ALL rows to exercise the update_tasks solo-batch guard directly.
+    // turn's task set from ALL rows to exercise the tasks__update solo-batch guard directly.
     const allTasks = (await db.select().from(tasksRaw).where(eq(tasksRaw.objectiveId, objective.id))).map((r) => TaskSchema.parse(r));
     const ctx: TurnContext = {
       threadId, objectiveId: objective.id, initiatorHandle: '', initiatorUserId: owner,
@@ -185,7 +185,7 @@ describe('update_tasks solo-batch rejection', () => {
   });
 });
 
-describe('update_facts (TC-3)', () => {
+describe('facts__update (TC-3)', () => {
   it('writes an out-of-band member allergen without advancing any task', async () => {
     const { ctx, memberId } = await seedTurn([]); // no tasks
     const res = await UpdateFactsTool.create(ctx, db).run([{ key: 'allergens', value: { value: 'peanuts', severity: 'severe', confirmed: true }, member_user_id: memberId }]);
@@ -202,7 +202,7 @@ describe('update_facts (TC-3)', () => {
   });
 });
 
-describe('food directive via update_facts → FOOD_PREFERENCE', () => {
+describe('food directive via facts__update → FOOD_PREFERENCE', () => {
   it('grounds + persists a composite nutrient directive', async () => {
     const { ctx, memberId } = await seedTurn([]);
     const res = await UpdateFactsTool.create(ctx, db).run([
@@ -223,7 +223,7 @@ describe('food directive via update_facts → FOOD_PREFERENCE', () => {
   });
 });
 
-describe('fact_types 2×2 (TC-4)', () => {
+describe('facts__catalog 2×2 (TC-4)', () => {
   it('browse → describe → ground → search, each kind-tagged, catalogs paged', async () => {
     const { ctx } = await seedTurn([]);
     const tool = FactTypesTool.create(ctx, db);
@@ -267,7 +267,7 @@ describe('fact_types 2×2 (TC-4)', () => {
   });
 });
 
-describe('read_facts', () => {
+describe('facts__read', () => {
   it('reports known and unknown facts after a write', async () => {
     const { ctx, householdId } = await seedTurn([]);
     const type = FactTypeRegistry.create(db).get('GROCERY_STORE')!;
@@ -289,7 +289,7 @@ async function reloadCtx(base: TurnContext): Promise<{ ctx: TurnContext; tasks: 
 }
 
 describe('full scripted onboarding (TC-6)', () => {
-  it('ack asked first+alone → typed elicits filled via update_tasks → close emit → objective pops', async () => {
+  it('ack asked first+alone → typed elicits filled via tasks__update → close emit → objective pops', async () => {
     const ownerId = await makeUser();
     const repo = HouseholdRepository.create(db);
     const hh = await repo.createHousehold({ ownerUserId: ownerId });
@@ -331,7 +331,7 @@ describe('full scripted onboarding (TC-6)', () => {
       await objectives.markTaskFilled(objectiveId, 'household.household_size', tx);
     });
 
-    // Fill the required typed elicits through update_tasks (grounded values).
+    // Fill the required typed elicits through tasks__update (grounded values).
     const { ctx } = await reloadCtx(base);
     const fills = [
       { fact: 'household.grocery_stores', value: 'trader joes' },

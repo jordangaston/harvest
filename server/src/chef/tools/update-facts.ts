@@ -38,7 +38,7 @@ interface FactWriteResult {
  * Advances no task. Passes `ctx.db` (never a tx) so repo-backed persists self-transact.
  */
 export class UpdateFactsTool implements ChefTool {
-  readonly id = 'update_facts';
+  readonly id = 'facts__update';
 
   private readonly db: Database;
   private readonly factTypes: FactTypeRegistry;
@@ -66,7 +66,7 @@ export class UpdateFactsTool implements ChefTool {
         'a store they like. `member_user_id` targets a member-scoped fact (omit it when there is only one ' +
         'member). Set op:"remove" with the value to retract a previously recorded value when they correct ' +
         'or narrow it ("actually just peanuts", "I like avocado now"). Advances no task; for anything a ' +
-        'task is asking about, use update_tasks. Returns filled/rejected per key, with reason and closest values.',
+        'task is asking about, use tasks__update. Returns filled/rejected per key, with reason and closest values.',
       inputSchema,
       execute: async ({ updates }) => this.run(updates),
     });

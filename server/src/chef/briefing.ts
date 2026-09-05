@@ -51,7 +51,7 @@ export function prepareBriefing(input: BriefingInput): string {
   const def = objectiveDefinition(input.objective.definition);
   if (!def) throw new Error(`No definition registered for objective '${input.objective.definition}'`);
 
-  // Each task is shown with its row id (uuid PK) — the model addresses that id in update_tasks, so two
+  // Each task is shown with its row id (uuid PK) — the model addresses that id in tasks__update, so two
   // members' same-named tasks (both `allergens`) stay distinct. Member tasks name whose they are.
   const nameByUser = new Map(input.members.map((m) => [m.userId, m.name]));
   const guidance = taskGuidance();

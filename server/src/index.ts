@@ -376,7 +376,7 @@ app.post("/spectrum/webhook", async (c) => {
     const thread = await threads.upsertThreadByChatGuid({ chatGuid: inbound.chatGuid, ownerUserId: userId }, tx);
     // A thread implies a household (one kitchen per chat), so create + link it here — owned by the
     // thread's initiator — rather than gating its existence on the chef calling a tool. The roster
-    // (who else cooks together) is filled later by `add_members`; this just guarantees the row.
+    // (who else cooks together) is filled later by `household__add_members`; this just guarantees the row.
     if (!thread.householdId) {
       const household = await households.createHousehold({ ownerUserId: thread.ownerUserId }, tx);
       await threads.linkHousehold(thread.id, household.id, tx);

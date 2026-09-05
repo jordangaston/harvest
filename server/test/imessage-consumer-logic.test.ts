@@ -135,7 +135,7 @@ describe("Test Case 3: a turn commits N rows + advances the cursor (AC-3, AC-4)"
     const newestId = await seedInbound(threadId, ownerId, "and cook 5 nights");
 
     const active = (await ObjectiveRepository.create(db).loadActive(threadId))!;
-    // Task fills happen through the in-loop update_tasks tool now, not via ChefReply; the consumer's
+    // Task fills happen through the in-loop tasks__update tool now, not via ChefReply; the consumer's
     // sink sends the bubbles live, then confirms any fact-less tasks and advances the cursor.
     const chef = sendingChef(
       [
@@ -327,13 +327,13 @@ async function seedEmitObjective(threadId: string): Promise<{ objectiveId: strin
   return { objectiveId, emitId };
 }
 
-/** A chef that fills the emit + pops the objective in-loop (as update_tasks now does) and reports it,
+/** A chef that fills the emit + pops the objective in-loop (as tasks__update now does) and reports it,
  *  so the consumer's commit should only advance the cursor. */
 function poppingChef(text: string, emitId: string, objectiveId: string, cursorTo: string): Chef {
   return {
     respond: async (_threadId, sink): Promise<ChefReply> => {
       await sink.send({ kind: "text", text });
-      // The in-loop update_tasks path: mark the emit filled + pop, in one txn.
+      // The in-loop tasks__update path: mark the emit filled + pop, in one txn.
       await db.transaction(async (tx) => {
         await ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx);
         await ObjectiveRepository.create(db).completeAndPop(objectiveId, tx);
@@ -343,7 +343,7 @@ function poppingChef(text: string, emitId: string, objectiveId: string, cursorTo
   };
 }
 
-describe("Test Case 5: onboarding completes via update_tasks, consumer only advances the cursor (AC-6, AC-7)", () => {
+describe("Test Case 5: onboarding completes via tasks__update, consumer only advances the cursor (AC-6, AC-7)", () => {
   it("the emit is filled + objective popped in-loop; the consumer runs no completeAndPop of its own", async () => {
     const { threadId, ownerId } = await seedThread();
     const newestId = await seedInbound(threadId, ownerId, "sounds good");
@@ -390,7 +390,7 @@ describe("Test Case 5: onboarding completes via update_tasks, consumer only adva
     const newestId = await seedInbound(threadId, ownerId, "sounds good");
     const { objectiveId, emitId } = await seedEmitObjective(threadId);
 
-    // The chef delivers the close but does NOT mark the emit via update_tasks (popped:false). The
+    // The chef delivers the close but does NOT mark the emit via tasks__update (popped:false). The
     // consumer's AC-8 fallback must fill + pop so the terminal flow can't stall.
     const chef = sendingChef(
       [{ kind: "text", text: "You're all set!" }],
@@ -529,7 +529,7 @@ function chainingChef(taskA: string, objA: string, cursorTo: string): { chef: Ch
       const kickOff = active.objective.id !== objA; // A is gone once popped → this is the B kick-off
       turns.push({ kickOff });
       if (!kickOff) {
-        // Turn 1: fill A's last task + pop (as update_tasks does), report popped.
+        // Turn 1: fill A's last task + pop (as tasks__update does), report popped.
         await sink.send({ kind: "text", text: "got it" });
         await db.transaction(async (tx) => {
           await store.applyTaskUpdates([{ taskId: taskA, status: "filled" }], tx);

@@ -95,7 +95,7 @@ async function transcript(db: ReturnType<typeof dbFromEnv>, threadId: string): P
   const userId = await repo.upsertUserByHandle(HANDLE);
   const thread = await repo.upsertThreadByChatGuid({ chatGuid: CHAT, ownerUserId: userId });
   // Match the real webhook path (src/index.ts): a thread implies a household, created + linked on
-  // first inbound. Without it the chef's add_members/update_facts have nowhere to write.
+  // first inbound. Without it the chef's household__add_members/facts__update have nowhere to write.
   if (!thread.householdId) {
     const hh = await HouseholdRepository.create(db).createHousehold({ ownerUserId: userId });
     await repo.linkHousehold(thread.id, hh.id);
