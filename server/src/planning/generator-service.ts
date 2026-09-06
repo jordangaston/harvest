@@ -12,6 +12,7 @@ import { RecipeRepository } from '../repositories/recipe-repository.js';
 import { MealPlanRepository, type GeneratedEntry } from '../repositories/meal-plan-repository.js';
 import { PreferenceRepository } from '../repositories/preference-repository.js';
 import { HouseholdPreferenceRepository } from '../repositories/household-preference-repository.js';
+import { GrocerySync } from '../services/grocery-sync.js';
 import type { CandidateRecipe, Slot, SlotCriteria } from './types.js';
 
 const MEALS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -39,6 +40,7 @@ export class MealPlanGeneratorService {
     private readonly mealPlan: MealPlanRepository,
     private readonly userPrefs: PreferenceRepository,
     private readonly householdPrefs: HouseholdPreferenceRepository,
+    private readonly grocerySync: GrocerySync,
   ) {}
 
   static create(db: Database): MealPlanGeneratorService {
@@ -49,6 +51,7 @@ export class MealPlanGeneratorService {
       MealPlanRepository.create(db),
       PreferenceRepository.create(db),
       HouseholdPreferenceRepository.create(db),
+      GrocerySync.create(db),
     );
   }
 
@@ -91,6 +94,7 @@ export class MealPlanGeneratorService {
     }
 
     await this.mealPlan.replaceGenerated(userId, start, end, entries);
+    await this.grocerySync.reconcile(userId);
     return planned;
   }
 

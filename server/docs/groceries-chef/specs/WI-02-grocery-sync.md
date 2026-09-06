@@ -69,7 +69,33 @@ throw.
 
 ## Test Run
 
-To be filled during execution.
+New suite `test/grocery-sync.test.ts` (the five test cases above), run individually:
+
+```
+ ✓ test/grocery-sync.test.ts (5 tests) 984ms
+   ✓ WI-02 TC-1 — a mutation stocks the list; manual rows survive
+   ✓ WI-02 TC-2 — reconcile is idempotent
+   ✓ WI-02 TC-3 — swap semantics
+   ✓ WI-02 TC-4 — the REST path gets sync for free
+   ✓ WI-02 TC-5 — a plan owner with no household
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+```
+
+The reconcile logs prove the behaviour: TC-2's second call `inserted=0 deleted=0` (idempotence,
+AC-3); TC-3's swap `deleted=1` then `inserted=1` — R's unchecked item removed, S's added, R's
+checked item and the manual row untouched (AC-4); TC-5 `reconcile no household` no-op (AC-6).
+
+Affected pre-existing suites (individually): `test/grocery.test.ts` 11 passed,
+`test/meal-plan.test.ts` 10 passed, `test/meal-plan-generator.test.ts` 6 passed,
+`test/grocery-unit.test.ts` 7 passed.
+
+Canonical full suite from clean (dev server stopped):
+
+```
+ Test Files  86 passed (86)
+      Tests  671 passed | 1 skipped (672)
+```
 
 ## Deployment Strategy
 

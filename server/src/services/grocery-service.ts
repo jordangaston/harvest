@@ -96,6 +96,34 @@ export class GroceryService {
     if (!(await this.items.remove(householdId, id))) throw new NotFoundError();
   }
 
+  /**
+   * Converges the household's recipe-sourced rows to the plan-implied set (the sync primitive).
+   * Each desired item is resolved (aisle/icon/default unit) then diffed against current recipe-sourced
+   * rows: inserts what's missing, deletes unchecked rows no longer wanted. Manual and checked rows are
+   * never touched; recipe-sourced rows are not cross-recipe merged (each carries its `source_recipe_id`).
+   * @param householdId - Owning household.
+   * @param desired - The recipe-sourced items the plan implies (each with its `sourceRecipeId`).
+   * @returns Row counts for the sync log.
+   */
+  setRecipeSourced(householdId: string, desired: AddGroceryItem[]): Promise<{ inserted: number; deleted: number }> {
+    const resolved = desired.map((raw) => {
+      const name = raw.name.trim();
+      const catalog = this.catalog.resolve(name);
+      const amount = raw.amount ?? null;
+      return {
+        name,
+        amount,
+        unit: raw.unit ?? (amount !== null ? catalog.defaultUnit : null),
+        quantityText: raw.quantityText ?? null,
+        aisle: catalog.aisle,
+        icon: catalog.iconKey,
+        sourceRecipeId: raw.sourceRecipeId ?? null,
+        addedByUserId: null,
+      };
+    });
+    return this.items.setRecipeSourced(householdId, resolved);
+  }
+
   /** The common-ingredients list for the picker + Meal Planning. */
   common(query?: string): CatalogEntry[] {
     return this.catalog.common(query);
