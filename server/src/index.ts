@@ -12,6 +12,8 @@ import { verifyWebhook } from "./imessage/webhook-verify.js";
 import { parseInbound } from "./imessage/inbound.js";
 import { INBOUND_TOPIC } from "./imessage/doorbell.js";
 import { send } from "./queue.js";
+import { CronJobsRepository } from "./crons/cron-jobs-repository.js";
+import { sweep } from "./crons/sweep.js";
 import { UserService, type Resolution } from "./services/user-service.js";
 import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
@@ -74,9 +76,21 @@ export function buildApp(db: Database) {
   const tasteIngredients = TasteIngredientRepository.create(db);
   const threads = ThreadRepository.create(db);
   const households = HouseholdRepository.create(db);
+  const cronJobs = CronJobsRepository.create(db);
   const guard = authGuard(users);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+/** GET /crons/dispatch — the heartbeat sweep, invoked by Vercel Cron every minute
+ * (`vercel.json` `crons`). Guarded by `Authorization: Bearer $CRON_SECRET`; 401 (no
+ * side effects) on a missing/wrong header. Advances due jobs and wakes their threads. */
+app.get("/crons/dispatch", async (c) => {
+  const secret = process.env.CRON_SECRET ?? "";
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`)
+    return c.json({ error: "unauthorized" }, 401);
+  const dispatched = await sweep(cronJobs, send, new Date());
+  return c.json({ dispatched });
+});
 
 /** GET /r/:id — the public recipe web page (the iMessage recipe app card's target,
  * docs/spikes/photon-app-recipe-card.md). Unauthed like the mobile detail read — recipes

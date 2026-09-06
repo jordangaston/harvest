@@ -21,6 +21,8 @@ export const TaskSchema = z.object({
   solo: z.boolean(),
   afterTaskIds: z.array(z.string()),
   followUpsSent: z.number().int(),
+  // Last touch: stamped on `asked` and each nudge; the heartbeat ladder (WI-02) measures from here.
+  nudgedAt: z.date().nullable(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;

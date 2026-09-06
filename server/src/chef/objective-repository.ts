@@ -1,8 +1,9 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { objectives, tasks } from '../schema.js';
+import { objectives, tasks, type TASK_STATUSES } from '../schema.js';
 import { ObjectiveSchema, type Objective } from '../models/objective.js';
 import { TaskSchema, type Task } from '../models/task.js';
+import { CronJobsRepository } from '../crons/cron-jobs-repository.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -49,7 +50,11 @@ const isTerminal = (status: Task['status']) => (TERMINAL as readonly string[]).i
  * updates (`applyTaskUpdates`), and on completion pops the objective and activates the next.
  */
 export class ObjectiveRepository {
-  constructor(private readonly db: Database) {}
+  private readonly heartbeats: CronJobsRepository;
+
+  constructor(private readonly db: Database) {
+    this.heartbeats = CronJobsRepository.create(db);
+  }
 
   /** Wire from a caller-supplied db. */
   static create(db: Database) {
@@ -133,6 +138,9 @@ export class ObjectiveRepository {
     const objective = ObjectiveSchema.parse(row);
 
     if (input.tasks.length) await this.insertTasks(objective.id, input.tasks, tx);
+    // O-02: an objective becoming active is when the thread's heartbeat should beat. A bottom push
+    // inserts `suspended` (it becomes active later via completeAndPop) — no heartbeat yet.
+    if (active) await this.heartbeats.upsertHeartbeat(input.threadId, new Date(), tx);
     return objective;
   }
 
@@ -170,9 +178,33 @@ export class ObjectiveRepository {
   /**
    * Applies the reasoning component's task-status updates within the turn's transaction — status
    * only. Value validation lives in `writeFact` (WI-2); this method just transitions status by id.
+   * The single chokepoint both `asked`-flip paths route through (the chef's `tasks__update` and the
+   * consumer's `confirmAcks`), so a flip to `asked` stamps `nudged_at = now` here — the heartbeat
+   * ladder's start-of-silence for that task (WI-02 AC-3).
    */
   async applyTaskUpdates(updates: TaskUpdate[], tx: Tx): Promise<void> {
-    for (const update of updates) await tx.update(tasks).set({ status: update.status }).where(eq(tasks.id, update.taskId));
+    for (const update of updates)
+      await tx
+        .update(tasks)
+        .set(update.status === 'asked' ? { status: update.status, nudgedAt: new Date() } : { status: update.status })
+        .where(eq(tasks.id, update.taskId));
+  }
+
+  /**
+   * Commits one heartbeat nudge for the given quiet `asked` tasks (WI-02 arm 1): increments each
+   * task's `follow_ups_sent` and stamps `nudged_at = now`, advancing the follow-up ladder. Called
+   * delivered-only (the nudge bubble went out) inside the turn's commit transaction, so a silent or
+   * failed turn leaves the ladder unchanged and the next beat retries.
+   */
+  async nudgeFollowUps(attempts: { taskId: string; status: string }[], now: Date, tx: Tx): Promise<void> {
+    // The status guard skips any task the turn itself advanced (unasked→asked, →filled): its
+    // chokepoint stamp already paced it. Only still-stuck tasks count the attempt — advancing the
+    // ladder AND the heartbeat guid scope, so the next attempt is a fresh send, not a swallowed one.
+    for (const { taskId, status } of attempts)
+      await tx
+        .update(tasks)
+        .set({ followUpsSent: sql`${tasks.followUpsSent} + 1`, nudgedAt: now })
+        .where(and(eq(tasks.id, taskId), eq(tasks.status, status as (typeof TASK_STATUSES)[number])));
   }
 
   /**
@@ -216,9 +248,15 @@ export class ObjectiveRepository {
       .where(and(eq(objectives.threadId, done.threadId), eq(objectives.status, 'suspended')))
       .orderBy(desc(objectives.stackPosition))
       .limit(1);
-    if (!next) return null;
+    if (!next) {
+      // O-02: the stack emptied — the thread has no active objective, so silence its heartbeat.
+      await this.heartbeats.pause(done.threadId, tx);
+      return null;
+    }
     const context = { ...(next.context ?? {}), kickoffPendingAt: new Date().toISOString() };
     await tx.update(objectives).set({ status: 'active', context }).where(eq(objectives.id, next.id));
+    // O-02: a successor became active — resume the heartbeat (preserving any custom cadence).
+    await this.heartbeats.upsertHeartbeat(done.threadId, new Date(), tx);
     return ObjectiveSchema.parse({ ...next, status: 'active', context });
   }
 

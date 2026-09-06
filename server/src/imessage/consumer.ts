@@ -5,6 +5,7 @@ import { selectSender, type Sender } from './sender.js';
 import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type OutboundSink, type TaskUpdate } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
+import { actionable, FOLLOW_UP_LADDER } from './heartbeat.js';
 import type { ChatEvent } from '../chef/types.js';
 import { TAPBACK_GLYPHS } from '../chef/types.js';
 
@@ -137,6 +138,11 @@ export class Consumer {
       // same objective under the lock. A retained marker lets a LATER doorbell retry; a crash still
       // recovers, but the spin can't.
       const kickedOff = new Set<string>();
+      // The heartbeat arm answers a BARE beat — a doorbell that opened onto nothing pending and no
+      // pop. It's the first iteration's business only: once a turn has run this handle() (drained an
+      // inbound or chained a pop), any remaining eligible tasks belong to the normal kick-off/park
+      // flow, not a proactive follow-up. So a heartbeat can only fire before the loop has done a turn.
+      let firstIteration = true;
       for (;;) {
         const pending = await this.threads.loadPendingInbound(threadId, cursor);
         // With no pending inbound, a kick-off runs only when the last turn popped (chain a fresh pop
@@ -146,29 +152,82 @@ export class Consumer {
         const kickOff = pending.length === 0;
         const active = kickOff ? await this.objectives.loadActive(threadId) : null;
         const kickoffPending = active?.objective.context?.kickoffPendingAt !== undefined;
-        if (kickOff && !lastPopped && !kickoffPending) return;
+        // Third arm (WI-02): with no pending, no fresh pop, and no crash marker, the beat still runs a
+        // turn when the active objective has ACTIONABLE work — a quiet `asked` task past its ladder
+        // rung, or an eligible `unasked` task. Due-ness is evaluated here, under the lock, against
+        // fresh state, so a nudge can never race a reply that already answered. `now` is read once per
+        // iteration — the ladder measures elapsed time from each task's `nudged_at`.
+        const now = new Date();
+        const armReachable = firstIteration && kickOff && !lastPopped && !kickoffPending && !!active;
+        // The heartbeat only speaks into SILENCE: mid-conversation there is almost always an eligible
+        // unasked task (the chef asks one question at a time), so without a quiet gate every beat that
+        // lands between turns fires an extra question at a household that is actively answering. Quiet
+        // = no conversational message, either direction, within the first ladder rung.
+        const lastMessage = armReachable ? (await this.threads.loadRecentMessages(threadId, 1))[0] : undefined;
+        const threadQuiet = !lastMessage || now.getTime() - lastMessage.createdAt.getTime() >= FOLLOW_UP_LADDER[0];
+        const due = armReachable && threadQuiet ? actionable(active!.tasks, now) : [];
+        // One line per evaluated beat — the sweep proves delivery, this proves the decision.
+        if (armReachable)
+          console.info(
+            JSON.stringify({
+              event: 'heartbeat evaluated',
+              threadId,
+              quiet: threadQuiet,
+              lastMessageAgeS: lastMessage ? Math.round((now.getTime() - lastMessage.createdAt.getTime()) / 1000) : null,
+              due: due.length,
+              eligible: active!.tasks.length,
+            }),
+          );
+        // Emits take the turn when due (WI-04): their sends must ride the OBJECTIVE-ID guid scope —
+        // the scope every emit delivery uses — so a retry of content a kick-off already sent is
+        // swallowed by the sink, the chef keeps going, and the emit still gets marked done. Nudge
+        // bubbles must never ride that colliding scope, so any due nudges wait for the next beat.
+        const dueEmits = due.filter((t) => t.kind === 'emit');
+        const heartbeatTasks = dueEmits.length > 0 ? dueEmits : due;
+        const heartbeat = heartbeatTasks.length > 0;
+        if (kickOff && !lastPopped && !kickoffPending && !heartbeat) return;
 
         // A kick-off (no pending inbound) has no trigger id — key its sends on the now-active objective
         // id (AC-9). No active objective ⇒ the stack emptied; nothing to kick off.
         if (kickOff && !active) return;
-        // One kick-off attempt per objective per handle(): if we've already tried this objective's
-        // opener this call and it's still up (silent turn — no bubble, no pop, marker retained), stop.
-        // A later doorbell re-enters via the retained marker. Termination is bounded either way.
+        // One kick-off/heartbeat attempt per objective per handle(): if we've already tried this
+        // objective this call and it's still up (silent turn — no bubble, no pop, marker retained),
+        // stop. A later doorbell re-enters via the retained marker or a fresh beat. Bounded either way.
         if (kickOff && kickedOff.has(active!.objective.id)) return;
         if (kickOff) kickedOff.add(active!.objective.id);
-        // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids;
-        // kick-off: the objective id keys the guids, and the row carries no trigger id.
+        // Normal turn: the trigger id (newest pending) tags every outbound row and keys its guids.
+        // Heartbeat nudges/asks: `<objectiveId>:hb:<taskId>:<n>` (n = task[0]'s `followUpsSent + 1`).
+        // n advances only on a DELIVERED commit, so a crashed attempt regenerates the SAME prefix and
+        // the sink swallows its already-sent bubbles; only a successful nudge opens a fresh scope,
+        // which the NEXT rung's genuinely-new message needs. Heartbeat EMITS and kick-offs share the
+        // objective-id scope — one idempotency domain for an objective's content, whichever arm sends
+        // it. ponytail: cross-turn ordinal collisions in that shared scope would swallow a future
+        // MID-objective emit's content; none exists today — per-bubble guid scoping if one is added.
         const triggerId = kickOff ? null : pending[pending.length - 1]!.id;
-        const guidPrefix = kickOff ? active!.objective.id : triggerId!;
+        const guidPrefix = heartbeat
+          ? dueEmits.length > 0
+            ? active!.objective.id
+            : `${active!.objective.id}:hb:${heartbeatTasks[0]!.id}:${heartbeatTasks[0]!.followUpsSent + 1}`
+          : kickOff
+            ? active!.objective.id
+            : triggerId!;
 
         // Acknowledge receipt: mark the messages we're about to answer as read (none on a kick-off).
         if (!kickOff) await this.sender.markRead(thread.chatGuid, pending.map((m) => m.messageGuid));
 
         const sink = new LiveOutboundSink(this.threads, this.sender, threadId, thread.chatGuid, guidPrefix, triggerId);
 
-        // Keep the typing indicator up while the chef composes + sends live, then we commit.
+        // Keep the typing indicator up while the chef composes + sends live, then we commit. Every
+        // intent task is an ATTEMPT: at commit, `nudgeFollowUps`'s status guard advances the ladder
+        // (counter + `nudged_at`) only for tasks the turn did NOT itself advance — a task the model
+        // flipped got its chokepoint stamp instead. The counter advance is what rotates the heartbeat
+        // guid scope, so a delivered-but-unadvanced attempt can never swallow every later attempt
+        // (the live-test deadlock: a stale `:1` scope ate each new bubble forever).
+        const heartbeatIntent = heartbeat ? { taskIds: heartbeatTasks.map((t) => t.id) } : undefined;
+        const attempts = heartbeatTasks.map((t) => ({ taskId: t.id, status: t.status }));
+
         const outcome = await this.sender.responding(thread.chatGuid, async () => {
-          const reply = await this.chef.respond(threadId, sink);
+          const reply = await this.chef.respond(threadId, sink, heartbeatIntent);
           if (!reply) return null; // nothing to say this turn — no commit, no send
           // Send proves delivery: the fact-less ack confirm and the AC-8 safety net may only fire when
           // the turn actually delivered a bubble.
@@ -195,6 +254,10 @@ export class Consumer {
             // so a later bare doorbell no longer re-enters it (AC-7). Guid dedup already made the opener
             // fire exactly once; this just retires the re-entry arm now the opener is out.
             if (kickOff && delivered && active) await this.objectives.clearKickoffPending(active.objective.id, tx);
+            // Heartbeat attempts advance the ladder DELIVERED-ONLY (a silent chef skips this and the
+            // next beat retries the same rung). `delivered` counts a swallowed duplicate too — that is
+            // deliberate: a swallowed attempt must still rotate the scope or it repeats forever.
+            if (heartbeat && delivered && attempts.length) await this.objectives.nudgeFollowUps(attempts, now, tx);
             // Cursor LAST — after confirm/complete — so a crash mid-turn leaves it unmoved and the
             // doorbell redelivers to re-run the turn (already-sent bubbles skip in the sink). A kick-off
             // consumed no inbound (cursorTo null) so it advances nothing.
@@ -206,6 +269,10 @@ export class Consumer {
             if (cardNow) await this.threads.markCarded(threadId, new Date(), tx);
           });
 
+          // F-01 audit trail: one line per delivered heartbeat attempt. Absence in the logs while
+          // beats fire means the ladder isn't advancing.
+          if (heartbeat && delivered)
+            console.info(JSON.stringify({ event: 'heartbeat attempt', threadId, tasks: heartbeatTasks.length, attemptNo: heartbeatTasks[0]!.followUpsSent + 1 }));
           renamePending = renamePending && !renameNow; // fired once; don't re-rename a later turn
           cardPending = cardPending && !cardNow; // fired once; don't re-card a later turn
           // Rename the chat to "Meal Planning" once the roster is set (group only; DM no-ops).
@@ -216,6 +283,7 @@ export class Consumer {
         });
         if (outcome === null) return; // chef had nothing to answer — stop draining
         lastPopped = outcome.popped;
+        firstIteration = false; // a turn ran; a later iteration is a continuation, not a bare beat
         if (outcome.cursorTo !== null) cursor = outcome.cursorTo; // advance past mid-turn arrivals
       }
     });

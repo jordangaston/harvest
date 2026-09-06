@@ -691,6 +691,329 @@ describe("TC-6: a stranded kick-off recovers via the marker (AC-7)", () => {
   });
 });
 
+// ── WI-02: the heartbeat arm — a bare doorbell nudges quiet asks / asks eligible unasked tasks ──
+
+import { FOLLOW_UP_LADDER } from "../src/imessage/heartbeat.js";
+import type { HeartbeatIntent } from "../src/imessage/chef.js";
+
+/** Seeds an active onboarding objective with one `asked` elicit whose `nudged_at` is `agoMs` in the
+ *  past at `follow_ups_sent = 0`, so the heartbeat's first rung governs due-ness. Returns its id. */
+async function seedAskedTask(threadId: string, agoMs: number): Promise<{ objectiveId: string; taskId: string }> {
+  const objectiveId = randomUUID();
+  await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+  const taskId = randomUUID();
+  await db.insert(tasks).values({
+    id: taskId, objectiveId, kind: "elicit", fact: "household.grocery_stores", scope: "household",
+    required: true, status: "asked", followUpsSent: 0, nudgedAt: new Date(Date.now() - agoMs),
+  });
+  return { objectiveId, taskId };
+}
+
+/** A chef that captures the heartbeat intent it was handed, sends one bubble, and reports a delivered
+ *  no-pop reply (a nudge doesn't fill or complete anything). `objectiveId` keys the reply. */
+function nudgingChef(objectiveId: string): { chef: Chef; intents: (HeartbeatIntent | undefined)[] } {
+  const intents: (HeartbeatIntent | undefined)[] = [];
+  const chef: Chef = {
+    respond: async (_threadId, sink, heartbeat): Promise<ChefReply> => {
+      intents.push(heartbeat);
+      await sink.send({ kind: "text", text: "hey, still hoping to hear back on that" });
+      return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+    },
+  };
+  return { chef, intents };
+}
+
+describe("WI-02 TC-2: a quiet ask past its rung produces a nudge that commits ladder state (AC-5)", () => {
+  it("chef gets the heartbeat intent, guid prefix is <objectiveId>:hb:<taskId>:1, follow_ups_sent→1 + nudged_at≈now", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000); // 6m ago, rung is 5m
+
+    const { chef, intents } = nudgingChef(objectiveId);
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents).toEqual([{ taskIds: [taskId] }]); // the chef was told which task to follow up on
+    expect(sender.calls).toHaveLength(1); // one nudge bubble
+
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]!.messageGuid).toBe(`${objectiveId}:hb:${taskId}:1#0`); // deterministic heartbeat guid
+    expect(outbound[0]!.triggerId).toBeNull(); // no inbound trigger
+
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(after!.followUpsSent).toBe(1); // ladder advanced
+    expect(after!.nudgedAt!.getTime()).toBeGreaterThan(Date.now() - 5_000); // re-stamped to ~now
+  });
+});
+
+describe("WI-02 TC-3: an eligible unasked task triggers an ask turn (AC-6, AC-3)", () => {
+  it("chef gets the intent naming B; B ends asked with nudged_at stamped; follow_ups_sent stays 0", async () => {
+    const { threadId } = await seedThread();
+    // Task A filled, task B unasked gated on A → loadActive returns only B (eligible).
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const aId = randomUUID();
+    const bId = randomUUID();
+    await db.insert(tasks).values({ id: aId, objectiveId, kind: "elicit", fact: "household.cook_days", scope: "household", required: true, status: "filled" });
+    await db.insert(tasks).values({ id: bId, objectiveId, kind: "elicit", fact: "household.grocery_stores", scope: "household", required: true, status: "unasked", afterTaskIds: [aId] });
+
+    // A chef that asks B: flips it to `asked` via the shared applyTaskUpdates chokepoint (which stamps
+    // nudged_at, AC-3), sends its opener, reports the intent it saw.
+    const intents: (HeartbeatIntent | undefined)[] = [];
+    const chef: Chef = {
+      respond: async (_tid, sink, heartbeat): Promise<ChefReply> => {
+        intents.push(heartbeat);
+        await sink.send({ kind: "text", text: "one more thing — where do you shop?" });
+        await db.transaction((tx) => ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: bId, status: "asked" }], tx));
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents[0]).toEqual({ taskIds: [bId] }); // only B is actionable
+    const [b] = await db.select().from(tasks).where(eq(tasks.id, bId));
+    expect(b!.status).toBe("asked");
+    expect(b!.nudgedAt).not.toBeNull(); // AC-3: the asked flip stamped nudged_at
+    expect(b!.followUpsSent).toBe(0); // arm-2 doesn't touch the ladder counter
+  });
+});
+
+describe("WI-04: an eligible unasked emit heartbeat-fires and delivers (arm 2 includes emits)", () => {
+  it("chef gets the intent naming the emit; delivery rides a stable guid scope; ladder untouched", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+
+    const intents: (HeartbeatIntent | undefined)[] = [];
+    const chef: Chef = {
+      respond: async (_tid, sink, heartbeat): Promise<ChefReply> => {
+        intents.push(heartbeat);
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        await db.transaction((tx) => ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx));
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents[0]).toEqual({ taskIds: [emitId] });
+    expect(sender.calls).toHaveLength(1);
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound[0]!.messageGuid).toBe(`${objectiveId}#0`); // emits ride the kick-off's objective scope
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(after!.status).toBe("filled");
+    expect(after!.followUpsSent).toBe(0);
+  });
+
+  it("a retry after a crashed attempt swallows the duplicate silently and still marks the emit done", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const emitId = randomUUID();
+    await db.insert(tasks).values({ id: emitId, objectiveId, kind: "emit", fact: null, scope: "household", required: true, status: "unasked" });
+    const sender = new StubSpectrumSender();
+
+    // Crashed attempt: the bubble journals + sends live, then the turn dies before any commit —
+    // the emit is delivered on the phone but still `unasked` in the DB.
+    const crashingChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply | null> => {
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        return null;
+      },
+    };
+    await new Consumer(db, sender, crashingChef, new StubThreadLock()).handle({ threadId });
+    expect(sender.calls).toHaveLength(1); // went out before the "crash"
+
+    // The crashed send counts as conversational activity — age it past the quiet gate so the
+    // retry beat (which in production lands ≥5m later) is allowed to run.
+    await db.update(threadMessages).set({ createdAt: new Date(Date.now() - 6 * 60_000) });
+
+    // Retry beat: same unasked emit → same guid scope → the send is swallowed, the turn continues,
+    // and the emit gets marked done.
+    const retryChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply> => {
+        await sink.send({ kind: "text", text: "here's your plan for the week!" });
+        await db.transaction((tx) => ObjectiveRepository.create(db).applyTaskUpdates([{ taskId: emitId, status: "filled" }], tx));
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    await new Consumer(db, sender, retryChef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.calls).toHaveLength(1); // the duplicate was swallowed — exactly one bubble ever
+    const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound).toHaveLength(1); // one journal row, not two
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, emitId));
+    expect(after!.status).toBe("filled"); // the retry still marked it done
+  });
+});
+
+describe("WI-05: a delivered-but-unadvanced attempt rotates the guid scope (deadlock regression)", () => {
+  it("attempt 1 counts against a task the model didn't advance; attempt 2 gets a fresh scope and delivers", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const taskId = randomUUID();
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: "elicit", fact: "household.goals", scope: "household", required: true, status: "unasked" });
+
+    // A chef that speaks but never advances the task (the live-test shape: it asked a question
+    // without marking anything).
+    const chattyChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply> => {
+        await sink.send({ kind: "text", text: "what are you hoping to get out of meal planning?" });
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chattyChef, new StubThreadLock()).handle({ threadId });
+
+    let [t] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(t!.followUpsSent).toBe(1); // the attempt counted even though the task didn't advance
+    expect(t!.nudgedAt).not.toBeNull();
+    let outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound[0]!.messageGuid).toBe(`${objectiveId}:hb:${taskId}:1#0`);
+
+    // Quiet out rung 1, beat again: the scope is now :2 — the bubble DELIVERS instead of being
+    // swallowed by attempt 1's guid (the deadlock this test pins).
+    await db.update(threadMessages).set({ createdAt: new Date(Date.now() - FOLLOW_UP_LADDER[1] - 60_000) });
+    await db.update(tasks).set({ nudgedAt: new Date(Date.now() - FOLLOW_UP_LADDER[1] - 60_000) }).where(eq(tasks.id, taskId));
+    await new Consumer(db, sender, chattyChef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.calls).toHaveLength(2); // both attempts reached the household
+    outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound.map((o) => o.messageGuid).sort()).toEqual([`${objectiveId}:hb:${taskId}:1#0`, `${objectiveId}:hb:${taskId}:2#0`].sort());
+    [t] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(t!.followUpsSent).toBe(2);
+  });
+});
+
+describe("WI-05: the heartbeat only speaks into silence", () => {
+  it("a beat during an active conversation is a silent no-op even with actionable work", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000); // due at rung 1
+    // The bot replied seconds ago — the household is mid-conversation.
+    await db.insert(threadMessages).values({
+      id: randomUUID(),
+      threadId,
+      direction: "outbound",
+      type: "text",
+      body: "sounds great!",
+      messageGuid: `${randomUUID()}#0`,
+    });
+
+    const { chef } = nudgingChef(objectiveId);
+    const respondSpy = vi.spyOn(chef, "respond");
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(respondSpy).not.toHaveBeenCalled();
+    expect(sender.calls).toHaveLength(0);
+  });
+
+  it("the same beat fires once the last message is a full rung old", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000);
+    await db.insert(threadMessages).values({
+      id: randomUUID(),
+      threadId,
+      direction: "outbound",
+      type: "text",
+      body: "sounds great!",
+      messageGuid: `${randomUUID()}#0`,
+      createdAt: new Date(Date.now() - FOLLOW_UP_LADDER[0] - 60_000), // quiet for 6m
+    });
+
+    const { chef, intents } = nudgingChef(objectiveId);
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents).toEqual([{ taskIds: [taskId] }]);
+    expect(sender.calls).toHaveLength(1);
+  });
+});
+
+describe("WI-02 TC-4: nothing actionable → silent no-op (AC-4)", () => {
+  it("an ask nudged 1 minute ago never invokes the chef, sends nothing, changes nothing", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, 60_000); // 1m ago, well under the 5m rung
+
+    const { chef, intents } = nudgingChef(objectiveId);
+    const respondSpy = vi.spyOn(chef, "respond");
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(respondSpy).not.toHaveBeenCalled();
+    expect(intents).toEqual([]);
+    expect(sender.calls).toHaveLength(0);
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(after!.followUpsSent).toBe(0);
+  });
+});
+
+describe("WI-02 TC-5: pending inbound wins over a heartbeat (AC-8)", () => {
+  it("a normal turn runs against the inbound; the ladder is untouched by that iteration", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000);
+    const newestId = await seedInbound(threadId, ownerId, "kroger, actually");
+
+    // A chef that expects a NORMAL turn: no heartbeat intent, advances the cursor to the inbound.
+    const intents: (HeartbeatIntent | undefined)[] = [];
+    const chef: Chef = {
+      respond: async (_tid, sink, heartbeat): Promise<ChefReply> => {
+        intents.push(heartbeat);
+        await sink.send({ kind: "text", text: "got it, kroger" });
+        return { confirmTasks: [], cursorTo: newestId, objectiveId, delivered: true, popped: false };
+      },
+    };
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents[0]).toBeUndefined(); // pending wins → a normal turn, no heartbeat intent
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(after!.followUpsSent).toBe(0); // the ladder wasn't advanced by the inbound turn
+    expect((await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId).toBe(newestId);
+  });
+});
+
+describe("WI-02 TC-6: redelivery is idempotent (AC-7)", () => {
+  it("a second bare doorbell after a committed nudge finds the ask no longer due → silent no-op", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000);
+
+    const { chef } = nudgingChef(objectiveId);
+    const respondSpy = vi.spyOn(chef, "respond");
+    const sender = new StubSpectrumSender();
+
+    // First doorbell: nudge sent, follow_ups_sent→1, nudged_at re-stamped to ~now.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    expect(respondSpy).toHaveBeenCalledTimes(1);
+    expect(sender.calls).toHaveLength(1);
+
+    // Second doorbell, clock effectively unchanged: at rung 1 (30m) the ask isn't due → no-op.
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+    expect(respondSpy).toHaveBeenCalledTimes(1); // chef not re-invoked
+    expect(sender.calls).toHaveLength(1); // no new bubble
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(after!.followUpsSent).toBe(1); // state unchanged
+  });
+});
+
+describe("WI-02 TC-7: a silent chef leaves ladder state unchanged, attempt bounded (AC-9)", () => {
+  it("chef returns null → no commit, follow_ups_sent stays 0, invoked exactly once for the objective", async () => {
+    const { threadId } = await seedThread();
+    const { taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000);
+
+    // A chef that stays silent every time — the bounding set must stop a re-entry within one handle().
+    const chef: Chef = { respond: async () => null };
+    const respondSpy = vi.spyOn(chef, "respond");
+    await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
+
+    expect(respondSpy).toHaveBeenCalledTimes(1); // one attempt per objective per handle()
+    const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(after!.followUpsSent).toBe(0); // no commit on a silent turn
+  });
+});
+
 describe("F1: a silent kick-off turn (tool work, no bubble) terminates instead of spinning", () => {
   it("attempts the marker-carrying objective once per handle(), leaves the marker set for a later doorbell", async () => {
     const { threadId, ownerId } = await seedThread();

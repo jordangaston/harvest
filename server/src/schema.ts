@@ -858,10 +858,39 @@ export const tasks = sqliteTable(
     solo: integer('solo', { mode: 'boolean' }).notNull().default(false),
     afterTaskIds: text('after_task_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
     followUpsSent: integer('follow_ups_sent').notNull().default(0),
+    // Last touch: stamped when the task flips to `asked` and again on each nudge. The heartbeat
+    // ladder (WI-02) measures elapsed time from here, not from the original ask.
+    nudgedAt: integer('nudged_at', { mode: 'timestamp' }),
   },
   (t) => [
     uniqueIndex('tasks_objective_fact_member_uidx').on(t.objectiveId, t.fact, t.memberUserId),
     index('tasks_objective_status_idx').on(t.objectiveId, t.status),
+  ],
+);
+
+// The heartbeat timer table (kickback-server `dynamic_cron_jobs` shape). One row per job:
+// a cron expression + the next fire time, swept every minute by GET /crons/dispatch. `owner_*`
+// identifies the job (unique per owner + type) with no FK — polymorphic, like kickback; `input`
+// is the dispatch payload, opaque to the sweeper. Today the only job_type is `thread_heartbeat`.
+export const dynamicCronJobs = sqliteTable(
+  'dynamic_cron_jobs',
+  {
+    id: uuidPk(),
+    jobType: text('job_type').notNull(),
+    ownerType: text('owner_type').notNull(),
+    ownerId: text('owner_id').notNull(),
+    input: text('input', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+    cronExpression: text('cron_expression').notNull().default('*/5 * * * *'),
+    nextRunAt: integer('next_run_at', { mode: 'timestamp' }).notNull(),
+    isPaused: integer('is_paused', { mode: 'boolean' }).notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('dynamic_cron_jobs_owner_uidx').on(t.ownerType, t.ownerId, t.jobType),
+    index('dynamic_cron_jobs_due_idx').on(t.isPaused, t.nextRunAt),
   ],
 );
 
@@ -898,6 +927,7 @@ export const schema = {
   householdPreferences,
   objectives,
   tasks,
+  dynamicCronJobs,
 };
 export type Schema = typeof schema;
 
