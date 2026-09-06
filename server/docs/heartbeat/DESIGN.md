@@ -122,15 +122,20 @@ asked the next onboarding question.
 
 ```
 actionable(tasks, now) =   // evaluated only when the thread has been quiet ≥ LADDER[0]
-  // Arm 1 — quiet ask, nudge on the ladder
-  tasks where status = 'asked'
-    and followUpsSent < LADDER.length
-    and now - nudgedAt >= LADDER[followUpsSent]
-  ∪
-  // Arm 2 — eligible work never delivered: the objective can advance right now
-  tasks where status = 'unasked'
-    and every task in afterTaskIds is terminal   // the existing eligibility gate
+  tasks where status in ('asked', 'unasked')     // gates already filtered by loadActive
+    and followUpsSent < LADDER.length            // ≥ 6 attempts ⇒ quiet forever
+    and (nudgedAt is null                        // never touched ⇒ due now
+         or now - nudgedAt >= LADDER[followUpsSent])
 ```
+
+**Every delivered heartbeat turn counts an ATTEMPT** against each intent task the turn
+did not itself advance (`nudgeFollowUps`'s status guard: a task the model flipped got
+its chokepoint `nudgedAt` stamp instead, counter untouched, so its first nudge still
+waits only rung 1). The attempt commit is what rotates the ask-scope guid `:n` — a
+live-test deadlock proved why: a delivered-but-unadvanced attempt that doesn't rotate
+the scope leaves every later attempt colliding with its guids, silently swallowed
+forever. A swallowed duplicate still counts (deliberate — it must rotate the scope),
+and the ladder paces re-attempts of stuck tasks instead of every-beat retries.
 
 **Arm 1 — the follow-up ladder.** `FOLLOW_UP_LADDER = [5m, 30m, 60m, 4h, 8h, 24h]` — a
 constant in code, gaps measured from the last touch (`nudgedAt`), not from the original
@@ -477,3 +482,4 @@ maintained. Promote it to a direct dependency.
 | 2026-09-05 | Claude | Arm 2 narrowed to elicits (as built in WI-02): the heartbeat asks questions, never re-delivers emit content |
 | 2026-09-05 | Claude (w/ Jordan) | WI-04 reverses the WI-02 narrowing: arm 2 includes emits, made safe by scoping emit-bearing heartbeat turns to the kick-off's objective-id guid domain — duplicates swallow silently and the emit still gets marked done |
 | 2026-09-05 | Claude (w/ Jordan) | Live-test fix: quiet gate — the heartbeat only fires when the thread has been silent ≥ the first ladder rung (5m); arm 2 previously fired seconds after a reply |
+| 2026-09-05 | Claude (w/ Jordan) | Live-test fix 2 (deadlock): every delivered attempt counts against unadvanced intent tasks, rotating the ask-scope guid — a stale scope had swallowed every subsequent heartbeat bubble; the two arms collapse into one ladder rule |

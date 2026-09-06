@@ -68,6 +68,21 @@ describe("actionable — WI-02 AC-2", () => {
     expect(actionable([emit], NOW)).toEqual([emit]);
   });
 
+  it("an attempted-but-unadvanced unasked task is ladder-paced, not retried every beat", () => {
+    // A delivered heartbeat attempt stamped nudgedAt + counted the attempt without the task
+    // advancing (the live-test deadlock). The next attempt waits out rung 1, like a nudge.
+    const rung1 = FOLLOW_UP_LADDER[1];
+    const tooSoon = task({ status: "unasked", followUpsSent: 1, nudgedAt: agoMs(60_000) });
+    const dueAgain = task({ status: "unasked", followUpsSent: 1, nudgedAt: agoMs(rung1) });
+    expect(actionable([tooSoon], NOW)).toEqual([]);
+    expect(actionable([dueAgain], NOW)).toEqual([dueAgain]);
+  });
+
+  it("an unasked task exhausts after 6 attempts like an asked one", () => {
+    const spent = task({ status: "unasked", followUpsSent: FOLLOW_UP_LADDER.length, nudgedAt: agoMs(FOLLOW_UP_LADDER[5] * 2) });
+    expect(actionable([spent], NOW)).toEqual([]);
+  });
+
   it("terminal tasks are never actionable", () => {
     const filled = task({ status: "filled" });
     const defaulted = task({ status: "defaulted" });

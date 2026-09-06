@@ -24,7 +24,14 @@ export default (nitro: NitroApp) => {
     if (metadata.topicName === INBOUND_TOPIC) {
       const { threadId } = message as Doorbell;
       console.log(`[queue] doorbell thread=${threadId} delivery=${metadata.deliveryCount}`);
-      await (await Consumer.create(dbFromEnv())).handle({ threadId });
+      try {
+        await (await Consumer.create(dbFromEnv())).handle({ threadId });
+      } catch (e) {
+        // Rethrow for redelivery, but log first — the dev queue emulator reports "processed"
+        // either way, and a swallowed turn error is invisible without this line.
+        console.error(`[queue] doorbell thread=${threadId} turn failed:`, e);
+        throw e;
+      }
       return;
     }
     if (metadata.topicName !== IMPORT_TOPIC) return;

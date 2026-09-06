@@ -30,8 +30,12 @@ export const FOLLOW_UP_LADDER = [
  */
 export function actionable(tasks: Task[], now: Date): Task[] {
   return tasks.filter((t) => {
-    if (t.status === 'unasked') return true;
-    if (t.status !== 'asked' || t.followUpsSent >= FOLLOW_UP_LADDER.length) return false;
+    if (t.status !== 'unasked' && t.status !== 'asked') return false;
+    if (t.followUpsSent >= FOLLOW_UP_LADDER.length) return false; // exhausted — quiet forever
+    // One rule for both statuses: never touched ⇒ due now (a virgin unasked task, or an asked task
+    // that predates the feature); touched ⇒ wait out the current rung. `nudgedAt` stamps on the
+    // asked flip AND on every delivered heartbeat attempt, so attempted-but-unadvanced tasks are
+    // ladder-paced instead of retried every beat.
     const since = t.nudgedAt ? now.getTime() - t.nudgedAt.getTime() : Infinity;
     return since >= FOLLOW_UP_LADDER[t.followUpsSent]!;
   });

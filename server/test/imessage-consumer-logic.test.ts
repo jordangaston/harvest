@@ -849,6 +849,45 @@ describe("WI-04: an eligible unasked emit heartbeat-fires and delivers (arm 2 in
   });
 });
 
+describe("WI-05: a delivered-but-unadvanced attempt rotates the guid scope (deadlock regression)", () => {
+  it("attempt 1 counts against a task the model didn't advance; attempt 2 gets a fresh scope and delivers", async () => {
+    const { threadId } = await seedThread();
+    const objectiveId = randomUUID();
+    await db.insert(objectives).values({ id: objectiveId, threadId, definition: "onboarding", status: "active", stackPosition: 0 });
+    const taskId = randomUUID();
+    await db.insert(tasks).values({ id: taskId, objectiveId, kind: "elicit", fact: "household.goals", scope: "household", required: true, status: "unasked" });
+
+    // A chef that speaks but never advances the task (the live-test shape: it asked a question
+    // without marking anything).
+    const chattyChef: Chef = {
+      respond: async (_tid, sink): Promise<ChefReply> => {
+        await sink.send({ kind: "text", text: "what are you hoping to get out of meal planning?" });
+        return { confirmTasks: [], cursorTo: null, objectiveId, delivered: true, popped: false };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chattyChef, new StubThreadLock()).handle({ threadId });
+
+    let [t] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(t!.followUpsSent).toBe(1); // the attempt counted even though the task didn't advance
+    expect(t!.nudgedAt).not.toBeNull();
+    let outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound[0]!.messageGuid).toBe(`${objectiveId}:hb:${taskId}:1#0`);
+
+    // Quiet out rung 1, beat again: the scope is now :2 — the bubble DELIVERS instead of being
+    // swallowed by attempt 1's guid (the deadlock this test pins).
+    await db.update(threadMessages).set({ createdAt: new Date(Date.now() - FOLLOW_UP_LADDER[1] - 60_000) });
+    await db.update(tasks).set({ nudgedAt: new Date(Date.now() - FOLLOW_UP_LADDER[1] - 60_000) }).where(eq(tasks.id, taskId));
+    await new Consumer(db, sender, chattyChef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.calls).toHaveLength(2); // both attempts reached the household
+    outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
+    expect(outbound.map((o) => o.messageGuid).sort()).toEqual([`${objectiveId}:hb:${taskId}:1#0`, `${objectiveId}:hb:${taskId}:2#0`].sort());
+    [t] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(t!.followUpsSent).toBe(2);
+  });
+});
+
 describe("WI-05: the heartbeat only speaks into silence", () => {
   it("a beat during an active conversation is a silent no-op even with actionable work", async () => {
     const { threadId } = await seedThread();

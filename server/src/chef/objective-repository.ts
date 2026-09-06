@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { objectives, tasks } from '../schema.js';
+import { objectives, tasks, type TASK_STATUSES } from '../schema.js';
 import { ObjectiveSchema, type Objective } from '../models/objective.js';
 import { TaskSchema, type Task } from '../models/task.js';
 import { CronJobsRepository } from '../crons/cron-jobs-repository.js';
@@ -196,12 +196,15 @@ export class ObjectiveRepository {
    * delivered-only (the nudge bubble went out) inside the turn's commit transaction, so a silent or
    * failed turn leaves the ladder unchanged and the next beat retries.
    */
-  async nudgeFollowUps(taskIds: string[], now: Date, tx: Tx): Promise<void> {
-    for (const taskId of taskIds)
+  async nudgeFollowUps(attempts: { taskId: string; status: string }[], now: Date, tx: Tx): Promise<void> {
+    // The status guard skips any task the turn itself advanced (unasked→asked, →filled): its
+    // chokepoint stamp already paced it. Only still-stuck tasks count the attempt — advancing the
+    // ladder AND the heartbeat guid scope, so the next attempt is a fresh send, not a swallowed one.
+    for (const { taskId, status } of attempts)
       await tx
         .update(tasks)
         .set({ followUpsSent: sql`${tasks.followUpsSent} + 1`, nudgedAt: now })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.status, status as (typeof TASK_STATUSES)[number])));
   }
 
   /**
