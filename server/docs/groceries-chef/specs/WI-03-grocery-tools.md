@@ -60,7 +60,38 @@ context filters them out.
 
 ## Test Run
 
-To be filled during execution.
+New test file — `test/chef-grocery-tools.test.ts` (run individually):
+
+```
+ ✓ test/chef-grocery-tools.test.ts (12 tests) 950ms
+   ✓ O-01 name resolution (TC-1, AC-3/AC-6) > exact name matches
+   ✓ O-01 name resolution (TC-1, AC-3/AC-6) > case + plural variant matches ("Eggs" → "eggs")
+   ✓ O-01 name resolution (TC-1, AC-3/AC-6) > substring resolves to a sole match ("the chicken" → "chicken breast")
+   ✓ O-01 name resolution (TC-1, AC-3/AC-6) > ambiguous name returns candidates, no match
+   ✓ O-01 name resolution (TC-1, AC-3/AC-6) > no match returns unmatched
+   ✓ grocery__add + household merge (TC-2, AC-2) > adds "2 eggs" onto an existing line of 3 → one row, amount 5; adder recorded
+   ✓ grocery__remove / grocery__check act only on certainty (TC-3, AC-3) > remove "chicken" with two chicken rows → nothing deleted, candidates returned
+   ✓ grocery__remove / grocery__check act only on certainty (TC-3, AC-3) > check "milk" (one row) → checked true
+   ✓ grocery__remove / grocery__check act only on certainty (TC-3, AC-3) > remove an unmatched name deletes nothing and reports it
+   ✓ grocery__view (AC-1) > returns count + items for the household, read-only
+   ✓ registration + canRun (TC-4, AC-4) > first_meal_plan builds all four grocery tools
+   ✓ registration + canRun (TC-4, AC-4) > a no-household context filters the grocery tools out
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+```
+
+`tsc --noEmit`: clean.
+
+Canonical `npm test` from clean (dev server stopped), verified by the coordinator:
+
+```
+ Test Files  87 passed (87)
+      Tests  683 passed | 1 skipped (684)   (exit 0)
+```
+
+(`test/imessage-consumer-logic.test.ts` also confirmed individually: 35 passed.)
+
 
 ## Deployment Strategy
 

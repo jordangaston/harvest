@@ -5,6 +5,7 @@ import { FactTypesTool } from './fact-types.js';
 import { UpdateFactsTool } from './update-facts.js';
 import { UpdateTasksTool } from './update-tasks.js';
 import { GenerateMealPlanTool, SlotOptionsTool, AddRecipeToSlotTool, RemoveRecipeFromSlotTool, SetReminderTimeTool, SetReminderEnabledTool } from './mealplan.js';
+import { ViewGroceryTool, AddGroceryTool, RemoveGroceryTool, CheckGroceryTool } from './grocery.js';
 import type { Database } from '../../db.js';
 import type { ChefTool, TurnContext } from './types.js';
 
@@ -22,6 +23,10 @@ const FACTORIES: Record<string, (ctx: TurnContext, db: Database) => ChefTool> = 
   mealplan__remove_recipe_from_slot: RemoveRecipeFromSlotTool.create,
   mealplan__set_reminder_time: SetReminderTimeTool.create,
   mealplan__set_reminder_enabled: SetReminderEnabledTool.create,
+  grocery__view: ViewGroceryTool.create,
+  grocery__add: AddGroceryTool.create,
+  grocery__remove: RemoveGroceryTool.create,
+  grocery__check: CheckGroceryTool.create,
 };
 
 /**
