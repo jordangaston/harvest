@@ -1,0 +1,87 @@
+# WI-02 — Timezone fact + settings recompute (tz change, weekly-meals pause)
+
+## Background
+
+WI-01 provisions reminder crons in `DEFAULT_TZ`. `server/docs/meal-reminders/DESIGN.md`
+(§§ F-04, F-05, Tables household_preferences, Decisions) makes them react to
+settings: a household-scoped TIMEZONE fact whose write recomputes the crons, and a
+weekly-meals write that derives each course row's pause state — with a user-explicit
+pause (`pausedByUser` in the row's `input` JSON, arriving in WI-03) that a preference
+recompute must never override.
+
+## Objective
+
+Setting the household timezone (conversationally, as a fact) shifts every reminder
+cron to the new zone; changing a course's weekly meal count to/from 0 pauses/resumes
+its row — without resurrecting a user-paused course.
+
+## Acceptance Criteria
+
+1. Given the migration, then `household_preferences.timezone` exists (nullable text,
+   IANA).
+2. Given a new TIMEZONE fact type (registered like GROCERY_SHOPPING_DAY in
+   fact-types.ts), when the chef writes it (e.g. household says "we're in Austin" →
+   model supplies `America/Chicago`), then the value is IANA-validated, persisted to
+   `household_preferences.timezone`, and the persist chokepoint calls the reminders
+   recompute — every `meal_reminder` row for the household's thread gets its cron
+   re-derived in the new zone with `next_run_at` recomputed (DESIGN F-04).
+3. Given `WeeklyMealCountType.persist` (the existing per-course fact write —
+   fact-types.ts:266 per DESIGN), when a course count crosses to 0, then that course's
+   row is paused; when it rises from 0, the row resumes UNLESS `input.pausedByUser`
+   is true (DESIGN F-05 precedence: `is_paused = count===0 || pausedByUser`).
+4. Given no timezone fact yet, then provisioning and recompute fall back to
+   `DEFAULT_TZ` env (and `UTC` if unset) — never throw.
+5. The household→thread resolution used by recompute is the join described in DESIGN
+   F-05 (`dynamic_cron_jobs.owner_id = threads.id WHERE household_id = ?`), not a new
+   repository method, unless implementation proves the join impractical (justify in
+   the spec if so).
+
+## Test Cases
+
+Vitest, files individually, `pkill -f vitest` between runs; canonical suite `npm test`
+with the dev server stopped.
+
+### Test Case 1: timezone write shifts crons (AC-2)
+
+**Preconditions:** provisioned rows in `DEFAULT_TZ=UTC` (dinner 16:30 UTC); household
++ thread wired.
+
+**Steps:** Persist timezone `America/Chicago` through the fact type. Inspect rows.
+
+**Expected Outcomes:** dinner row's next fire corresponds to 16:30 America/Chicago;
+all courses shifted; invalid value (e.g. "CST", "Austin") rejected by validation and
+nothing changes.
+
+### Test Case 2: pause rule truth table (AC-3)
+
+**Steps:** For the four combinations of (count 0/nonzero × pausedByUser true/false),
+run the weekly-meals persist and assert `is_paused` = `count===0 || pausedByUser`.
+The critical case: count 0→3 with `pausedByUser: true` stays paused.
+
+### Test Case 3: fallback (AC-4)
+
+**Steps/Expected:** no timezone anywhere + `DEFAULT_TZ` unset → provisioning succeeds
+in UTC; with `DEFAULT_TZ=America/New_York` → rows derive from it.
+
+## Test Run
+
+To be filled during execution.
+
+## Deployment Strategy
+
+Additive migration; deploy after WI-01 (needs the reminder rows/service). Existing
+households have no timezone fact — `DEFAULT_TZ` governs until Sage learns it in
+conversation. Rollback: plain code rollback; column ignored by old code.
+
+## Production Verification
+
+### PV-1: timezone learned in conversation
+
+**Steps:** From the test thread tell Sage the city/state; check
+`household_preferences.timezone` and the reminder rows' recomputed `next_run_at`.
+
+**Expected Outcomes:** IANA zone persisted; crons shifted; log line for the recompute.
+
+## Production Verification Run
+
+To be filled after deploy.
