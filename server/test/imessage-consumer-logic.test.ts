@@ -2,11 +2,28 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { pendingPast } from "../src/imessage/consumer-logic.js";
 import { Consumer } from "../src/imessage/consumer.js";
-import { RealChef, StubChef, type Chef, type ChefReply } from "../src/imessage/chef.js";
+import { RealChef, StubChef, type Chef, type ChefReply, type ReminderIntent } from "../src/imessage/chef.js";
 import { sendingChef, CollectingSink } from "./helpers/chef-double.js";
+import type { ChefAgent, ChefTurn } from "../src/chef/chef-agent.js";
+import { buildTools, FACTORY_IDS } from "../src/chef/tools/registry.js";
+import { steadyStateObjective } from "../src/chef/objectives/steady-state.js";
+import { ReminderRepository } from "../src/reminders/reminder-repository.js";
+import { RecipeRepository, type RecipeInput } from "../src/repositories/recipe-repository.js";
+import { MealPlanService } from "../src/services/meal-plan-service.js";
+
+const RECIPE: RecipeInput = {
+  title: "Chicken Marbella",
+  sourceType: "instagram",
+  servings: 4,
+  servingsEstimated: false,
+  ingredients: [{ name: "chicken", amount: "2", unit: "pound", quantityText: "2 lb chicken" }],
+  steps: ["Bake"],
+  nutrition: null,
+  allergens: null,
+};
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
 import { ObjectiveRepository } from "../src/chef/objective-repository.js";
@@ -1050,5 +1067,172 @@ describe("F1: a silent kick-off turn (tool work, no bubble) terminates instead o
     // A later doorbell re-enters via the retained marker and attempts once more.
     await new Consumer(db, new StubSpectrumSender(), chef, new StubThreadLock()).handle({ threadId });
     expect(respondsForB).toBe(2);
+  });
+});
+
+// ── chef-steady-state WI-01: onboarding seeds once; empty stack = all tools, no objective ──────────
+
+/** An agent that captures the turn it ran against and builds the turn's tools for its objective
+ *  definition — so a test can assert which tools a steady-state turn offers. Sends one bubble. */
+function capturingAgent(): { agent: ChefAgent; turns: ChefTurn[]; toolIds: string[][] } {
+  const turns: ChefTurn[] = [];
+  const toolIds: string[][] = [];
+  const agent: ChefAgent = {
+    run: async (turn, db2) => {
+      turns.push(turn);
+      const def = objectiveDefinition(turn.briefing.objective.definition)!;
+      toolIds.push(buildTools(turn.ctx, db2, def.tools).map((t) => t.id));
+      await turn.send({ kind: "text", text: "what do you need?" });
+      return { worked: false };
+    },
+  };
+  return { agent, turns, toolIds };
+}
+
+/** Marks a pushed objective complete (fills its one task + pop), emptying it off the stack. */
+async function completeObjective(objectiveId: string): Promise<void> {
+  const store = ObjectiveRepository.create(db);
+  await db.transaction(async (tx) => {
+    for (const t of await db.select().from(tasks).where(eq(tasks.objectiveId, objectiveId)))
+      await store.applyTaskUpdates([{ taskId: t.id, status: "filled" }], tx);
+    await store.completeAndPop(objectiveId, tx);
+  });
+}
+
+describe("WI-01 TC-1: first contact still seeds onboarding + first_meal_plan (AC-1)", () => {
+  it("a fresh thread (zero objectives) + inbound seeds onboarding active, first_meal_plan suspended", async () => {
+    const { threadId, ownerId } = await seedThread(); // no objectives seeded
+    await seedInbound(threadId, ownerId, "hi");
+
+    const chef = new RealChef(db, new ScriptedChefAgent({ mutate: false, send: [{ type: "text", text: "hey!" }] }), ObjectiveRepository.create(db), ThreadRepository.create(db), HouseholdRepository.create(db));
+    await chef.respond(threadId, new CollectingSink());
+
+    const rows = await db.select().from(objectives).where(eq(objectives.threadId, threadId));
+    const byDef = Object.fromEntries(rows.map((r) => [r.definition, r.status]));
+    expect(byDef).toEqual({ onboarding: "active", first_meal_plan: "suspended" });
+  });
+});
+
+describe("WI-01 TC-2: steady state answers with all tools, seeds nothing (AC-2, AC-3)", () => {
+  it("all objectives terminal + inbound → the full factory tool set, no new objectives, reply commits", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    // Complete onboarding and first_meal_plan → the stack is empty but the thread has history.
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    const fmp = await store.pushObjective({ threadId, definition: "first_meal_plan", tasks: [{ key: "gen", kind: "emit", scope: "household", required: true }], position: "bottom" });
+    await completeObjective(onboarding.id);
+    await completeObjective(fmp.id);
+    expect(await store.loadActive(threadId)).toBeNull(); // empty stack
+
+    const objectivesBefore = (await db.select().from(objectives).where(eq(objectives.threadId, threadId))).length;
+    const newestId = await seedInbound(threadId, ownerId, "what do we need at the store?");
+
+    const { agent, turns, toolIds } = capturingAgent();
+    const chef = new RealChef(db, agent, store, ThreadRepository.create(db), HouseholdRepository.create(db));
+    const reply = await chef.respond(threadId, new CollectingSink());
+
+    // Ran the steady-state shell, with EVERY registered factory tool built for the turn.
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.briefing.objective.definition).toBe(steadyStateObjective.id);
+    expect(toolIds[0]!.sort()).toEqual([...FACTORY_IDS].sort()); // grocery__*, mealplan__*, facts__*, tasks__update…
+    // No objective row was seeded; the reply has a null objectiveId and advances the cursor.
+    expect((await db.select().from(objectives).where(eq(objectives.threadId, threadId))).length).toBe(objectivesBefore);
+    expect(reply!.objectiveId).toBeNull();
+    expect(reply!.popped).toBe(false);
+    expect(reply!.cursorTo).toBe(newestId);
+  });
+
+  it("the consumer commits a steady-state turn end to end: bubble sent, cursor advanced, no throw", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    await completeObjective(onboarding.id);
+    const newestId = await seedInbound(threadId, ownerId, "hey");
+
+    // A steady-state reply: no objective, no confirms — the consumer must commit it null-safe.
+    const chef = sendingChef([{ kind: "text", text: "hi there" }], { confirmTasks: [], cursorTo: newestId, objectiveId: null });
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.calls).toHaveLength(1);
+    expect((await db.select().from(threads).where(eq(threads.id, threadId)))[0]!.lastProcessedId).toBe(newestId);
+    // Still no objective on the thread — the steady-state turn seeded nothing.
+    expect(await store.loadActive(threadId)).toBeNull();
+  });
+});
+
+describe("WI-01 TC-3: steady-state reminders fire; a bare heartbeat is quiet (AC-4)", () => {
+  it("a due dinner reminder on a steady-state thread still fires", async () => {
+    const { threadId, ownerId } = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    await completeObjective(onboarding.id); // empty stack
+    // A due dinner reminder + a planned dinner for today.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    await db.transaction((tx) => ReminderRepository.create(db).upsertCourseReminder(threadId, "dinner", "30 16 * * *", new Date(Date.now() - 60_000), false, "UTC", tx));
+    const recipeId = await RecipeRepository.create(db).persist(RECIPE, ownerId);
+    await MealPlanService.create(db).add(ownerId, today, "dinner", recipeId, "generated");
+
+    const intents: (ReminderIntent | undefined)[] = [];
+    const chef: Chef = {
+      respond: async (_tid, sink, _hb, reminder): Promise<ChefReply> => {
+        intents.push(reminder);
+        await sink.send({ kind: "text", text: `tonight: ${reminder?.recipes[0]?.title}` });
+        return { confirmTasks: [], cursorTo: null, objectiveId: null, delivered: true, popped: false };
+      },
+    };
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.meal).toBe("dinner");
+    expect(sender.calls).toHaveLength(1);
+  });
+
+  it("a bare heartbeat doorbell on a steady-state thread is a silent no-op (loadActive null)", async () => {
+    const { threadId } = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    await completeObjective(onboarding.id); // empty stack, no reminders, no pending inbound
+
+    const chef: Chef = { respond: async () => null };
+    const respondSpy = vi.spyOn(chef, "respond");
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(respondSpy).not.toHaveBeenCalled(); // no active objective → the heartbeat arm never fires
+    expect(sender.calls).toHaveLength(0);
+  });
+});
+
+describe("WI-01 TC-5: repair script removes re-seeds after a completed onboarding (AC-6)", () => {
+  it("deletes the fresh onboarding + fmp (and their tasks), leaves terminal history; second run is a no-op", async () => {
+    const { threadId } = await seedThread();
+    const store = ObjectiveRepository.create(db);
+    // The live-bug shape: onboarding completed, first_meal_plan completed, then a bogus re-seed of a
+    // fresh active onboarding + suspended first_meal_plan (created AFTER the onboarding completion).
+    const onboarding = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    const fmp = await store.pushObjective({ threadId, definition: "first_meal_plan", tasks: [{ key: "gen", kind: "emit", scope: "household", required: true }], position: "bottom" });
+    await completeObjective(onboarding.id);
+    await completeObjective(fmp.id);
+    // The re-seed (what loadTurn used to do). Force createdAt well after the completion so the 1s-
+    // resolution timestamp comparison is deterministic (in production it's a much-later inbound).
+    const later = new Date(Date.now() + 60_000);
+    const reseedOnb = await store.pushObjective({ threadId, definition: "onboarding", tasks: [{ key: "close", kind: "emit", scope: "household", required: true }], position: "top" });
+    const reseedFmp = await store.pushObjective({ threadId, definition: "first_meal_plan", tasks: [{ key: "gen", kind: "emit", scope: "household", required: true }], position: "bottom" });
+    await db.update(objectives).set({ createdAt: later }).where(inArray(objectives.id, [reseedOnb.id, reseedFmp.id]));
+
+    const { repairReseededThreads } = await import("../src/chef/repair-reseeded-threads.js");
+    const deleted = await repairReseededThreads(db);
+
+    expect(deleted.map((d) => d.objectiveId).sort()).toEqual([reseedOnb.id, reseedFmp.id].sort());
+    // The two fresh rows are gone, their tasks cascaded; the terminal history remains.
+    const remaining = await db.select().from(objectives).where(eq(objectives.threadId, threadId));
+    expect(remaining.map((r) => r.id).sort()).toEqual([onboarding.id, fmp.id].sort());
+    expect(remaining.every((r) => r.status === "complete")).toBe(true);
+    expect(await db.select().from(tasks).where(inArray(tasks.objectiveId, [reseedOnb.id, reseedFmp.id]))).toHaveLength(0);
+
+    // Idempotent: a second run finds nothing to delete.
+    expect(await repairReseededThreads(db)).toHaveLength(0);
   });
 });

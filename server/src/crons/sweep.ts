@@ -11,13 +11,15 @@ export type SendDoorbell = (
 ) => Promise<unknown>;
 
 /**
- * One heartbeat sweep: advance every due job to its next slot, then wake the thread.
+ * One sweep: advance every due job to its next slot, then wake the thread.
  *
  * The advance is committed BEFORE the doorbell is enqueued — a crash between the two
  * loses one beat (self-heals next tick), where the reverse order would re-fire a
- * poisoned row forever. A `thread_heartbeat` row sends a bare `{threadId}` doorbell,
- * deduped per slot by `hb:<threadId>:<dueSlotISO>`; the consumer makes every real
- * follow-up decision later, under the thread lock.
+ * poisoned row forever. Both a `thread_heartbeat` and a `meal_reminder` row send a bare
+ * `{threadId}` doorbell (deduped per slot by `<jobType-prefix>:<threadId>:<dueSlotISO>`);
+ * the consumer makes every real decision later, under the thread lock. A reminder advances
+ * in its household zone (`input.tz`), so an "18:00" holds at 6pm local through DST; a
+ * heartbeat carries no tz and stays UTC.
  * @param repo - the dynamic-cron-jobs repository.
  * @param send - enqueues the doorbell (the queue client, or a test mock).
  * @param now - the sweep instant.
@@ -28,10 +30,11 @@ export async function sweep(repo: CronJobsRepository, send: SendDoorbell, now: D
   let dispatched = 0;
   for (const job of due) {
     const slot = job.nextRunAt.toISOString();
-    await repo.advance(job.id, nextRun(job.cronExpression, now));
-    if (job.jobType !== "thread_heartbeat") continue;
+    const timezone = typeof job.input.tz === "string" ? job.input.tz : undefined;
+    await repo.advance(job.id, nextRun(job.cronExpression, now, timezone));
     const threadId = String(job.input.threadId);
-    await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: `hb:${threadId}:${slot}` });
+    const keyPrefix = job.jobType === "meal_reminder" ? `mr:${job.meal}` : "hb";
+    await send(INBOUND_TOPIC, { threadId }, { idempotencyKey: `${keyPrefix}:${threadId}:${slot}` });
     dispatched++;
   }
   console.info(JSON.stringify({ event: "sweep completed", due: due.length, dispatched }));

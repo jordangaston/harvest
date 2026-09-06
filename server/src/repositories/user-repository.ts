@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db.js';
-import { users, recipes, cookbooks, importJobs, mealPlanEntries, groceryItems, type NewUser } from '../schema.js';
+import { users, recipes, cookbooks, importJobs, mealPlanEntries, type NewUser } from '../schema.js';
 import { UserSchema, type User } from '../models/user.js';
 
 /** A write/read executor: the db singleton or an interactive transaction client. */
@@ -64,10 +64,10 @@ export class UserRepository {
   /**
    * Permanently deletes a user and every row they own, in one transaction.
    *
-   * Order respects the foreign keys: `import_jobs`, `meal_plan_entries`, and
-   * `grocery_items` (which reference recipes) go before `recipes`; `recipes` then
-   * cascades its ingredients, steps, and join rows; `cookbooks` and the user row
-   * follow.
+   * Order respects the foreign keys: `import_jobs` and `meal_plan_entries` go before
+   * `recipes`; `recipes` then cascades its ingredients, steps, and join rows; `cookbooks`
+   * and the user row follow. `grocery_items` is NOT deleted — the list belongs to the
+   * household, not the user (the user's `added_by_user_id` attribution FK is `set null`).
    *
    * @param userId - The user to delete (the authenticated caller).
    */
@@ -75,7 +75,6 @@ export class UserRepository {
     await this.db.transaction(async (tx) => {
       await tx.delete(importJobs).where(eq(importJobs.userId, userId));
       await tx.delete(mealPlanEntries).where(eq(mealPlanEntries.userId, userId));
-      await tx.delete(groceryItems).where(eq(groceryItems.userId, userId));
       await tx.delete(recipes).where(eq(recipes.userId, userId));
       await tx.delete(cookbooks).where(eq(cookbooks.userId, userId));
       await tx.delete(users).where(eq(users.id, userId));

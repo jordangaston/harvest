@@ -6,6 +6,7 @@
    page unstyled (its classes never enter the build). */
 @source "../src/recipe-page.tsx";
 @source "../src/plan-page.tsx";
+@source "../src/grocery-page.tsx";
 
 /* Single golden-hour theme (the recipe card is intentionally one theme, no dark counterpart). */
 @plugin "daisyui" {

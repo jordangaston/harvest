@@ -106,8 +106,9 @@ export function taskGuidance(): Map<string, string> {
   return new Map(specs.filter((s) => s.guidance).map((s) => [s.fact ?? s.key, s.guidance!]));
 }
 
-/** The tools resident in the onboarding prompt (the fact surface + identity + import). */
-const ONBOARDING_TOOLS = ['facts__read', 'facts__catalog', 'facts__update', 'tasks__update', 'household__add_members', 'recipes__import'];
+/** The tools resident in the onboarding prompt (the fact surface + identity + import + groceries, so
+ *  a mid-onboarding "add milk" works — chef-steady-state WI-01 AC-5). */
+const ONBOARDING_TOOLS = ['facts__read', 'facts__catalog', 'facts__update', 'tasks__update', 'household__add_members', 'recipes__import', 'grocery__view', 'grocery__add', 'grocery__remove', 'grocery__check'];
 
 /** The onboarding objective definition, keyed by the `objectives.definition` string. Tasks are
  *  seeded via `householdTaskSpecs`/`memberTaskSpecs`; this carries the id, instructions, and tools. */

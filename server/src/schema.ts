@@ -495,19 +495,21 @@ export const mealPlanEntries = sqliteTable(
   (t) => [index('meal_plan_entries_user_date_idx').on(t.userId, t.date)],
 );
 
-// W2 grocery list: one flat, per-user list. `amount`+`unit` carry a structured
-// quantity; `quantity_text` holds a freeform amount when there's no numeric amount.
-// `aisle`/`icon` are denormalized from the catalog at add time. `source_recipe_id`
-// (null = manual) is `set null` so deleting a recipe keeps its items.
+// W2 grocery list: one flat list per HOUSEHOLD (moved from per-user — groceries-chef).
+// One member's item merges with another's. `added_by_user_id` is free attribution (no UI).
+// `amount`+`unit` carry a structured quantity; `quantity_text` holds a freeform amount
+// when there's no numeric amount. `aisle`/`icon` are denormalized from the catalog at add
+// time. `source_recipe_id` (null = manual) is `set null` so deleting a recipe keeps its items.
 export const groceryItems = sqliteTable(
   'grocery_items',
   {
     id: uuidPk(),
-    userId: text('user_id')
+    householdId: text('household_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+      .references(() => households.id, { onDelete: 'cascade' }),
+    addedByUserId: text('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
-    amount: text('amount'), // pg numeric → text
+    amount: text('amount'), // numeric → text
     unit: text('unit'),
     quantityText: text('quantity_text'),
     aisle: text('aisle', { enum: GROCERY_AISLES }).notNull(),
@@ -517,7 +519,7 @@ export const groceryItems = sqliteTable(
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [index('grocery_items_user_idx').on(t.userId)],
+  (t) => [index('grocery_items_household_idx').on(t.householdId)],
 );
 
 // Nutrition estimation (WI-1): the seeded USDA FNDDS (Survey) catalog. `fdc_foods`
@@ -790,6 +792,9 @@ export const householdPreferences = sqliteTable('household_preferences', {
   householdId: text('household_id')
     .primaryKey()
     .references(() => households.id, { onDelete: 'cascade' }),
+  // IANA zone (e.g. America/Denver); the TIMEZONE household fact persists here (meal-reminders WI-02).
+  // Null ⇒ reminder crons fall back to DEFAULT_TZ (env).
+  timezone: text('timezone'),
   groceryStores: text('grocery_stores', { mode: 'json' }).$type<(typeof GROCERY_STORES)[number][]>(),
   groceryShoppingDay: text('grocery_shopping_day', { enum: GROCERY_SHOPPING_DAYS }),
   weeklyBudgetCents: integer('weekly_budget_cents'),
@@ -871,7 +876,8 @@ export const tasks = sqliteTable(
 // The heartbeat timer table (kickback-server `dynamic_cron_jobs` shape). One row per job:
 // a cron expression + the next fire time, swept every minute by GET /crons/dispatch. `owner_*`
 // identifies the job (unique per owner + type) with no FK — polymorphic, like kickback; `input`
-// is the dispatch payload, opaque to the sweeper. Today the only job_type is `thread_heartbeat`.
+// is the dispatch payload, opaque to the sweeper. Job types: `thread_heartbeat` and `meal_reminder`
+// (meal-reminders WI-01) — a per-course recurring reminder whose `meal` names the course.
 export const dynamicCronJobs = sqliteTable(
   'dynamic_cron_jobs',
   {
@@ -879,6 +885,9 @@ export const dynamicCronJobs = sqliteTable(
     jobType: text('job_type').notNull(),
     ownerType: text('owner_type').notNull(),
     ownerId: text('owner_id').notNull(),
+    // The course a `meal_reminder` row fires for (breakfast/lunch/dinner); null for a heartbeat. Part
+    // of the owner unique index so one thread holds one row per course plus one (meal-null) heartbeat.
+    meal: text('meal', { enum: MEAL_SLOTS }),
     input: text('input', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
     cronExpression: text('cron_expression').notNull().default('*/5 * * * *'),
     nextRunAt: integer('next_run_at', { mode: 'timestamp' }).notNull(),
@@ -889,7 +898,7 @@ export const dynamicCronJobs = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    uniqueIndex('dynamic_cron_jobs_owner_uidx').on(t.ownerType, t.ownerId, t.jobType),
+    uniqueIndex('dynamic_cron_jobs_owner_uidx').on(t.ownerType, t.ownerId, t.jobType, t.meal),
     index('dynamic_cron_jobs_due_idx').on(t.isPaused, t.nextRunAt),
   ],
 );

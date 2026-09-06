@@ -294,6 +294,17 @@ describe('HouseholdRepository', () => {
     expect(members.map((m) => m.userId).sort()).toEqual([a, b].sort());
     expect(members.find((m) => m.userId === a)).toMatchObject({ name: 'Ada', imessageHandle: '+15550000001' });
   });
+
+  it('householdIdForUser resolves a member to their household; null for a non-member (O-03)', async () => {
+    const a = await seedUser('+15550000010');
+    const outsider = await seedUser('+15550000011');
+    const repo = HouseholdRepository.create(db);
+    const household = await repo.createHousehold({ ownerUserId: a });
+    await repo.addMember({ householdId: household.id, userId: a });
+
+    expect(await repo.householdIdForUser(a)).toBe(household.id);
+    expect(await repo.householdIdForUser(outsider)).toBeNull();
+  });
 });
 
 describe('heartbeat lifecycle (O-02)', () => {

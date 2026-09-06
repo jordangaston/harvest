@@ -33,6 +33,26 @@ export class HouseholdRepository {
   }
 
   /**
+   * The household a user belongs to, or null if they have no membership. One indexed lookup
+   * on the unique `household_members.user_id` (one household per user, v1) — the single resolver
+   * that scopes the grocery REST endpoints and routes the plan-sync reconcile.
+   */
+  async householdIdForUser(userId: string, tx: Executor = this.db): Promise<string | null> {
+    const [row] = await tx
+      .select({ householdId: householdMembers.householdId })
+      .from(householdMembers)
+      .where(eq(householdMembers.userId, userId))
+      .limit(1);
+    return row?.householdId ?? null;
+  }
+
+  /** Whether a household row exists — the grocery card's 404 gate (an unknown id is not enumerated). */
+  async exists(householdId: string, tx: Executor = this.db): Promise<boolean> {
+    const [row] = await tx.select({ id: households.id }).from(households).where(eq(households.id, householdId)).limit(1);
+    return !!row;
+  }
+
+  /**
    * Inserts a household owned by `ownerUserId`. Does not auto-add the owner as a member —
    * the caller adds every participant, including the owner, via `addMember`.
    * @returns The household, parsed.

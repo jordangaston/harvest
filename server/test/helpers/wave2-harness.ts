@@ -1,5 +1,6 @@
 import { type Database } from "../../src/db.js";
 import { buildApp } from "../../src/index.js";
+import { HouseholdRepository } from "../../src/repositories/household-repository.js";
 import { migratedFileDb } from "./migrated-db.js";
 
 /**
@@ -12,6 +13,8 @@ export interface Harness {
   db: Database;
   app: ReturnType<typeof buildApp>;
   mintBearer: (prefix?: string) => Promise<{ token: string; userId: string }>;
+  /** Creates a household owned by `ownerUserId` and links each member. Returns its id. */
+  seedHousehold: (ownerUserId: string, memberUserIds?: string[]) => Promise<string>;
   auth: (token: string) => Record<string, string>;
   cleanup: () => void;
 }
@@ -20,6 +23,7 @@ export interface Harness {
 export async function makeHarness(): Promise<Harness> {
   const { db, cleanup } = await migratedFileDb();
   const app = buildApp(db);
+  const households = HouseholdRepository.create(db);
   let phoneSeq = 0;
 
   async function mintBearer(prefix = "+1555550"): Promise<{ token: string; userId: string }> {
@@ -33,10 +37,17 @@ export async function makeHarness(): Promise<Harness> {
     return { token: body.auth.access_token.jwt, userId: body.user.id };
   }
 
+  async function seedHousehold(ownerUserId: string, memberUserIds: string[] = [ownerUserId]): Promise<string> {
+    const household = await households.createHousehold({ ownerUserId });
+    await households.addMembers(household.id, memberUserIds);
+    return household.id;
+  }
+
   return {
     db,
     app,
     mintBearer,
+    seedHousehold,
     auth: (token) => ({ authorization: `Bearer ${token}`, "content-type": "application/json" }),
     cleanup,
   };

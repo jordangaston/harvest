@@ -28,6 +28,7 @@ const MAX_STEPS = 24;
 const MUTATING_TOOL_IDS = new Set([
   'tasks__update', 'facts__update', 'household__add_members', 'recipes__import',
   'mealplan__generate', 'mealplan__add_recipe_to_slot', 'mealplan__remove_recipe_from_slot',
+  'grocery__add', 'grocery__remove', 'grocery__check',
 ]);
 
 /**

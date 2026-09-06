@@ -12,9 +12,9 @@ function fakeRepo() {
   const items: GroceryItem[] = [];
   let seq = 0;
   const repo = {
-    async findMergeCandidate(userId: string, name: string, unit: string | null) {
+    async findMergeCandidate(householdId: string, name: string, unit: string | null) {
       return items.find(
-        (i) => i.userId === userId && i.name.toLowerCase() === name.toLowerCase() && i.unit === unit && i.amount !== null,
+        (i) => i.householdId === householdId && i.name.toLowerCase() === name.toLowerCase() && i.unit === unit && i.amount !== null,
       );
     },
     async addAmount(id: string, delta: number) {
@@ -22,10 +22,11 @@ function fakeRepo() {
       item.amount = (item.amount ?? 0) + delta;
       return item;
     },
-    async insert(userId: string, item: InsertGroceryItem) {
+    async insert(householdId: string, item: InsertGroceryItem) {
       const row: GroceryItem = {
         id: `it-${seq++}`,
-        userId,
+        householdId,
+        addedByUserId: item.addedByUserId,
         name: item.name,
         amount: item.amount,
         unit: item.unit,

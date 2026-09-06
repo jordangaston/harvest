@@ -19,6 +19,7 @@ import { HouseholdPreferenceRepository } from '../../repositories/household-pref
 import { HouseholdRepository } from '../../repositories/household-repository.js';
 import { PreferenceRepository } from '../../repositories/preference-repository.js';
 import { UserRepository } from '../../repositories/user-repository.js';
+import { RemindersService } from '../../reminders/reminders-service.js';
 import { TasteOptionsService, type TasteOptions } from '../../services/taste-options-service.js';
 import { BaseIngredientResolver } from '../../nutrition/base-ingredient-resolver.js';
 import { WeeklyMealsSchema, TimeByMealSchema } from '../../models/user-preferences.js';
@@ -188,6 +189,51 @@ class WeeklyBudgetCentsType implements FactType {
   }
 }
 
+/** The canonical IANA zone set (`Area/Location`, e.g. `America/Chicago`) — this rejects abbreviations
+ *  ("CST"/"EST") and bare city names ("Austin"), which croner and Intl silently accept but aren't
+ *  real zones. `UTC` and `Etc/*` fixed-offset zones aren't in the primary list but are legal, so
+ *  they're allowed explicitly. */
+const IANA_ZONES = new Set(Intl.supportedValuesOf('timeZone'));
+function isIanaZone(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || tz.length === 0) return false;
+  if (tz === 'UTC' || IANA_ZONES.has(tz)) return true;
+  if (!tz.startsWith('Etc/')) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The household's IANA timezone — the reminder crons derive their local fire time from it (WI-02).
+ *  A write recomputes every meal_reminder cron for the household's thread into the new zone (F-04). */
+class TimezoneType implements FactType {
+  readonly name = 'TIMEZONE';
+  readonly flavor = 'scalar' as const;
+  constructor(private readonly prefs: HouseholdPreferenceRepository, private readonly reminders: RemindersService) {}
+
+  describe(): TypeDoc {
+    return { name: this.name, flavor: this.flavor, description: 'The household\'s timezone, as an IANA zone.', rule: 'a full IANA zone like "America/Chicago" — not an abbreviation ("CST") or a city name ("Austin")' };
+  }
+  validate(value: unknown): ValidateResult {
+    return isIanaZone(value) ? { ok: true } : { ok: false, reason: `${this.name}: needs a full IANA zone (e.g. "America/Chicago"), not an abbreviation or city name` };
+  }
+  normalize(value: unknown): string {
+    return String(value);
+  }
+  async persist(subject: Subject, value: unknown): Promise<void> {
+    const hh = householdId(subject);
+    await this.prefs.savePreferences(hh, { timezone: this.normalize(value) });
+    // The single validate→persist chokepoint for the tz fact — recompute hangs here so setting the
+    // zone anywhere re-derives the household's reminder crons (F-04).
+    await this.reminders.recomputeCrons(hh, new Date());
+  }
+  async read(subject: Subject): Promise<unknown> {
+    return (await this.prefs.getPreferences(householdId(subject))).timezone;
+  }
+}
+
 /** How many days a week the household cooks (a non-negative count). */
 /** Canonical Mon→Sun order for cook nights, and a loose day-name normalizer ("Mon"/"mondays" → monday). */
 const WEEK_ORDER = DAYS_OF_WEEK;
@@ -265,7 +311,7 @@ class EatsLeftoversType implements FactType {
  */
 class WeeklyMealCountType implements FactType {
   readonly flavor = 'scalar' as const;
-  constructor(readonly name: string, private readonly meal: 'breakfast' | 'lunch' | 'dinner', private readonly prefs: HouseholdPreferenceRepository) {}
+  constructor(readonly name: string, private readonly meal: 'breakfast' | 'lunch' | 'dinner', private readonly prefs: HouseholdPreferenceRepository, private readonly reminders: RemindersService) {}
 
   describe(): TypeDoc {
     return { name: this.name, flavor: this.flavor, description: `How many ${this.meal}s to plan per week — a count of meals, not cooking days (see cook_days).`, rule: 'a non-negative whole number' };
@@ -278,8 +324,13 @@ class WeeklyMealCountType implements FactType {
   }
   async persist(subject: Subject, value: unknown): Promise<void> {
     const hh = householdId(subject);
+    const count = this.normalize(value);
     const current = (await this.prefs.getPreferences(hh)).weeklyMeals ?? { breakfast: 0, lunch: 0, dinner: 0, snack: 0, kids: 0 };
-    await this.prefs.savePreferences(hh, { weeklyMeals: { ...current, [this.meal]: this.normalize(value) } as never });
+    await this.prefs.savePreferences(hh, { weeklyMeals: { ...current, [this.meal]: count } as never });
+    // Same writeFact chokepoint as the timezone: sync this one course's reminder pause to its new
+    // count (F-05). The row's own `pausedByUser` marker (set by WI-03's enable tool) protects a
+    // user-paused course from a count bump — read inside setPausedByHousehold, so no flag is needed here.
+    await this.reminders.syncPause(hh, this.meal, count);
   }
   async read(subject: Subject): Promise<unknown> {
     return (await this.prefs.getPreferences(householdId(subject))).weeklyMeals?.[this.meal] ?? null;
@@ -631,13 +682,15 @@ export class FactTypeRegistry {
     const userRepo = UserRepository.create(db);
     const taste = TasteOptionsService.create(db);
     const ingredients = BaseIngredientResolver.create(db);
+    const reminders = RemindersService.create(db);
     const types: FactType[] = [
       new GroceryStoreType(hh),
       new GroceryShoppingDayType(hh),
+      new TimezoneType(hh, reminders),
       new WeeklyBudgetCentsType(hh),
-      new WeeklyMealCountType('WEEKLY_BREAKFASTS', 'breakfast', hh),
-      new WeeklyMealCountType('WEEKLY_LUNCHES', 'lunch', hh),
-      new WeeklyMealCountType('WEEKLY_DINNERS', 'dinner', hh),
+      new WeeklyMealCountType('WEEKLY_BREAKFASTS', 'breakfast', hh, reminders),
+      new WeeklyMealCountType('WEEKLY_LUNCHES', 'lunch', hh, reminders),
+      new WeeklyMealCountType('WEEKLY_DINNERS', 'dinner', hh, reminders),
       new TimeByMealType(hh),
       new CookDaysType(hh),
       new EatsLeftoversType(hh),

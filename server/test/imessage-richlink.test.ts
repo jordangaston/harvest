@@ -83,6 +83,28 @@ describe('consumer dispatches a richlink event (AC1)', () => {
   });
 });
 
+// WI-04 AC3: a /g/:householdId URL under PUBLIC_APP_URL is our own app page, so the sink sends it as a
+// tappable app card (sendRecipeCard), like /r/ and /p/ — not a plain sendLink.
+describe('consumer routes a grocery-card URL to sendRecipeCard (WI-04 AC3)', () => {
+  const prev = process.env.PUBLIC_APP_URL;
+  beforeEach(() => { process.env.PUBLIC_APP_URL = 'https://app.harvest.example'; });
+  afterEach(() => { process.env.PUBLIC_APP_URL = prev; });
+
+  it('sends a /g/ link via sendRecipeCard, not sendLink', async () => {
+    const { threadId, inboundId } = await seedThreadWithInbound();
+    const url = 'https://app.harvest.example/g/hh-123';
+    const chef = sendingChef(
+      [{ kind: 'richlink', url }],
+      { confirmTasks: [], cursorTo: inboundId, objectiveId: '' },
+    );
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(sender.recipeCardCalls.map((c) => c.url)).toEqual([url]);
+    expect(sender.linkCalls).toHaveLength(0);
+  });
+});
+
 // WI-4A AC1: the consumer persists a tapback as a type='reaction' row (glyph + target) and dispatches
 // it via sendReaction — never as text, and the sent_at gate marks it sent.
 describe('consumer dispatches a tapback event (WI-4A AC1)', () => {

@@ -6,6 +6,7 @@ import { toPublicUser } from "./models/user.js";
 import { ImportService } from "./import-service.js";
 import { renderRecipePage } from "./recipe-page.js";
 import { renderPlanPage } from "./plan-page.js";
+import { renderGroceryPage } from "./grocery-page.js";
 import { ThreadRepository } from "./repositories/thread-repository.js";
 import { HouseholdRepository } from "./repositories/household-repository.js";
 import { verifyWebhook } from "./imessage/webhook-verify.js";
@@ -28,7 +29,7 @@ import { preferencesBodySchema, toPreferencesDTO, fromPreferencesDTO } from "./p
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
 import { InvalidPhoneError } from "./util/phone.js";
-import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError } from "./errors.js";
+import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError, NoHouseholdError } from "./errors.js";
 import {
   createUserSchema,
   anonUserSchema,
@@ -121,6 +122,17 @@ app.get("/p/:userId", async (c) => {
   const entries = await mealPlan.listRange(userId, today, end);
   c.header("cache-control", "no-store");
   return c.html(renderPlanPage(entries, userId, new URL(c.req.url).origin));
+});
+
+/** GET /g/:householdId — the household's grocery list as one page (the iMessage grocery card's target).
+ * Public by unguessable uuid, same trust model as /p/:userId. `no-store`: the list mutates constantly
+ * (checks + plan syncs land between opens). An unknown household → 404 HTML (not enumerated). */
+app.get("/g/:householdId", async (c) => {
+  const householdId = c.req.param("householdId")!;
+  if (!(await households.exists(householdId))) return c.html(GROCERY_NOT_FOUND_HTML, 404);
+  const items = await groceries.list(householdId);
+  c.header("cache-control", "no-store");
+  return c.html(renderGroceryPage(items, new URL(c.req.url).origin));
 });
 
 /** POST /v1/otps — sends an SMS verification code. Public. 502 if the send fails. */
@@ -345,18 +357,27 @@ app.delete("/v1/meal-plan/:id", guard, async (c) => {
   return c.body(null, 204);
 });
 
-/** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */
+/** The caller's household id, derived from the token — never accepted from the client.
+ * @throws {NoHouseholdError} clean 4xx when the caller belongs to no household. */
+async function householdOf(authUserId: string): Promise<string> {
+  const householdId = await households.householdIdForUser(authUserId);
+  if (!householdId) throw new NoHouseholdError();
+  return householdId;
+}
+
+/** GET /v1/grocery_items — the household's grocery list (flat; the client groups/sorts). */
 app.get("/v1/grocery_items", guard, async (c) => {
-  const items = await groceries.list(c.get("authUserId")!);
+  const items = await groceries.list(await householdOf(c.get("authUserId")!));
   return c.json({ items: items.map(toPublicGroceryItem) });
 });
 
-/** POST /v1/grocery_items — adds one or many items. Resolves aisle/icon + default
- * unit and merges by name+unit. 201. */
+/** POST /v1/grocery_items — adds one or many items to the household list. Resolves aisle/icon
+ * + default unit and merges by name+unit across the household. Records the caller as adder. 201. */
 app.post("/v1/grocery_items", guard, async (c) => {
   const { items } = addGroceryItemsSchema.parse(await c.req.json());
+  const authUserId = c.get("authUserId")!;
   const created = await groceries.add(
-    c.get("authUserId")!,
+    await householdOf(authUserId),
     items.map((i) => ({
       name: i.name,
       amount: i.amount ?? null,
@@ -364,20 +385,21 @@ app.post("/v1/grocery_items", guard, async (c) => {
       quantityText: i.quantity_text ?? null,
       sourceRecipeId: i.source_recipe_id ?? null,
     })),
+    authUserId,
   );
   return c.json({ items: created.map(toPublicGroceryItem) }, 201);
 });
 
-/** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the caller's. */
+/** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the household's. */
 app.patch("/v1/grocery_items/:id", guard, async (c) => {
   const patch = patchGroceryItemSchema.parse(await c.req.json());
-  const item = await groceries.patch(c.get("authUserId")!, c.req.param("id")!, patch);
+  const item = await groceries.patch(await householdOf(c.get("authUserId")!), c.req.param("id")!, patch);
   return c.json({ item: toPublicGroceryItem(item) });
 });
 
-/** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the caller's. */
+/** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the household's. */
 app.delete("/v1/grocery_items/:id", guard, async (c) => {
-  await groceries.remove(c.get("authUserId")!, c.req.param("id")!);
+  await groceries.remove(await householdOf(c.get("authUserId")!), c.req.param("id")!);
   return c.body(null, 204);
 });
 
@@ -504,6 +526,9 @@ function inboundType(type: string): "text" | "reaction" | "reply" | "attachment"
 
 /** The HTML body served when `GET /r/:id` names an unknown recipe. */
 const RECIPE_NOT_FOUND_HTML = `<!doctype html><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Recipe not found · Harvest</title><body style="background:#F1E6D2;color:#2E2419;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;margin:0"><div><div style="font-size:44px">🍽️</div><p style="color:#6E5B48;margin-top:12px">This recipe couldn't be found.</p></div></body>`;
+
+/** The HTML body served when `GET /g/:householdId` names an unknown household. */
+const GROCERY_NOT_FOUND_HTML = `<!doctype html><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>List not found · Harvest</title><body style="background:#F1E6D2;color:#2E2419;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;margin:0"><div><div style="font-size:44px">🛒</div><p style="color:#6E5B48;margin-top:12px">This grocery list couldn't be found.</p></div></body>`;
 
 /** A cheap, stable FNV-1a hash (hex) of a string — the ETag basis for the served-once catalog. */
 function weakHash(input: string): string {

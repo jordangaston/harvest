@@ -4,6 +4,8 @@ import { objectives, tasks, type TASK_STATUSES } from '../schema.js';
 import { ObjectiveSchema, type Objective } from '../models/objective.js';
 import { TaskSchema, type Task } from '../models/task.js';
 import { CronJobsRepository } from '../crons/cron-jobs-repository.js';
+import { RemindersService } from '../reminders/reminders-service.js';
+import { firstMealPlanObjective } from './objectives/first-meal-plan.js';
 
 /** A drizzle transaction client — the type passed to each write in a transaction. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -51,14 +53,27 @@ const isTerminal = (status: Task['status']) => (TERMINAL as readonly string[]).i
  */
 export class ObjectiveRepository {
   private readonly heartbeats: CronJobsRepository;
+  private readonly reminders: RemindersService;
 
   constructor(private readonly db: Database) {
     this.heartbeats = CronJobsRepository.create(db);
+    this.reminders = RemindersService.create(db);
   }
 
   /** Wire from a caller-supplied db. */
   static create(db: Database) {
     return new ObjectiveRepository(db);
+  }
+
+  /**
+   * True when the thread has at least one objective row (any status). The re-seed guard: onboarding
+   * seeds only when this is false, so an empty stack WITH history (all objectives terminal) is never
+   * re-onboarded (chef-steady-state WI-01 AC-1/AC-2). Cheap COUNT; runs under the consumer's per-thread
+   * lock, so the check-then-seed can't race a concurrent turn. Read-only.
+   */
+  async hasObjectives(threadId: string): Promise<boolean> {
+    const [row] = await this.db.select({ n: sql<number>`count(*)` }).from(objectives).where(eq(objectives.threadId, threadId));
+    return (row?.n ?? 0) > 0;
   }
 
   /**
@@ -238,9 +253,16 @@ export class ObjectiveRepository {
    * @returns The newly-activated objective, or null when the stack is now empty.
    */
   async completeAndPop(objectiveId: string, tx: Tx): Promise<Objective | null> {
-    const [done] = await tx.select({ threadId: objectives.threadId }).from(objectives).where(eq(objectives.id, objectiveId));
+    const [done] = await tx.select({ threadId: objectives.threadId, definition: objectives.definition }).from(objectives).where(eq(objectives.id, objectiveId));
     if (!done) return null;
     await tx.update(objectives).set({ status: 'complete', completedAt: new Date() }).where(eq(objectives.id, objectiveId));
+
+    // Meal-reminders F-01: the household now has a plan worth reminding about — provision its per-course
+    // reminder rows. Gated on the first-meal-plan definition so a later objective's pop doesn't
+    // re-provision, and run BEFORE the stack-empty heartbeat pause below (first_meal_plan is the last
+    // objective, so its pop empties the stack). The rows outlive the objective — they are NOT paused
+    // when the stack empties; their pause is derived from meal counts (F-01/F-05).
+    if (done.definition === firstMealPlanObjective.id) await this.reminders.provisionReminders(done.threadId, new Date(), tx);
 
     const [next] = await tx
       .select()

@@ -29,13 +29,23 @@ export function firstMealPlanTaskSpecs(): TaskSpec[] {
   ];
 }
 
-/** The tools resident in the first-meal-plan prompt: the four mealplan tools + fact read + task
- *  update + import (drop-a-recipe still works). `chat__send` is always present, so it is not listed. */
+/** The tools resident in the first-meal-plan prompt: the mealplan tools + the four grocery tools
+ *  (the plan produces the list, so groceries are ambient here) + fact read + task update + import
+ *  (drop-a-recipe still works). Groceries are RESIDENT, not discovered (DESIGN Q-02 — measured, four
+ *  cheap tools). `first_meal_plan` is the only everyday stack objective today (onboarding is still
+ *  profiling; meal_reminder is a chat-only announce shell), so it is the one place they belong.
+ *  `chat__send` is always present, so it is not listed. */
 const FIRST_MEAL_PLAN_TOOLS = [
   'mealplan__generate',
   'mealplan__slot_options',
   'mealplan__add_recipe_to_slot',
   'mealplan__remove_recipe_from_slot',
+  'mealplan__set_reminder_time',
+  'mealplan__set_reminder_enabled',
+  'grocery__view',
+  'grocery__add',
+  'grocery__remove',
+  'grocery__check',
   'facts__read',
   'tasks__update',
   'recipes__import',
@@ -51,7 +61,9 @@ export const firstMealPlanObjective = {
     'lunches, a highlight or two), then send `plan_url` (one chat__send, type "richlink") — the whole week ' +
     'lands as a single tappable card they can browse, dinners first. Never list every recipe in prose; the ' +
     'card is the menu. Re-share `plan_url` whenever they ask what is planned. Fill the generate task via ' +
-    'tasks__update once the card is out.\n' +
+    'tasks__update once the card is out. Their grocery list is now stocked from the plan too — mention it ' +
+    'in a line ("your grocery list\'s ready too — say \'what do we need\' anytime"); use grocery__view/add/' +
+    'remove/check whenever they ask about groceries.\n' +
     '- feedback: ask if there is anything they would change. If they want a swap, use mealplan__slot_options ' +
     'with their criteria (an ingredient, a time cap), share each option as its card (send its `url`), let ' +
     'them pick, and place it with mealplan__add_recipe_to_slot (drop one with remove_recipe_from_slot). ' +

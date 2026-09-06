@@ -41,6 +41,9 @@ export interface BriefingInput {
   /** WI-02 heartbeat: this is a proactive follow-up (no inbound) on the named tasks — a one-line
    *  instruction to nudge the quiet asks / ask the eligible unasked ones among them. */
   heartbeat?: { taskIds: string[] };
+  /** Meal-reminders WI-01: this is a scheduled reminder turn — announce the named course and its
+   *  planned recipes (resolved by the consumer under the lock). Folded as one instruction line. */
+  reminder?: { meal: string; recipes: { title: string; url?: string }[] };
 }
 
 /**
@@ -88,6 +91,11 @@ export function prepareBriefing(input: BriefingInput): string {
   const heartbeatLine = input.heartbeat?.taskIds.length
     ? `<heartbeat>\nThe household has gone quiet. Follow up now on these task ids: ${input.heartbeat.taskIds.join(', ')}. Nudge the ones already asked, ask the ones not yet asked, and deliver any that emit content (then mark them done) — one warm, natural message, no pressure.\n</heartbeat>`
     : '';
+  // A reminder turn has no inbound and no tasks — this line names the course to announce and its
+  // planned recipes (title + card url), so the model sends the heads-up and shares each card.
+  const reminderLine = input.reminder
+    ? `<reminder>\nScheduled ${input.reminder.meal} reminder — announce tonight's ${input.reminder.meal} to the household and share each recipe card. Planned:\n${input.reminder.recipes.map((r) => `- ${r.title}${r.url ? ` — ${r.url}` : ''}`).join('\n')}\n</reminder>`
+    : '';
 
   return [
     `<objective name="${def.id}">\n${def.instructions}\n</objective>`,
@@ -95,6 +103,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `<tasks>\n${unfilled || '(none)'}${moreLine}\n</tasks>`,
     `<household>\n${members}\n</household>`,
     heartbeatLine,
+    reminderLine,
     `<conversation>\n${replyingLine}${conversation}\n</conversation>`,
   ]
     .filter(Boolean)

@@ -26,7 +26,8 @@ const numericNullable = z
  */
 export const GroceryItemSchema = z.object({
   id: z.string().uuid(),
-  userId: z.string().uuid(),
+  householdId: z.string().uuid(),
+  addedByUserId: z.string().uuid().nullable(),
   name: z.string(),
   amount: numericNullable,
   unit: z.string().nullable(),

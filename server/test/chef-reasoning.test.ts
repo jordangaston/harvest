@@ -8,6 +8,7 @@ import { migratedFileDb } from './helpers/migrated-db.js';
 import { ObjectiveRepository } from '../src/chef/objective-repository.js';
 import { prepareBriefing, type BriefingInput } from '../src/chef/briefing.js';
 import { buildTools } from '../src/chef/tools/registry.js';
+import { onboardingObjective } from '../src/chef/objectives/onboarding.js';
 import type { TurnContext } from '../src/chef/tools/types.js';
 import { randomUUID } from 'node:crypto';
 
@@ -112,5 +113,11 @@ describe('buildTools (per-turn legality gate)', () => {
     // No household at all → nothing to add members to, so household__add_members is dropped.
     const noHh = buildTools({ ...ctx, householdId: null, members: [] }, db, ['household__add_members', 'facts__read']).map((t) => t.id);
     expect(noHh).toEqual(['facts__read']);
+  });
+
+  it('builds the grocery tools during onboarding so a mid-onboarding "add milk" works (WI-01 AC-5)', async () => {
+    const { ctx } = await seedTurn([{ key: 'household.cook_days', status: 'unasked' }]);
+    const ids = buildTools(ctx, db, onboardingObjective.tools).map((t) => t.id);
+    for (const g of ['grocery__view', 'grocery__add', 'grocery__remove', 'grocery__check']) expect(ids).toContain(g);
   });
 });

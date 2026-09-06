@@ -6,9 +6,12 @@ import { selectChefAgent, type ChefAgent } from '../chef/chef-agent.js';
 import type { BriefingInput, TranscriptLine } from '../chef/briefing.js';
 import type { ChatEvent } from '../chef/types.js';
 import type { Task } from '../models/task.js';
+import type { Objective } from '../models/objective.js';
 import type { TurnContext } from '../chef/tools/types.js';
 import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onboarding.js';
 import { firstMealPlanObjective, firstMealPlanTaskSpecs } from '../chef/objectives/first-meal-plan.js';
+import { reminderObjective } from '../chef/objectives/meal-reminder.js';
+import { steadyStateObjective } from '../chef/objectives/steady-state.js';
 
 /** How many recent messages (both sides) the briefing shows as conversation context. */
 const CONVERSATION_WINDOW = 20;
@@ -44,8 +47,9 @@ export interface ChefReply {
   /** The inbound id to advance the cursor to, or null for a kick-off turn (consumed no inbound). */
   cursorTo: string | null;
   /** The objective this turn ran against — the AC-8 safety net pops it if a required emit was
-   *  delivered but left unmarked, and the consumer keys kick-off sends on it. */
-  objectiveId: string;
+   *  delivered but left unmarked, and the consumer keys kick-off sends on it. Null on a steady-state
+   *  turn (no objective row on the stack — the household is done planning). */
+  objectiveId: string | null;
   /** Whether any bubble was sent this turn (the sink flushed at least one) — gates the fact-less
    *  ack confirm and the AC-8 delivered-emit safety net. */
   delivered: boolean;
@@ -61,6 +65,14 @@ export interface HeartbeatIntent {
   taskIds: string[];
 }
 
+/** The reminder intent (meal-reminders WI-01): a due course to announce and today's planned recipes
+ *  for it. Folded into the briefing as a one-line "announce tonight's dinner" instruction; absent on
+ *  a normal or heartbeat turn. The consumer resolves today's plan under the lock before the turn. */
+export interface ReminderIntent {
+  meal: string;
+  recipes: { title: string; url?: string }[];
+}
+
 /**
  * The consumer's entire view of the reasoning layer. `respond` loads the thread's own context,
  * reasons (validated tool writes land mid-turn), and sends its bubbles live through `sink` — then
@@ -68,7 +80,7 @@ export interface HeartbeatIntent {
  * pending. `heartbeat` (WI-02) turns a bare doorbell into a proactive follow-up on the named tasks.
  */
 export interface Chef {
-  respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent): Promise<ChefReply | null>;
+  respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent): Promise<ChefReply | null>;
 }
 
 /**
@@ -98,11 +110,16 @@ export class RealChef implements Chef {
     );
   }
 
-  async respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
 
-    const turn = await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId, heartbeat);
+    // A reminder turn (meal-reminders WI-01) is objective-independent — the consumer already resolved
+    // today's plan under the lock, so the chef just announces it. It runs against the reminder shell
+    // definition, consumes no inbound, and pops nothing.
+    const turn = reminder
+      ? await this.loadReminderTurn(thread.id, thread.householdId, thread.ownerUserId, reminder)
+      : await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId, heartbeat);
     if (!turn) return null;
 
     // One agent runs the whole turn: it acks, calls the objective tools to persist what the household
@@ -125,13 +142,14 @@ export class RealChef implements Chef {
     );
 
     // A social (no-work) turn advanced no task — confirm nothing (AC-5); a working turn confirms the
-    // loaded fact-less tasks as before.
+    // loaded fact-less tasks as before. A reminder turn touches no objective, so it confirms/pops nothing.
     const confirmTasks = worked ? turn.confirmTasks : [];
     // The turn popped its objective iff the one it ran against is no longer the active objective —
     // `tasks__update`'s in-loop completeAndPop either activated a sibling (different id) or emptied the
-    // stack (null). Read after the run so the pop is visible.
-    const stillActive = await this.objectives.loadActive(threadId);
-    const popped = stillActive?.objective.id !== turn.objectiveId;
+    // stack (null). Read after the run so the pop is visible. A reminder or steady-state turn runs
+    // against a shell, not a stack objective, so it never pops (a reminder is objective-independent by
+    // construction; steady state reports a null `objectiveId`).
+    const popped = !reminder && turn.objectiveId !== null && (await this.objectives.loadActive(threadId))?.objective.id !== turn.objectiveId;
     return { confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId, delivered, popped };
   }
 
@@ -144,11 +162,12 @@ export class RealChef implements Chef {
    */
   private async loadTurn(threadId: string, householdId: string | null, cursor: string | null, ownerUserId: string, heartbeat?: HeartbeatIntent) {
     const pending = await this.threads.loadPendingInbound(threadId, cursor);
-    // A fresh thread has no objective — seed onboarding (its household slots) on the first inbound
-    // so the conversation is resumable from the DB alone (F-01 step 2). Only on a real inbound: a
-    // kick-off never seeds onboarding.
+    // FIRST CONTACT only: a thread with NO objectives at all gets onboarding seeded on its first
+    // inbound, so the conversation is resumable from the DB alone (F-01 step 2). A thread whose stack
+    // is merely empty (all objectives terminal) is a valid steady state — never re-seed it (WI-01
+    // AC-1/AC-2). The check-then-seed runs under the consumer's per-thread lock, so it can't race.
     let active = await this.objectives.loadActive(threadId);
-    if (!active && pending.length > 0) {
+    if (!active && pending.length > 0 && !(await this.objectives.hasObjectives(threadId))) {
       // Seed onboarding active (top) and first_meal_plan suspended (bottom), so onboarding's pop
       // chains straight into the first-meal-plan kick-off (F-01 / meal-plan WI). The bottom push is
       // lock-free and never demotes the active onboarding.
@@ -156,11 +175,51 @@ export class RealChef implements Chef {
       await this.objectives.pushObjective({ threadId, definition: firstMealPlanObjective.id, tasks: firstMealPlanTaskSpecs(), position: 'bottom' });
       active = await this.objectives.loadActive(threadId);
     }
+    // Steady state: the stack is empty (all objectives terminal) but the household messaged — answer
+    // conversationally with the full tool set and no objective (WI-01 AC-2). A kick-off (no inbound)
+    // against an empty stack still parks; only a real inbound gets a steady-state turn.
+    if (!active) {
+      if (pending.length === 0) return null;
+      return this.loadSteadyStateTurn(threadId, householdId, ownerUserId, pending);
+    }
     // Kick-off gate: with no pending inbound, run only when the active objective has eligible
     // non-terminal work; otherwise the thread has nothing to do — park.
-    if (pending.length === 0 && (!active || active.tasks.length === 0)) return null;
-    if (!active) return null;
+    if (pending.length === 0 && active.tasks.length === 0) return null;
 
+    return this.buildInboundTurn(threadId, householdId, ownerUserId, pending, active.objective, active.tasks, active.objective.id, active.objective.id, heartbeat);
+  }
+
+  /**
+   * A steady-state turn (chef-steady-state WI-01): the thread's stack is empty (all objectives
+   * terminal), but the household messaged. Answers conversationally against the `steady_state` shell
+   * — full tool set, no tasks, no objective row — and advances the cursor like any inbound turn. The
+   * returned `objectiveId` is null: there is no objective to pop, confirm, or key sends on. The turn
+   * context carries the shell's definition id so its tools resolve (same shell mechanism as reminders).
+   */
+  private async loadSteadyStateTurn(threadId: string, householdId: string | null, ownerUserId: string, pending: Awaited<ReturnType<ThreadRepository['loadPendingInbound']>>) {
+    const objective = { definition: steadyStateObjective.id } as Objective;
+    return this.buildInboundTurn(threadId, householdId, ownerUserId, pending, objective, [], null, steadyStateObjective.id);
+  }
+
+  /**
+   * Assembles one inbound turn's briefing, turn context, message-target map, cursor, and fact-less
+   * confirm set from the loaded objective + eligible tasks. Shared by `loadTurn` (a real stack
+   * objective) and `loadSteadyStateTurn` (the shell, no tasks). `replyObjectiveId` is what the reply
+   * reports — the row id for a stack objective, null in steady state; `ctxObjectiveId` is what the
+   * tools bind to (the row id for a real objective, the shell id in steady state). `heartbeat` folds
+   * in only on a real objective.
+   */
+  private async buildInboundTurn(
+    threadId: string,
+    householdId: string | null,
+    ownerUserId: string,
+    pending: Awaited<ReturnType<ThreadRepository['loadPendingInbound']>>,
+    objective: Objective,
+    turnTasks: Task[],
+    replyObjectiveId: string | null,
+    ctxObjectiveId: string,
+    heartbeat?: HeartbeatIntent,
+  ) {
     const members = householdId ? await this.households.loadMembers(householdId) : [];
     const briefingMembers = members.map((m) => ({ userId: m.userId, name: m.name ?? m.imessageHandle ?? '', handle: m.imessageHandle ?? '' }));
     // Show the recent conversation (both sides) for context, but tag only THIS turn's new household
@@ -191,8 +250,8 @@ export class RealChef implements Chef {
       : null;
 
     const briefing: BriefingInput = {
-      objective: active.objective,
-      tasks: active.tasks,
+      objective,
+      tasks: turnTasks,
       members: briefingMembers,
       transcript,
       trigger: pending.map((m) => m.body ?? '').join('\n'),
@@ -201,22 +260,54 @@ export class RealChef implements Chef {
     };
     const turnCtx: TurnContext = {
       threadId,
-      objectiveId: active.objective.id,
+      objectiveId: ctxObjectiveId,
       initiatorHandle: await this.threads.handleForUser(ownerUserId),
       initiatorUserId: ownerUserId,
       triggerExternalId: trigger?.externalId ?? null,
       householdId: householdId ?? null,
       members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
-      tasks: active.tasks,
+      tasks: turnTasks,
     };
     // The fact-less eligible tasks the consumer confirms at send-time: every emit (delivered via the
     // reply plan) and the explainer-ack elicit (no domain fact). Model-filled elicits set their own
     // status in-loop, so they never appear here.
-    const confirmTasks = active.tasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
+    const confirmTasks = turnTasks.filter((t) => t.fact === null).map((t) => ({ taskId: t.id, kind: t.kind, status: t.status }));
     // A kick-off consumes no inbound, so it has no cursor to advance to (`null`); a normal turn
     // advances to the newest pending id. The consumer skips the cursor advance when this is null.
     const cursorTo = trigger ? trigger.id : null;
-    return { briefing, turnCtx, triggerExternalId: trigger?.externalId ?? null, messageTargets, cursorTo, confirmTasks, objectiveId: active.objective.id };
+    return { briefing, turnCtx, triggerExternalId: trigger?.externalId ?? null, messageTargets, cursorTo, confirmTasks, objectiveId: replyObjectiveId };
+  }
+
+  /**
+   * Builds an objective-independent reminder turn (meal-reminders WI-01): the reminder shell
+   * definition, no tasks, the recent transcript for tone, and the `reminder` intent (the course +
+   * today's planned recipes the consumer resolved). Consumes no inbound (`cursorTo` null) and pops
+   * nothing — the returned `objectiveId` is the shell id (no `objectives` row exists for it).
+   */
+  private async loadReminderTurn(threadId: string, householdId: string | null, ownerUserId: string, reminder: ReminderIntent) {
+    const members = householdId ? await this.households.loadMembers(householdId) : [];
+    const briefingMembers = members.map((m) => ({ userId: m.userId, name: m.name ?? m.imessageHandle ?? '', handle: m.imessageHandle ?? '' }));
+    const nameByUser = new Map(members.map((m) => [m.userId, m.name ?? undefined]));
+    const recent = await this.threads.loadRecentMessages(threadId, CONVERSATION_WINDOW);
+    const transcript: TranscriptLine[] = recent.map((m) => ({
+      role: m.direction === 'inbound' ? 'household' : 'chef',
+      text: m.body ?? '',
+      name: m.direction === 'inbound' && m.senderUserId ? nameByUser.get(m.senderUserId) : undefined,
+    }));
+
+    const objective = { definition: reminderObjective.id } as Objective;
+    const briefing: BriefingInput = { objective, tasks: [], members: briefingMembers, transcript, trigger: '', reminder };
+    const turnCtx: TurnContext = {
+      threadId,
+      objectiveId: reminderObjective.id,
+      initiatorHandle: await this.threads.handleForUser(ownerUserId),
+      initiatorUserId: ownerUserId,
+      triggerExternalId: null,
+      householdId: householdId ?? null,
+      members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
+      tasks: [],
+    };
+    return { briefing, turnCtx, triggerExternalId: null, messageTargets: {}, cursorTo: null, confirmTasks: [], objectiveId: reminderObjective.id };
   }
 }
 
@@ -233,7 +324,7 @@ export class StubChef implements Chef {
     this.threads = ThreadRepository.create(db);
   }
 
-  async respond(threadId: string, sink: OutboundSink, _heartbeat?: HeartbeatIntent): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, _heartbeat?: HeartbeatIntent, _reminder?: ReminderIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
     const pending = await this.threads.loadPendingInbound(threadId, thread.lastProcessedId);

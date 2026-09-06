@@ -10,6 +10,8 @@ const EQUIPMENT_TYPES = ['oven', 'stovetop', 'microwave', 'air_fryer', 'slow_coo
 // TimeByMeal. Ranking weights stay per-user and server-owned, so they are absent here.
 export const HouseholdPreferencesSchema = z.object({
   householdId: z.string().uuid(),
+  // IANA zone the TIMEZONE household fact persists (meal-reminders); null ⇒ DEFAULT_TZ.
+  timezone: z.string().nullable(),
   groceryStores: z.array(z.string()).nullable(),
   groceryShoppingDay: z.enum(GROCERY_SHOPPING_DAYS).nullable(),
   weeklyBudgetCents: z.number().int().nonnegative().nullable(),
