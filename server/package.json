@@ -14,7 +14,7 @@
     "seed:taste": "tsx scripts/curate-taste-ingredients.ts",
     "seed:recipes": "tsx scripts/seed-recipes.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bash -c 'ulimit -n $(ulimit -Hn) 2>/dev/null; vitest run'",
+    "test": "bash -c 'ulimit -n 1048576 2>/dev/null || ulimit -n unlimited 2>/dev/null; vitest run'",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "demo": "tsx scripts/demo-data.mjs",
     "dev": "NITRO_PRESET=vercel nitro dev",

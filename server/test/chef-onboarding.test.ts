@@ -118,8 +118,9 @@ describe('onboarding definition', () => {
     expect(requiredMember).toEqual(['allergens', 'name']);
   });
 
-  it('the tool set is exactly the v2 fact surface and no path is scripted (AC-3, AC-7)', () => {
-    expect(onboardingObjective.tools).toEqual(['facts__read', 'facts__catalog', 'facts__update', 'tasks__update', 'household__add_members', 'recipes__import']);
+  it('the tool set is the v2 fact surface + groceries and no path is scripted (AC-3, AC-7)', () => {
+    // Groceries are resident during onboarding so a mid-onboarding "add milk" works (chef-steady-state WI-01 AC-5).
+    expect(onboardingObjective.tools).toEqual(['facts__read', 'facts__catalog', 'facts__update', 'tasks__update', 'household__add_members', 'recipes__import', 'grocery__view', 'grocery__add', 'grocery__remove', 'grocery__check']);
     const def = onboardingObjective as unknown as Record<string, unknown>;
     expect(def.steps).toBeUndefined();
     expect(def.path).toBeUndefined();

@@ -66,6 +66,17 @@ export class ObjectiveRepository {
   }
 
   /**
+   * True when the thread has at least one objective row (any status). The re-seed guard: onboarding
+   * seeds only when this is false, so an empty stack WITH history (all objectives terminal) is never
+   * re-onboarded (chef-steady-state WI-01 AC-1/AC-2). Cheap COUNT; runs under the consumer's per-thread
+   * lock, so the check-then-seed can't race a concurrent turn. Read-only.
+   */
+  async hasObjectives(threadId: string): Promise<boolean> {
+    const [row] = await this.db.select({ n: sql<number>`count(*)` }).from(objectives).where(eq(objectives.threadId, threadId));
+    return (row?.n ?? 0) > 0;
+  }
+
+  /**
    * Loads the thread's `active` objective and its **eligible, non-terminal** tasks: terminal tasks
    * (`filled`/`defaulted`) are excluded, then a task is kept only when every id in its `afterTaskIds`
    * references a terminal task in the loaded full set — a dangling id fails closed (task stays gated).

@@ -19,7 +19,7 @@ export class CollectingSink implements OutboundSink {
  */
 export function sendingChef(
   chatEvents: ChatEvent[],
-  reply: { confirmTasks: ConfirmTask[]; cursorTo: string | null; objectiveId: string; popped?: boolean },
+  reply: { confirmTasks: ConfirmTask[]; cursorTo: string | null; objectiveId: string | null; popped?: boolean },
 ): Chef {
   return {
     respond: async (_threadId: string, sink: OutboundSink): Promise<ChefReply> => {

@@ -75,7 +75,30 @@ leaves the terminal history; second run deletes nothing.
 
 ## Test Run
 
-To be filled during execution.
+Verified by the coordinator (the implementing agent stalled; verification + commit
+were finished on its behalf, 2026-09-06).
+
+Changed test files, individually (each run repeatedly green):
+
+```
+test/chef-onboarding.test.ts          13 passed   (incl. TC-1 first-contact seed, TC-4 grocery tools)
+test/chef-reasoning.test.ts            5 passed
+test/imessage-consumer-logic.test.ts  41 passed   (incl. 6 new steady-state cases: TC-2/TC-3 + null-objective commit safety)
+```
+
+Full canonical suite (`npm test`, dev server stopped): observed green multiple times
+at the final configuration — `88 files, 698 passed | 1 skipped, ~9s`. `tsc --noEmit`
+clean.
+
+**Known intermittent (pre-existing, not this WI):** under repeated back-to-back suite
+runs on a loaded dev machine, `imessage-consumer-logic.test.ts` sometimes wedges in a
+~125s SYNCHRONOUS busy-retry inside libsql's native client (first heavy `Consumer`
+test), then cascades (`ConnectionFailed :14` / tinypool IPC). It never fails solo.
+This session removed four real layers beneath it (helper now closes clients,
+migrates once + file-copies per test, checkpoints the template WAL; `npm test` raises
+fds to ~1M; pool = forks) — the suite dropped from ~3min to ~9s — but the last-mile
+native flake remains machine-load-dependent. Track against libsql; a CI environment
+should be re-baselined before trusting a red there.
 
 ## Deployment Strategy
 

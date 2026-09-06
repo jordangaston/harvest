@@ -262,8 +262,9 @@ export class Consumer {
             // delivered-but-unmarked required emit so the terminal flow can't stall.
             if (delivered) await this.confirmAcks(reply.confirmTasks, tx);
             // AC-8 only when the turn did NOT already pop in-loop — a popped turn marked its emit via
-            // tasks__update, so re-filling/re-popping here would double-activate a suspended sibling.
-            if (delivered && !reply.popped) await this.completeDeliveredEmit(reply.confirmTasks, reply.objectiveId, tx);
+            // tasks__update, so re-filling/re-popping here would double-activate a suspended sibling. A
+            // steady-state turn reports a null objectiveId (no objective row) — nothing to complete.
+            if (delivered && !reply.popped && reply.objectiveId !== null) await this.completeDeliveredEmit(reply.confirmTasks, reply.objectiveId, tx);
             // A kick-off turn that delivered its opener clears the objective's kickoff-pending marker,
             // so a later bare doorbell no longer re-enters it (AC-7). Guid dedup already made the opener
             // fire exactly once; this just retires the re-entry arm now the opener is out.

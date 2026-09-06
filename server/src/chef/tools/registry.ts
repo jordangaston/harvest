@@ -29,6 +29,9 @@ const FACTORIES: Record<string, (ctx: TurnContext, db: Database) => ChefTool> = 
   grocery__check: CheckGroceryTool.create,
 };
 
+/** Every registered factory id — the steady-state shell's full tool set (chef-steady-state WI-01). */
+export const FACTORY_IDS = Object.keys(FACTORIES);
+
 /**
  * Instantiate an objective's tools for this turn, keeping only those legal right now (`canRun()`).
  * The active objective declares the ids; each captures its own infra from `db` and binds to the
