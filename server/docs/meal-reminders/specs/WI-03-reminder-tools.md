@@ -67,7 +67,54 @@ a context with no householdId → filtered out by canRun.
 
 ## Test Run
 
-To be filled during execution.
+Implemented as two `ChefTool`s in `src/chef/tools/mealplan.ts` (`SetReminderTimeTool`,
+`SetReminderEnabledTool`), backed by `RemindersService.setReminderTime` / `.setReminderEnabled` and
+two narrow `ReminderRepository` methods (`findCourseReminder`, `setEnabled`; `upsertCourseReminder`
+now accepts the db singleton so a tool write runs outside a txn). Registered in the tool `FACTORIES`
+and wired into the `first_meal_plan` objective's tool list (the durable steady-state objective — the
+only stack home a post-plan household lives in; the `meal_reminder` shell stays tool-less as it is a
+scheduled announce, not a retuning surface).
+
+**Deviations / decisions:**
+- **AC-1 "0 stays paused" vs. DESIGN F-03 "is_paused=0".** The spec is the newer authority and is
+  explicit ("re-derives from the weekly count (0 stays paused)"), so `set_reminder_time` clears
+  `pausedByUser` and sets `is_paused = weeklyCount === 0`. `setReminderTime` moves the tuned time even
+  for a 0-count course, but leaves it paused. Snack is the exception: it is not a weekly-count course,
+  so an explicit snack time/enable goes live (the request itself is the intent — DESIGN Q-06).
+- **`set_reminder_enabled` missing row (DESIGN F-06).** `enabled=false` with no row is a no-op (nothing
+  to pause). `enabled=true` upserts the course at its default time (snack upserts too) so "remind me
+  about lunch again" works even if provisioning never ran — an enable is an intent to be reminded, and
+  F-06 hands control back to the preference-derived rule.
+- **No backfill script.** DESIGN § Deployment (Migrations row 2) makes the existing-household backfill
+  optional ("can be provisioned by a one-off script if desired") — reminders provision lazily at the
+  next first-plan-confirm and there is no live data, so the script is skipped (YAGNI).
+
+**Vitest** (`test/meal-reminders.test.ts`, run individually, dev server stopped):
+
+```
+$ pkill -f "nitro dev"; pkill -f vitest; ulimit -n 30000; npx vitest run test/meal-reminders.test.ts
+ ✓ test/meal-reminders.test.ts (30 tests) 2451ms
+   Test Files  1 passed (1)
+        Tests  30 passed (30)
+```
+
+New WI-03 cases (8): set time retunes + clears `pausedByUser` + `is_paused` re-derives, in
+America/Chicago (Test Case 1, AC-1); 0-count course keeps paused but moves its time (AC-1); bad-time
+rejection with a reason, never a throw, nothing changed (AC-5); snack upsert-on-demand at 15:00 live
+(Test Case 3, AC-1/Q-06); disable → paused+flagged, a weekly bump can't resurrect it, enable → live
+(Test Case 2, AC-2); enable re-derives from the count (0 stays paused, AC-2); disable-missing no-op /
+enable-missing upserts live; both tools build for `first_meal_plan` with household+thread and are
+`canRun`-filtered without a household (Test Case 4, AC-3). AC-4 (idempotent replay) is the second
+identical `set_reminder_time` call in Test Case 1.
+
+**Full canonical suite** (`npm test`, dev server stopped):
+
+```
+$ pkill -f "nitro dev"; pkill -f vitest; ulimit -n 30000; npm test
+   Test Files  84 passed (84)
+        Tests  659 passed | 1 skipped (660)
+   Duration  26.07s
+```
 
 ## Deployment Strategy
 

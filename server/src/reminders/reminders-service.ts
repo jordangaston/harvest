@@ -107,6 +107,78 @@ export class RemindersService {
   async syncPause(householdId: string, meal: MealSlot, count: number, pausedByUser = false): Promise<void> {
     await this.reminders.setPausedByHousehold(householdId, meal, count, pausedByUser);
   }
+
+  /**
+   * Sets (or retunes) a course's standing daily reminder time (F-03). The requested local wall-clock
+   * becomes the row's cron in the household zone; `next_run_at` recomputes; the explicit-pause marker
+   * clears (asking to be reminded is intent to be reminded); and `is_paused` re-derives from the
+   * course's weekly count (0 stays paused — spec AC-1). Upserts a missing course on demand (snack;
+   * DESIGN Q-06) — a course whose row an earlier provision skipped is created live at the requested
+   * time. Idempotent by construction: a second identical call re-asserts the same one row.
+   * @param threadId - the thread whose household is retuning the course.
+   * @param meal - the course.
+   * @param time - the local wall-clock, `HH:MM` (24h). A malformed value returns null (the tool
+   *   rejects; the service never throws on user input).
+   * @param now - the instant next-run is computed from.
+   * @returns the standing `reminder_time` written, or null when `time` is not a valid `HH:MM`.
+   */
+  async setReminderTime(threadId: string, meal: MealSlot, time: string, now: Date): Promise<string | null> {
+    const cron = cronForTime(time);
+    if (!cron) return null;
+    const { tz, count } = await this.courseContext(threadId, meal);
+    // A time set clears pausedByUser (the upsert's fresh input omits it); is_paused follows the count,
+    // except snack (no weekly-count course) which the explicit request makes live.
+    const isPaused = meal === 'snack' ? false : count === 0;
+    await this.reminders.upsertCourseReminder(threadId, meal, cron, nextRun(cron, now, tz), isPaused, tz);
+    return time;
+  }
+
+  /**
+   * Pauses or resumes a course's reminder explicitly (F-06). `enabled=false` sets `pausedByUser` +
+   * `is_paused` (a later count bump won't resurrect it, F-05 precedence); `enabled=true` clears the
+   * marker and re-derives `is_paused` from the weekly count (0 stays paused). A missing row: disabling
+   * is a no-op (nothing to pause); enabling upserts the course live at its default time so "remind me
+   * about lunch again" works even if provisioning never ran (DESIGN F-06 hands control to the
+   * preference-derived rule — an enable is an intent to be reminded).
+   * @param threadId - the thread whose course toggles.
+   * @param meal - the course.
+   * @param enabled - the requested state.
+   * @param now - the instant next-run is computed from when an enable has to upsert a missing row.
+   * @returns whether the row now exists (false only when disabling a course with no row).
+   */
+  async setReminderEnabled(threadId: string, meal: MealSlot, enabled: boolean, now: Date): Promise<boolean> {
+    if (await this.reminders.findCourseReminder(threadId, meal)) {
+      const { count } = await this.courseContext(threadId, meal);
+      await this.reminders.setEnabled(threadId, meal, enabled, count);
+      return true;
+    }
+    if (!enabled) return false; // nothing to pause
+    const { tz, count } = await this.courseContext(threadId, meal);
+    const timing = COURSE_TIMING[meal];
+    const cron = timing ? cronFor(timing) : NO_TIMING_CRON;
+    await this.reminders.upsertCourseReminder(threadId, meal, cron, nextRun(cron, now, tz), meal === 'snack' ? false : count === 0, tz);
+    return true;
+  }
+
+  /** The household context a course tool needs: the zone its cron reads in and the course's weekly
+   *  count (the pause derivation). A thread with no household falls back to DEFAULT_TZ / count 0. */
+  private async courseContext(threadId: string, meal: MealSlot): Promise<{ tz: string; count: number }> {
+    const thread = await this.threads.findById(threadId);
+    if (!thread?.householdId) return { tz: DEFAULT_TZ, count: 0 };
+    const prefs = await this.prefs.getPreferences(thread.householdId);
+    return { tz: prefs.timezone ?? DEFAULT_TZ, count: prefs.weeklyMeals?.[meal] ?? 0 };
+  }
+}
+
+/** The daily 5-field cron for a requested `HH:MM` local wall-clock, or null if malformed (out-of-range
+ *  hour/minute or the wrong shape). The tool surfaces null as a rejection reason — never a throw. */
+function cronForTime(time: string): string | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return null;
+  return `${minute} ${hour} * * *`;
 }
 
 /** The daily 5-field cron for a course: `anchor − lead`, wrapping within the day (leads never cross

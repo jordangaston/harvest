@@ -24,6 +24,10 @@ import { ThreadRepository } from "../src/repositories/thread-repository.js";
 import { FactTypeRegistry } from "../src/chef/facts/fact-types.js";
 import { writeFact } from "../src/chef/facts/write-fact.js";
 import type { Chef, ChefReply, ReminderIntent } from "../src/imessage/chef.js";
+import { buildTools } from "../src/chef/tools/registry.js";
+import { firstMealPlanObjective as fmpObjective } from "../src/chef/objectives/first-meal-plan.js";
+import type { TurnContext } from "../src/chef/tools/types.js";
+import { SetReminderTimeTool, SetReminderEnabledTool } from "../src/chef/tools/mealplan.js";
 
 const RECIPE: RecipeInput = {
   title: "Chicken Marbella",
@@ -407,5 +411,146 @@ describe("WI-02 Test Case 3: DEFAULT_TZ fallback, never throw (AC-4)", () => {
     // The household never set a timezone; recompute must not throw and leaves the rows in UTC.
     await expect(RemindersService.create(db).recomputeCrons(householdId, new Date("2026-09-05T00:00:00Z"))).resolves.toBeUndefined();
     expect(((await reminderRows(threadId)).dinner!.input as { tz: string }).tz).toBe("UTC");
+  });
+});
+
+// ══ WI-03 ═══════════════════════════════════════════════════════════════════════
+
+/** A minimal TurnContext for the reminder tools (they read threadId + householdId only). */
+function turnCtx(threadId: string, householdId: string | null): TurnContext {
+  return { threadId, objectiveId: "first_meal_plan", initiatorHandle: "+15555550000", initiatorUserId: randomUUID(), triggerExternalId: null, householdId, members: [], tasks: [] };
+}
+
+/** Runs the SetReminderTimeTool for a thread/household without going through Mastra. */
+function timeTool(threadId: string, householdId: string | null) {
+  return SetReminderTimeTool.create(turnCtx(threadId, householdId), db);
+}
+function enabledTool(threadId: string, householdId: string | null) {
+  return SetReminderEnabledTool.create(turnCtx(threadId, householdId), db);
+}
+
+// ── WI-03 Test Case 1: set time retunes and un-pauses (AC-1, AC-4, AC-5) ───────
+
+describe("WI-03 Test Case 1: set_reminder_time retunes + un-pauses (AC-1)", () => {
+  it("dinner→16:00 America/Chicago: cron moves, pausedByUser clears, is_paused=false; idempotent", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    await setFact(householdId, "TIMEZONE", "America/Chicago");
+    // Explicitly pause dinner first — set_reminder_time must clear that (asking = intent to be reminded).
+    await ReminderRepository.create(db).setEnabled(threadId, "dinner", false, 5);
+    expect((await reminderRows(threadId)).dinner!.isPaused).toBe(true);
+
+    const res = await timeTool(threadId, householdId).run("dinner", "16:00");
+    expect(res).toEqual({ meal: "dinner", reminder_time: "16:00" });
+
+    const row = (await reminderRows(threadId)).dinner!;
+    expect(row.cronExpression).toBe("0 16 * * *");
+    expect((row.input as { pausedByUser?: boolean }).pausedByUser).toBeUndefined(); // cleared
+    expect(row.isPaused).toBe(false); // weekly dinner count is 5 (nonzero)
+    // 16:00 America/Chicago local — the invariant across the current instant.
+    const localHM = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", hour12: false }).format(row.nextRunAt);
+    expect(localHM).toBe("16:00");
+
+    // Idempotent: a second identical call re-asserts the same one row, same values.
+    const before = row.nextRunAt;
+    await timeTool(threadId, householdId).run("dinner", "16:00");
+    const after = (await reminderRows(threadId)).dinner!;
+    expect(after.cronExpression).toBe("0 16 * * *");
+    expect(after.nextRunAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 60_000);
+  });
+
+  it("a 0-count course set to a time stays paused (AC-1: 0 stays paused)", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    const res = await timeTool(threadId, householdId).run("lunch", "10:00");
+    expect(res).toEqual({ meal: "lunch", reminder_time: "10:00" });
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true); // count 0 ⇒ still paused
+    expect((await reminderRows(threadId)).lunch!.cronExpression).toBe("0 10 * * *"); // but the time moved
+  });
+
+  it("rejects a bad time with a reason, never throws, changes nothing (AC-5)", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    const before = (await reminderRows(threadId)).dinner!.cronExpression;
+    for (const bad of ["25:00", "16:60", "4pm", "1600", "", "16"]) {
+      const res = await timeTool(threadId, householdId).run("dinner", bad);
+      expect(res).toHaveProperty("rejected");
+    }
+    expect((await reminderRows(threadId)).dinner!.cronExpression).toBe(before); // untouched
+  });
+});
+
+// ── WI-03 Test Case 3: snack upsert on demand (AC-1) ───────────────────────────
+
+describe("WI-03 Test Case 3: snack upserts on demand (AC-1, Q-06)", () => {
+  it("set_reminder_time { snack, 15:00 } with no snack row creates it live at 15:00 local", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    expect(Object.keys(await reminderRows(threadId))).not.toContain("snack"); // snack not provisioned
+
+    const res = await timeTool(threadId, householdId).run("snack", "15:00");
+    expect(res).toEqual({ meal: "snack", reminder_time: "15:00" });
+    const snack = (await reminderRows(threadId)).snack!;
+    expect(snack.cronExpression).toBe("0 15 * * *");
+    expect(snack.isPaused).toBe(false); // an explicit snack request goes live despite the 0 count
+  });
+});
+
+// ── WI-03 Test Case 2: enable/disable precedence (AC-2) ────────────────────────
+
+describe("WI-03 Test Case 2: set_reminder_enabled precedence (AC-2)", () => {
+  it("disable lunch → paused+flagged; a weekly bump keeps it paused; enable → live", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+
+    // disable → paused + pausedByUser.
+    await enabledTool(threadId, householdId).run("lunch", false);
+    let lunch = (await reminderRows(threadId)).lunch!;
+    expect(lunch.isPaused).toBe(true);
+    expect((lunch.input as { pausedByUser?: boolean }).pausedByUser).toBe(true);
+
+    // A weekly-meals persist (count 3) must NOT resurrect a user-paused course (F-05/F-06 precedence).
+    await setFact(householdId, "WEEKLY_LUNCHES", 3);
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true);
+
+    // enable → clears the marker, live (count is nonzero).
+    await enabledTool(threadId, householdId).run("lunch", true);
+    lunch = (await reminderRows(threadId)).lunch!;
+    expect(lunch.isPaused).toBe(false);
+    expect((lunch.input as { pausedByUser?: boolean }).pausedByUser).toBe(false);
+  });
+
+  it("enable re-derives is_paused from the count: 0 stays paused (AC-2)", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    // lunch is count-0 paused. Enabling it clears any user marker but the 0 count keeps it paused.
+    const res = await enabledTool(threadId, householdId).run("lunch", true);
+    expect(res).toEqual({ meal: "lunch", enabled: true });
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true);
+  });
+
+  it("disabling a course with no row is a no-op; enabling one upserts it live", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    // No provisioning — no rows at all. Disable snack: nothing to pause, no row created.
+    await enabledTool(threadId, householdId).run("snack", false);
+    expect(Object.keys(await reminderRows(threadId))).not.toContain("snack");
+    // Enable snack: upserts it live at its default time.
+    await enabledTool(threadId, householdId).run("snack", true);
+    expect((await reminderRows(threadId)).snack!.isPaused).toBe(false);
+  });
+});
+
+// ── WI-03 Test Case 4: registration + canRun (AC-3) ────────────────────────────
+
+describe("WI-03 Test Case 4: tool registration + canRun (AC-3)", () => {
+  it("both tools build for first_meal_plan when household+thread present, filtered out without a household", async () => {
+    const { threadId, householdId } = await seedThread();
+    const withHh = buildTools(turnCtx(threadId, householdId), db, fmpObjective.tools).map((t) => t.id);
+    expect(withHh).toContain("mealplan__set_reminder_time");
+    expect(withHh).toContain("mealplan__set_reminder_enabled");
+
+    const noHh = buildTools(turnCtx(threadId, null), db, fmpObjective.tools).map((t) => t.id);
+    expect(noHh).not.toContain("mealplan__set_reminder_time");
+    expect(noHh).not.toContain("mealplan__set_reminder_enabled");
   });
 });

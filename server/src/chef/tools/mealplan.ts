@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '../../db.js';
 import { MealPlanGeneratorService } from '../../planning/generator-service.js';
 import { MealPlanService } from '../../services/meal-plan-service.js';
+import { RemindersService } from '../../reminders/reminders-service.js';
 import { CRITERIA_DIMENSIONS, type SlotCriteria } from '../../planning/types.js';
 import { NotFoundError } from '../../errors.js';
 import type { ChefTool, TurnContext } from './types.js';
@@ -224,5 +225,87 @@ export class RemoveRecipeFromSlotTool implements ChefTool {
       if (err instanceof NotFoundError) return { removed: false, rejected: 'that recipe is not in this slot' };
       throw err;
     }
+  }
+}
+
+/**
+ * Sets (or retunes) a course's standing daily reminder time — "remind me at 4 for dinner" (F-03).
+ * Updates that course's recurring row to the requested local wall-clock, standing from then on;
+ * setting a time also un-pauses the course (asking to be reminded is intent to be reminded). Snack
+ * upserts on demand. Idempotent — a second identical call re-asserts the same row.
+ */
+export class SetReminderTimeTool implements ChefTool {
+  readonly id = 'mealplan__set_reminder_time';
+  private readonly reminders: RemindersService;
+
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.reminders = RemindersService.create(db);
+  }
+
+  static create(ctx: TurnContext, db: Database): SetReminderTimeTool {
+    return new SetReminderTimeTool(ctx, db);
+  }
+
+  canRun(): boolean {
+    return !!this.ctx.threadId && !!this.ctx.householdId;
+  }
+
+  asMastraTool() {
+    return createTool({
+      id: this.id,
+      description:
+        'Set when to remind the household about a course, every day — "remind me at 4 for dinner". Pass ' +
+        '`meal` and `time` (24h local wall-clock, "HH:MM", e.g. "16:00"). Standing from then on, and it ' +
+        'un-pauses the course. Returns { meal, reminder_time } on success, or { rejected } for a bad time ' +
+        '(re-ask for a valid HH:MM).',
+      inputSchema: z.object({ meal, time: z.string() }),
+      execute: async ({ meal: m, time }) => this.run(m, time),
+    });
+  }
+
+  async run(m: 'breakfast' | 'lunch' | 'dinner' | 'snack', time: string): Promise<{ meal: string; reminder_time: string } | { rejected: string }> {
+    const reminderTime = await this.reminders.setReminderTime(this.ctx.threadId, m, time, new Date());
+    if (reminderTime === null) return { rejected: 'time must be a 24-hour HH:MM, e.g. "16:00"' };
+    return { meal: m, reminder_time: reminderTime };
+  }
+}
+
+/**
+ * Pauses or resumes a course's reminder — "stop reminding me about lunch" / "remind me again" (F-06).
+ * `enabled=false` durably pauses it (a later meal-count bump won't resurrect it); `enabled=true`
+ * resumes it, handing control back to the meal-count rule (0 stays paused). Disabling a course with
+ * no reminder is a no-op.
+ */
+export class SetReminderEnabledTool implements ChefTool {
+  readonly id = 'mealplan__set_reminder_enabled';
+  private readonly reminders: RemindersService;
+
+  private constructor(private readonly ctx: TurnContext, db: Database) {
+    this.reminders = RemindersService.create(db);
+  }
+
+  static create(ctx: TurnContext, db: Database): SetReminderEnabledTool {
+    return new SetReminderEnabledTool(ctx, db);
+  }
+
+  canRun(): boolean {
+    return !!this.ctx.threadId && !!this.ctx.householdId;
+  }
+
+  asMastraTool() {
+    return createTool({
+      id: this.id,
+      description:
+        'Turn a course\'s daily reminder off or on — "stop reminding me about lunch" / "remind me about ' +
+        'lunch again". Pass `meal` and `enabled` (false to pause, true to resume). A pause is durable — ' +
+        'adding meals back to the week later won\'t resurrect it. Returns { meal, enabled }.',
+      inputSchema: z.object({ meal, enabled: z.boolean() }),
+      execute: async ({ meal: m, enabled }) => this.run(m, enabled),
+    });
+  }
+
+  async run(m: 'breakfast' | 'lunch' | 'dinner' | 'snack', enabled: boolean): Promise<{ meal: string; enabled: boolean }> {
+    await this.reminders.setReminderEnabled(this.ctx.threadId, m, enabled, new Date());
+    return { meal: m, enabled };
   }
 }

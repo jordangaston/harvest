@@ -7,6 +7,8 @@ import type { MealSlot } from '../models/meal-plan.js';
 
 /** A drizzle transaction client — a provisioning write can commit inside the caller's txn. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+/** A write executor: the db singleton (a tool write) or an interactive txn (a provisioning write). */
+type Executor = Database | Tx;
 
 /** The job type every meal-reminder row carries. */
 export const MEAL_REMINDER = 'meal_reminder' as const;
@@ -54,7 +56,7 @@ export class ReminderRepository {
     nextRunAt: Date,
     isPaused: boolean,
     tz: string,
-    tx: Tx,
+    tx: Executor = this.db,
   ): Promise<void> {
     await tx
       .insert(dynamicCronJobs)
@@ -116,6 +118,39 @@ export class ReminderRepository {
         .set({ isPaused: count === 0 || pausedByUser, input: { ...row.input, pausedByUser }, updatedAt: new Date() })
         .where(eq(dynamicCronJobs.id, row.id));
     }
+  }
+
+  /**
+   * One thread's reminder row for a course, or null — the tools read it to branch on presence
+   * (set_reminder_time upserts a missing course; set_reminder_enabled no-ops one). Returns the row's
+   * `cron_expression` and stored `input` so a caller can preserve the tuned time / read `pausedByUser`.
+   */
+  async findCourseReminder(threadId: string, meal: MealSlot): Promise<{ cronExpression: string; input: Record<string, unknown> } | null> {
+    const [row] = await this.db
+      .select({ cronExpression: dynamicCronJobs.cronExpression, input: dynamicCronJobs.input })
+      .from(dynamicCronJobs)
+      .where(and(eq(dynamicCronJobs.jobType, MEAL_REMINDER), eq(dynamicCronJobs.ownerType, 'thread'), eq(dynamicCronJobs.ownerId, threadId), eq(dynamicCronJobs.meal, meal)));
+    return row ?? null;
+  }
+
+  /**
+   * Sets one course row's explicit pause marker and re-derives `is_paused` (F-06). `enabled=false`
+   * sets `input.pausedByUser=true` + `is_paused=true`; `enabled=true` clears the marker and derives
+   * `is_paused = weeklyCount === 0` (0 stays paused). The caller resolves the weekly count.
+   * @param threadId - the thread whose course toggles.
+   * @param meal - the course.
+   * @param enabled - the requested state.
+   * @param weeklyCount - the household's weekly count for the course, deriving the enabled pause.
+   */
+  async setEnabled(threadId: string, meal: MealSlot, enabled: boolean, weeklyCount: number): Promise<void> {
+    const row = await this.findCourseReminder(threadId, meal);
+    if (!row) return; // the tool guards this; a missing row is a no-op here.
+    const pausedByUser = !enabled;
+    const isPaused = !enabled || weeklyCount === 0;
+    await this.db
+      .update(dynamicCronJobs)
+      .set({ isPaused, input: { ...row.input, pausedByUser }, updatedAt: new Date() })
+      .where(and(eq(dynamicCronJobs.jobType, MEAL_REMINDER), eq(dynamicCronJobs.ownerType, 'thread'), eq(dynamicCronJobs.ownerId, threadId), eq(dynamicCronJobs.meal, meal)));
   }
 
   /** A household's reminder rows via the F-05 join — the shared resolution both writers key off. */

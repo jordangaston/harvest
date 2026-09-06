@@ -36,6 +36,8 @@ const FIRST_MEAL_PLAN_TOOLS = [
   'mealplan__slot_options',
   'mealplan__add_recipe_to_slot',
   'mealplan__remove_recipe_from_slot',
+  'mealplan__set_reminder_time',
+  'mealplan__set_reminder_enabled',
   'facts__read',
   'tasks__update',
   'recipes__import',
