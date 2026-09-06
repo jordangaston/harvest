@@ -6,6 +6,8 @@ import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type Outb
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
 import { actionable, FOLLOW_UP_LADDER } from './heartbeat.js';
+import { ReminderRepository } from '../reminders/reminder-repository.js';
+import { MealPlanService } from '../services/meal-plan-service.js';
 import type { ChatEvent } from '../chef/types.js';
 import { TAPBACK_GLYPHS } from '../chef/types.js';
 
@@ -84,6 +86,8 @@ export class Consumer {
   private readonly threads: ThreadRepository;
   private readonly objectives: ObjectiveRepository;
   private readonly households: HouseholdRepository;
+  private readonly reminders: ReminderRepository;
+  private readonly mealPlan: MealPlanService;
 
   constructor(
     private readonly db: Database,
@@ -94,6 +98,8 @@ export class Consumer {
     this.threads = ThreadRepository.create(db);
     this.objectives = ObjectiveRepository.create(db);
     this.households = HouseholdRepository.create(db);
+    this.reminders = ReminderRepository.create(db);
+    this.mealPlan = MealPlanService.create(db);
   }
 
   /** Wires the consumer against the caller's db and the env-selected sender/chef/lock. */
@@ -121,6 +127,14 @@ export class Consumer {
     if (!thread) return;
 
     await this.lock.withThreadLock(threadId, async () => {
+      // Reminder arm (meal-reminders WI-01): fire due meal reminders BEFORE the drain loop, and only
+      // when nothing is pending — a genuine inbound turn wins the doorbell (AC-7) and the reminder
+      // rides the next one. Unlike the heartbeat, there is NO quiet gate: a 4pm dinner reminder must
+      // arrive on time even mid-conversation. Reminders are objective-independent, so this runs even
+      // with no active objective on the stack.
+      if ((await this.threads.loadPendingInbound(threadId, thread.lastProcessedId)).length === 0)
+        await this.fireDueReminders(thread);
+
       let cursor = thread.lastProcessedId;
       // Confetti/fireworks effects stay deferred (WI-4B) — they fired on a premature completion. Two
       // one-time gates remain, both seeded null ⇒ pending, flipped once fired so the drain loop can't
@@ -290,6 +304,31 @@ export class Consumer {
   }
 
   /**
+   * The reminder fire arm (meal-reminders WI-01, DESIGN F-02). For each due meal reminder, resolve
+   * today's plan for that course under the lock against fresh state — planned ⇒ Sage announces it,
+   * nothing planned ⇒ a silent no-op and the row stays for tomorrow. Each announcement rides the
+   * per-day guid scope `reminder:<meal>:<local-date>`, so a redelivered doorbell or same-day re-fire
+   * is swallowed by the sink's `alreadySent` guard (AC-6). No commit, no cursor move — reminders are
+   * standing rows, not inbound turns.
+   */
+  private async fireDueReminders(thread: NonNullable<Awaited<ReturnType<ThreadRepository['findById']>>>): Promise<void> {
+    const due = await this.reminders.loadDueReminders(thread.id, new Date());
+    for (const reminder of due) {
+      const localDate = localDateIn(new Date(), reminder.tz);
+      const entries = await this.mealPlan.listRange(thread.ownerUserId, localDate, localDate);
+      const planned = entries.filter((e) => e.meal === reminder.meal);
+      if (planned.length === 0) {
+        console.debug(JSON.stringify({ event: 'reminder skipped (nothing planned)', threadId: thread.id, meal: reminder.meal }));
+        continue;
+      }
+      const recipes = planned.map((e) => ({ title: e.recipe.title, url: recipePageUrl(e.recipe.id) }));
+      const sink = new LiveOutboundSink(this.threads, this.sender, thread.id, thread.chatGuid, `reminder:${reminder.meal}:${localDate}`, null);
+      await this.sender.responding(thread.chatGuid, () => this.chef.respond(thread.id, sink, undefined, { meal: reminder.meal, recipes }));
+      console.info(JSON.stringify({ event: 'reminder fired', threadId: thread.id, meal: reminder.meal, recipes: recipes.length }));
+    }
+  }
+
+  /**
    * Confirms the turn's explainer-ack `elicit` now that its bubbles are committing (send proves
    * delivery): marked `asked` the turn it is first delivered (status `unasked`), and `filled` on the
    * next inbound (its status is already `asked`) — the reply is the acknowledgment, unblocking the
@@ -319,3 +358,16 @@ export class Consumer {
 
 /** A drizzle transaction client — the type each in-transaction repo write receives. */
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/** The calendar date (YYYY-MM-DD) at `instant` in the IANA `zone` — the household's "today", which
+ *  the plan is keyed by and the reminder's per-day guid scopes on. `en-CA` yields ISO `YYYY-MM-DD`. */
+function localDateIn(instant: Date, zone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
+}
+
+/** The public recipe-page URL for a recipe id (a tappable app card), or undefined when
+ *  `PUBLIC_APP_URL` is unset — the same origin the import/plan cards use. */
+function recipePageUrl(id: string): string | undefined {
+  const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
+  return base ? `${base}/r/${id}` : undefined;
+}

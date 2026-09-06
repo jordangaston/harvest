@@ -12,10 +12,13 @@ const DEFAULT_HEARTBEAT_CRON = "*/5 * * * *";
 
 /** A due job the sweeper dispatches. Only the fields the sweep reads are modelled.
  *  `nextRunAt` is the slot the row is due for — the idempotency key that dedupes a
- *  re-swept slot (`hb:<threadId>:<nextRunAt ISO>`). */
+ *  re-swept slot (`hb:<threadId>:<nextRunAt ISO>`). `meal` is set for a `meal_reminder`
+ *  row (the reminder's per-day guid scope), null for a heartbeat; the local zone the cron
+ *  advances in rides `input.tz` (a reminder carries it; a heartbeat has none ⇒ UTC). */
 export const DueCronJobSchema = z.object({
   id: z.string().uuid(),
   jobType: z.string(),
+  meal: z.string().nullable(),
   input: z.record(z.string(), z.unknown()),
   cronExpression: z.string(),
   nextRunAt: z.date(),
@@ -44,6 +47,7 @@ export class CronJobsRepository {
       .select({
         id: dynamicCronJobs.id,
         jobType: dynamicCronJobs.jobType,
+        meal: dynamicCronJobs.meal,
         input: dynamicCronJobs.input,
         cronExpression: dynamicCronJobs.cronExpression,
         nextRunAt: dynamicCronJobs.nextRunAt,
@@ -71,7 +75,7 @@ export class CronJobsRepository {
    */
   async upsertHeartbeat(threadId: string, now: Date, tx: Tx): Promise<void> {
     const [existing] = await tx
-      .select({ cronExpression: dynamicCronJobs.cronExpression })
+      .select({ id: dynamicCronJobs.id, cronExpression: dynamicCronJobs.cronExpression })
       .from(dynamicCronJobs)
       .where(
         and(
@@ -80,22 +84,28 @@ export class CronJobsRepository {
           eq(dynamicCronJobs.jobType, "thread_heartbeat"),
         ),
       );
-    const cronExpression = existing?.cronExpression ?? DEFAULT_HEARTBEAT_CRON;
-    await tx
-      .insert(dynamicCronJobs)
-      .values({
-        jobType: "thread_heartbeat",
-        ownerType: "thread",
-        ownerId: threadId,
-        input: { threadId },
-        cronExpression,
-        nextRunAt: nextRun(cronExpression, now),
-        isPaused: false,
-      })
-      .onConflictDoUpdate({
-        target: [dynamicCronJobs.ownerType, dynamicCronJobs.ownerId, dynamicCronJobs.jobType],
-        set: { isPaused: false, nextRunAt: nextRun(cronExpression, now), updatedAt: now },
-      });
+    // Explicit update-or-insert, not onConflictDoUpdate: the owner unique index now includes `meal`,
+    // and SQLite treats a NULL `meal` as distinct — so a conflict target naming `meal` never matches
+    // a heartbeat's null-meal row (it would insert a duplicate). The read-then-write is safe because
+    // activation runs under the per-thread lock (the reminder upsert can use onConflict — its meal is
+    // non-null, so the index dedupes normally).
+    if (existing) {
+      await tx
+        .update(dynamicCronJobs)
+        .set({ isPaused: false, nextRunAt: nextRun(existing.cronExpression, now), updatedAt: now })
+        .where(eq(dynamicCronJobs.id, existing.id));
+      return;
+    }
+    await tx.insert(dynamicCronJobs).values({
+      jobType: "thread_heartbeat",
+      ownerType: "thread",
+      ownerId: threadId,
+      meal: null,
+      input: { threadId },
+      cronExpression: DEFAULT_HEARTBEAT_CRON,
+      nextRunAt: nextRun(DEFAULT_HEARTBEAT_CRON, now),
+      isPaused: false,
+    });
   }
 
   /** Pauses a thread's `thread_heartbeat` row (O-02: the objective stack emptied). No-op if absent. */

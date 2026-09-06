@@ -61,6 +61,7 @@ export class HouseholdPreferenceRepository {
 /** The static column defaults, resolved without writing a row. */
 const DEFAULTS = (householdId: string): HouseholdPreferences => ({
   householdId,
+  timezone: null,
   groceryStores: null,
   groceryShoppingDay: null,
   weeklyBudgetCents: null,

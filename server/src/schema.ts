@@ -790,6 +790,9 @@ export const householdPreferences = sqliteTable('household_preferences', {
   householdId: text('household_id')
     .primaryKey()
     .references(() => households.id, { onDelete: 'cascade' }),
+  // IANA zone (e.g. America/Denver); the TIMEZONE household fact persists here (meal-reminders WI-02).
+  // Null ⇒ reminder crons fall back to DEFAULT_TZ (env).
+  timezone: text('timezone'),
   groceryStores: text('grocery_stores', { mode: 'json' }).$type<(typeof GROCERY_STORES)[number][]>(),
   groceryShoppingDay: text('grocery_shopping_day', { enum: GROCERY_SHOPPING_DAYS }),
   weeklyBudgetCents: integer('weekly_budget_cents'),
@@ -871,7 +874,8 @@ export const tasks = sqliteTable(
 // The heartbeat timer table (kickback-server `dynamic_cron_jobs` shape). One row per job:
 // a cron expression + the next fire time, swept every minute by GET /crons/dispatch. `owner_*`
 // identifies the job (unique per owner + type) with no FK — polymorphic, like kickback; `input`
-// is the dispatch payload, opaque to the sweeper. Today the only job_type is `thread_heartbeat`.
+// is the dispatch payload, opaque to the sweeper. Job types: `thread_heartbeat` and `meal_reminder`
+// (meal-reminders WI-01) — a per-course recurring reminder whose `meal` names the course.
 export const dynamicCronJobs = sqliteTable(
   'dynamic_cron_jobs',
   {
@@ -879,6 +883,9 @@ export const dynamicCronJobs = sqliteTable(
     jobType: text('job_type').notNull(),
     ownerType: text('owner_type').notNull(),
     ownerId: text('owner_id').notNull(),
+    // The course a `meal_reminder` row fires for (breakfast/lunch/dinner); null for a heartbeat. Part
+    // of the owner unique index so one thread holds one row per course plus one (meal-null) heartbeat.
+    meal: text('meal', { enum: MEAL_SLOTS }),
     input: text('input', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
     cronExpression: text('cron_expression').notNull().default('*/5 * * * *'),
     nextRunAt: integer('next_run_at', { mode: 'timestamp' }).notNull(),
@@ -889,7 +896,7 @@ export const dynamicCronJobs = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    uniqueIndex('dynamic_cron_jobs_owner_uidx').on(t.ownerType, t.ownerId, t.jobType),
+    uniqueIndex('dynamic_cron_jobs_owner_uidx').on(t.ownerType, t.ownerId, t.jobType, t.meal),
     index('dynamic_cron_jobs_due_idx').on(t.isPaused, t.nextRunAt),
   ],
 );
