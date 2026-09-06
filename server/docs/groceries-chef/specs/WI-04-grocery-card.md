@@ -62,7 +62,66 @@ undefined.
 
 ## Test Run
 
-To be filled during execution.
+Run from `server/`, dev server stopped, vitest files individually then the canonical suite.
+
+### TC-1 + AC-1/AC-5 — page renders the list (`test/grocery-page.test.ts`)
+
+```
+✓ renderGroceryPage > renders aisle sections in store-walk order, checked items sunk + struck, formatted quantities
+✓ renderGroceryPage > prefers a freeform quantity_text and escapes item names
+✓ renderGroceryPage > renders the empty state when the list is empty
+✓ GET /g/:householdId > renders the seeded list with no-store, an unknown household 404s
+✓ GET /g/:householdId > renders the empty state for a household with no items
+
+Test Files  1 passed (1)
+     Tests  6 passed (6)
+```
+
+Covers: aisle-major store-walk order (produce→meat→dairy→pantry), checked items present but
+sunk + `line-through`, quantities formatted ("1½ cups", "2 pounds"), `cache-control: no-store`,
+unknown household → 404 page, empty-state.
+
+### TC-3 — styles ship (AC-2, the @source trap)
+
+`@source "../src/grocery-page.tsx"` added to `styles/recipe.css`; `npm run build:styles` republished
+`public/assets/recipe.c8f67cbe.css` (was `recipe.867aeb1f.css`). The `published CSS asset (@source
+scan)` test in `grocery-page.test.ts` reads the published asset and asserts three grocery-page-only
+classes (`line-through`, `items-baseline`, `opacity-60`) are present — proving the scan picked the page up.
+
+### TC-2 — card routing (AC-3, `test/imessage-richlink.test.ts`)
+
+```
+✓ consumer routes a grocery-card URL to sendRecipeCard (WI-04 AC3) > sends a /g/ link via sendRecipeCard, not sendLink
+
+Test Files  1 passed (1)
+     Tests  5 passed (5)
+```
+
+`isRecipePageUrl` extended to match `${PUBLIC_APP_URL}/g/` — a `/g/` richlink dispatches via
+`sendRecipeCard` (tappable app card), `linkCalls` empty.
+
+### TC-4 — view tool carries the URL (AC-4, `test/chef-grocery-tools.test.ts`)
+
+```
+✓ grocery__view (AC-1) > carries list_url from PUBLIC_APP_URL, undefined when unset
+
+Test Files  1 passed (1)
+     Tests  13 passed (13)
+```
+
+`grocery__view` result `list_url` = `${PUBLIC_APP_URL}/g/:householdId` when set, `undefined` when unset.
+(The `list_url` field and the objective-instruction line — "your grocery list's ready too — say 'what
+do we need'" in `first-meal-plan.ts` — shipped with WI-03; this run confirms them.)
+
+### Full canonical suite (`npm test` from `server/`, dev server stopped)
+
+```
+Test Files  88 passed (88)
+     Tests  691 passed | 1 skipped (692)
+  Duration  28.41s
+```
+
+Typecheck (`npm run typecheck`) clean.
 
 ## Deployment Strategy
 

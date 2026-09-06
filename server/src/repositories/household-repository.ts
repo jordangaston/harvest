@@ -46,6 +46,12 @@ export class HouseholdRepository {
     return row?.householdId ?? null;
   }
 
+  /** Whether a household row exists — the grocery card's 404 gate (an unknown id is not enumerated). */
+  async exists(householdId: string, tx: Executor = this.db): Promise<boolean> {
+    const [row] = await tx.select({ id: households.id }).from(households).where(eq(households.id, householdId)).limit(1);
+    return !!row;
+  }
+
   /**
    * Inserts a household owned by `ownerUserId`. Does not auto-add the owner as a member —
    * the caller adds every participant, including the owner, via `addMember`.

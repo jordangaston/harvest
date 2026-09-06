@@ -68,12 +68,12 @@ class LiveOutboundSink implements OutboundSink {
   }
 }
 
-/** Whether `url` is one of our own app pages (`PUBLIC_APP_URL/r/:id` recipe or `/p/:userId` plan) —
- *  the URLs that render as tappable app cards rather than plain rich links. False when
- *  `PUBLIC_APP_URL` is unset. */
+/** Whether `url` is one of our own app pages (`PUBLIC_APP_URL/r/:id` recipe, `/p/:userId` plan, or
+ *  `/g/:householdId` grocery list) — the URLs that render as tappable app cards rather than plain rich
+ *  links. False when `PUBLIC_APP_URL` is unset. */
 function isRecipePageUrl(url: string): boolean {
   const base = process.env.PUBLIC_APP_URL?.replace(/\/$/, '');
-  return !!base && (url.startsWith(`${base}/r/`) || url.startsWith(`${base}/p/`));
+  return !!base && (url.startsWith(`${base}/r/`) || url.startsWith(`${base}/p/`) || url.startsWith(`${base}/g/`));
 }
 
 /**

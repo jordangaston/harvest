@@ -166,6 +166,21 @@ describe('grocery__view (AC-1)', () => {
     expect(res.count).toBe(1);
     expect(res.items[0]).toMatchObject({ name: 'bread', amount: 1, checked: false });
   });
+
+  // WI-04 TC-4: the result carries the grocery-card URL from PUBLIC_APP_URL, undefined when unset
+  // (the model then skips the card). Mirrors the plan tool's plan_url.
+  it('carries list_url from PUBLIC_APP_URL, undefined when unset', async () => {
+    const { ctx, householdId } = await seedCtx();
+    const prev = process.env.PUBLIC_APP_URL;
+    try {
+      process.env.PUBLIC_APP_URL = 'https://app.harvest.example';
+      expect((await ViewGroceryTool.create(ctx, db).run()).list_url).toBe(`https://app.harvest.example/g/${householdId}`);
+      delete process.env.PUBLIC_APP_URL;
+      expect((await ViewGroceryTool.create(ctx, db).run()).list_url).toBeUndefined();
+    } finally {
+      process.env.PUBLIC_APP_URL = prev;
+    }
+  });
 });
 
 describe('registration + canRun (TC-4, AC-4)', () => {
