@@ -21,5 +21,12 @@ export async function migratedFileDb(): Promise<{ client: Client; db: Database; 
   const client = createClient({ url: `file:${join(dir, "t.db")}` });
   const db = makeDb(client);
   await migrate(db, { migrationsFolder: DRIZZLE_DIR });
-  return { client, db, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    client,
+    db,
+    cleanup: () => {
+      client.close(); // leaked clients exhaust the worker's fds — the ConnectionFailed(:14) "flake"
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
