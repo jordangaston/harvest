@@ -21,6 +21,8 @@ import { Consumer } from "../src/imessage/consumer.js";
 import { StubSpectrumSender } from "../src/imessage/sender.js";
 import { StubThreadLock } from "../src/imessage/lock.js";
 import { ThreadRepository } from "../src/repositories/thread-repository.js";
+import { FactTypeRegistry } from "../src/chef/facts/fact-types.js";
+import { writeFact } from "../src/chef/facts/write-fact.js";
 import type { Chef, ChefReply, ReminderIntent } from "../src/imessage/chef.js";
 
 const RECIPE: RecipeInput = {
@@ -289,5 +291,121 @@ describe("Test Case 6: pending inbound wins the doorbell (AC-7)", () => {
     // No reminder bubble went out — only the inbound answer.
     const outbound = await db.select().from(threadMessages).where(eq(threadMessages.direction, "outbound"));
     expect(outbound.some((r) => r.messageGuid.startsWith("reminder:"))).toBe(false);
+  });
+});
+
+// ══ WI-02 ═══════════════════════════════════════════════════════════════════════
+
+/** Writes a household fact through the real validate→persist chokepoint (exercises recompute/syncPause). */
+async function setFact(householdId: string, factType: string, value: unknown) {
+  const type = FactTypeRegistry.create(db).get(factType)!;
+  return writeFact(type, { scope: "household", householdId }, value, db);
+}
+
+// ── WI-02 Test Case 1: timezone write shifts crons (AC-2) ──────────────────────
+
+describe("WI-02 Test Case 1: TIMEZONE fact shifts every reminder cron (AC-2)", () => {
+  it("America/Chicago moves the dinner row's next fire to 16:30 CDT; the cron string (local wall-clock) is unchanged", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    const now = new Date("2026-09-05T00:00:00Z");
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, now, tx));
+
+    const before = (await reminderRows(threadId)).dinner!;
+    expect((before.input as { tz: string }).tz).toBe("UTC"); // provisioned in DEFAULT_TZ
+
+    const res = await setFact(householdId, "TIMEZONE", "America/Chicago");
+    expect(res.ok).toBe(true);
+
+    const after = await reminderRows(threadId);
+    // The cron encodes 16:30 local — unchanged across a zone change; only tz + the absolute instant move.
+    expect(after.dinner!.cronExpression).toBe("30 16 * * *");
+    expect((after.dinner!.input as { tz: string }).tz).toBe("America/Chicago");
+    // 16:30 America/Chicago is 21:30 UTC (CDT, UTC-5); the next occurrence after `now` (recompute uses
+    // the current instant, so assert the invariant, not a frozen value): the row fires at 16:30 local.
+    const nextLocalHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", hour12: false }).format(after.dinner!.nextRunAt);
+    expect(nextLocalHour).toBe("16:30");
+    // Every provisioned course shifted, not just dinner.
+    expect((after.lunch!.input as { tz: string }).tz).toBe("America/Chicago");
+    expect((after.breakfast!.input as { tz: string }).tz).toBe("America/Chicago");
+  });
+
+  it("rejects an abbreviation (\"CST\") and a city name (\"Austin\"); nothing changes", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    const before = (await reminderRows(threadId)).dinner!.nextRunAt;
+
+    for (const bad of ["CST", "Austin", "EST", "PST"]) {
+      const res = await setFact(householdId, "TIMEZONE", bad);
+      expect(res.ok).toBe(false);
+    }
+    // No persist ran: the tz column is still null and the crons are untouched.
+    expect((await HouseholdPreferenceRepository.create(db).getPreferences(householdId)).timezone).toBeNull();
+    expect((await reminderRows(threadId)).dinner!.nextRunAt).toEqual(before);
+  });
+
+  it("a household with no reminders is a no-op (recompute finds nothing)", async () => {
+    const { householdId } = await seedThread();
+    const res = await setFact(householdId, "TIMEZONE", "America/Denver");
+    expect(res.ok).toBe(true);
+    expect((await HouseholdPreferenceRepository.create(db).getPreferences(householdId)).timezone).toBe("America/Denver");
+  });
+});
+
+// ── WI-02 Test Case 2: pause rule truth table (AC-3) ───────────────────────────
+
+describe("WI-02 Test Case 2: is_paused = count === 0 || pausedByUser (AC-3)", () => {
+  /** The 4 (count, pausedByUser) combinations, driven through WEEKLY_LUNCHES.persist → syncPause. */
+  it.each([
+    { count: 0, pausedByUser: false, expected: true },
+    { count: 3, pausedByUser: false, expected: false },
+    { count: 0, pausedByUser: true, expected: true },
+    { count: 3, pausedByUser: true, expected: true }, // the critical case: an explicit pause survives a bump
+  ])("count=$count pausedByUser=$pausedByUser ⇒ is_paused=$expected", async ({ count, pausedByUser, expected }) => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 3, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    // Stamp the row's own explicit-pause marker (what WI-03's set_reminder_enabled writes) when the case needs it.
+    if (pausedByUser) await ReminderRepository.create(db).setPausedByHousehold(householdId, "lunch", 0, true);
+
+    const res = await setFact(householdId, "WEEKLY_LUNCHES", count);
+    expect(res.ok).toBe(true);
+
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(expected);
+  });
+
+  it("a preference bump un-pauses a count-paused course but NOT a user-paused one", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true); // 0-count ⇒ paused (no user marker)
+
+    // count 0→3, no user marker: resumes.
+    await setFact(householdId, "WEEKLY_LUNCHES", 3);
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(false);
+
+    // User explicitly pauses (WI-03), then a later count bump must NOT resurrect it.
+    await ReminderRepository.create(db).setPausedByHousehold(householdId, "lunch", 3, true);
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true);
+    await setFact(householdId, "WEEKLY_LUNCHES", 5);
+    expect((await reminderRows(threadId)).lunch!.isPaused).toBe(true); // stayed paused — pausedByUser protected it
+  });
+});
+
+// ── WI-02 Test Case 3: DEFAULT_TZ fallback (AC-4) ──────────────────────────────
+
+describe("WI-02 Test Case 3: DEFAULT_TZ fallback, never throw (AC-4)", () => {
+  it("no timezone fact ⇒ provisioning derives in DEFAULT_TZ (UTC by default)", async () => {
+    const { threadId } = await seedThread({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    const dinner = (await reminderRows(threadId)).dinner!;
+    expect((dinner.input as { tz: string }).tz).toBe("UTC");
+    // 16:30 UTC on 2026-09-05 (the provisioning `now`) — no zone offset applied.
+    expect(dinner.nextRunAt).toEqual(nextRun("30 16 * * *", new Date("2026-09-05T00:00:00Z"), "UTC"));
+  });
+
+  it("recomputeCrons with no tz fact falls back to DEFAULT_TZ rather than throwing", async () => {
+    const { threadId, householdId } = await seedThread({ breakfast: 0, lunch: 0, dinner: 5, snack: 0, kids: 0 });
+    await db.transaction((tx) => RemindersService.create(db).provisionReminders(threadId, new Date("2026-09-05T00:00:00Z"), tx));
+    // The household never set a timezone; recompute must not throw and leaves the rows in UTC.
+    await expect(RemindersService.create(db).recomputeCrons(householdId, new Date("2026-09-05T00:00:00Z"))).resolves.toBeUndefined();
+    expect(((await reminderRows(threadId)).dinner!.input as { tz: string }).tz).toBe("UTC");
   });
 });

@@ -1,7 +1,8 @@
 import { and, eq, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db.js';
-import { dynamicCronJobs } from '../schema.js';
+import { dynamicCronJobs, threads } from '../schema.js';
+import { nextRun } from '../crons/next-run.js';
 import type { MealSlot } from '../models/meal-plan.js';
 
 /** A drizzle transaction client — a provisioning write can commit inside the caller's txn. */
@@ -71,6 +72,59 @@ export class ReminderRepository {
         target: [dynamicCronJobs.ownerType, dynamicCronJobs.ownerId, dynamicCronJobs.jobType, dynamicCronJobs.meal],
         set: { cronExpression, nextRunAt, isPaused, input: { threadId, meal, tz }, updatedAt: new Date() },
       });
+  }
+
+  /**
+   * Re-derives every reminder row of a household's thread(s) into `tz` (F-04). The cron string is
+   * unchanged — it encodes a local wall-clock the household keeps — but `input.tz` and the absolute
+   * `next_run_at` move so the same wall-clock fires at the new zone's instant. Resolves household →
+   * thread by the join `dynamic_cron_jobs.owner_id = threads.id WHERE threads.household_id = ?`
+   * (DESIGN F-05: no new ThreadRepository method). A household with no reminders is a no-op.
+   * @param householdId - the household whose timezone changed.
+   * @param tz - the new IANA zone.
+   * @param now - the instant next-run is computed from.
+   */
+  async recompute(householdId: string, tz: string, now: Date): Promise<void> {
+    const rows = await this.householdReminders(householdId);
+    for (const row of rows) {
+      await this.db
+        .update(dynamicCronJobs)
+        .set({ input: { ...row.input, tz }, nextRunAt: nextRun(row.cronExpression, now, tz), updatedAt: new Date() })
+        .where(eq(dynamicCronJobs.id, row.id));
+    }
+  }
+
+  /**
+   * Syncs one course's pause state to a household's weekly meal count (F-05). The rule is
+   * `is_paused = count === 0 || pausedByUser`, where `pausedByUser` is the row's OWN stored marker
+   * OR'd with any incoming one — so a course the household explicitly turned off (F-06) survives a
+   * later count bump (raising the count can't resurrect it). Same household → thread join as
+   * `recompute`. Reads `input.pausedByUser` per row so the precedence lives with the data, not the
+   * caller.
+   * @param householdId - the household whose meal count changed.
+   * @param meal - the course.
+   * @param count - the new weekly count for the course.
+   * @param incomingPausedByUser - a `pausedByUser` flag carried on the fact's input (WI-03); OR'd
+   *   with the row's stored marker so neither source can clear the other's explicit pause.
+   */
+  async setPausedByHousehold(householdId: string, meal: MealSlot, count: number, incomingPausedByUser: boolean): Promise<void> {
+    const rows = (await this.householdReminders(householdId)).filter((r) => r.meal === meal);
+    for (const row of rows) {
+      const pausedByUser = incomingPausedByUser || row.input.pausedByUser === true;
+      await this.db
+        .update(dynamicCronJobs)
+        .set({ isPaused: count === 0 || pausedByUser, input: { ...row.input, pausedByUser }, updatedAt: new Date() })
+        .where(eq(dynamicCronJobs.id, row.id));
+    }
+  }
+
+  /** A household's reminder rows via the F-05 join — the shared resolution both writers key off. */
+  private async householdReminders(householdId: string) {
+    return this.db
+      .select({ id: dynamicCronJobs.id, meal: dynamicCronJobs.meal, cronExpression: dynamicCronJobs.cronExpression, input: dynamicCronJobs.input })
+      .from(dynamicCronJobs)
+      .innerJoin(threads, eq(dynamicCronJobs.ownerId, threads.id))
+      .where(and(eq(dynamicCronJobs.jobType, MEAL_REMINDER), eq(threads.householdId, householdId)));
   }
 
   /**

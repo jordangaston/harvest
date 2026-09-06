@@ -77,6 +77,36 @@ export class RemindersService {
     }
     console.info(JSON.stringify({ event: 'reminders provisioned', threadId, courses: provisioned }));
   }
+
+  /**
+   * Recomputes a household's reminder crons into its (newly-set) timezone (F-04) — hung off
+   * `TimezoneType.persist`, so setting the tz anywhere re-derives the crons. Reads the zone from the
+   * household's prefs (the fact has already persisted it) and delegates the per-row move to the
+   * repository. A household with no reminders is a silent no-op.
+   * @param householdId - the household whose timezone fact just changed.
+   * @param now - the instant next-run is computed from.
+   */
+  async recomputeCrons(householdId: string, now: Date): Promise<void> {
+    const tz = (await this.prefs.getPreferences(householdId)).timezone ?? DEFAULT_TZ;
+    await this.reminders.recompute(householdId, tz, now);
+    console.info(JSON.stringify({ event: 'reminders recomputed', householdId, tz }));
+  }
+
+  /**
+   * Syncs a course's pause state to its weekly meal count (F-05) — hung off
+   * `WeeklyMealCountType.persist`. The rule is `is_paused = count === 0 || pausedByUser`: a course
+   * the household plans zero of pauses, raising it back un-pauses — UNLESS the household explicitly
+   * turned it off (`pausedByUser`, F-06), which a preference recompute must never resurrect. Breakfast
+   * is not a weekly-count course here (it ships paused with no timing until Q-04), so a breakfast
+   * count sync leaves its provisioned pause untouched via the same rule.
+   * @param householdId - the household whose count changed.
+   * @param meal - the course.
+   * @param count - the new weekly count for the course.
+   * @param pausedByUser - the explicit-pause marker from the fact's `input` JSON (WI-03); default false.
+   */
+  async syncPause(householdId: string, meal: MealSlot, count: number, pausedByUser = false): Promise<void> {
+    await this.reminders.setPausedByHousehold(householdId, meal, count, pausedByUser);
+  }
 }
 
 /** The daily 5-field cron for a course: `anchor − lead`, wrapping within the day (leads never cross

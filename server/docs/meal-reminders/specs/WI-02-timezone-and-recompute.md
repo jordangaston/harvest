@@ -65,7 +65,62 @@ in UTC; with `DEFAULT_TZ=America/New_York` → rows derive from it.
 
 ## Test Run
 
-To be filled during execution.
+Implemented on branch `jordangaston/first-meal-plan` (2026-09-05). All ACs covered by tests added to
+`test/meal-reminders.test.ts` (10 new WI-02 cases alongside the 12 WI-01 cases).
+
+**AC-1 (migration).** No new migration — migration `0042_black_zombie.sql` (WI-01) already adds
+`household_preferences.timezone` (nullable text) and `dynamic_cron_jobs.meal`. `schema.ts`, the
+`HouseholdPreferences` model, and `HouseholdPreferenceRepository.savePreferences` already carry the
+column as a 1:1 field. Satisfied; nothing generated.
+
+**Key finding on IANA validation.** croner AND `Intl.DateTimeFormat` both silently accept `"CST"`,
+`"EST"`, `"PST"` (legacy aliases) — they would NOT reject the abbreviations AC-2 names. Validation
+therefore checks membership in the canonical `Intl.supportedValuesOf('timeZone')` set (plus `UTC` and
+`Etc/*` fixed-offset zones, which are legal but omitted from that list). This rejects `CST`/`EST`/
+`PST`/`Austin` while accepting `America/Chicago`/`UTC`/`Etc/UTC`. Verified at the node REPL and in
+`WI-02 Test Case 1 > rejects an abbreviation ("CST") and a city name ("Austin")`.
+
+**Breakfast interaction (decided).** WI-01 ships breakfast provisioned-but-paused with `NO_TIMING_CRON`
+and no `pausedByUser` marker (DESIGN Q-04). `syncPause`/`recompute` are keyed per-course, so a breakfast
+weekly-count sync applies the same `count === 0 || pausedByUser` rule to the breakfast row; a
+recompute only moves `input.tz` + `next_run_at`, never a course's pause. Since breakfast has no
+`pausedByUser` marker and its provisioned weekly count is 0 in the tests, both operations leave its
+pause exactly as WI-01 set it. No special-casing needed — the general rule already honors Q-04.
+
+**Household → thread resolution (AC-5).** The F-05 join lives in `ReminderRepository.householdReminders`
+(`dynamic_cron_jobs.owner_id = threads.id WHERE threads.household_id = ?`), shared by `recompute` and
+`setPausedByHousehold`. No new `ThreadRepository` method.
+
+**pausedByUser precedence.** The `count === 0 || pausedByUser` rule lives in
+`ReminderRepository.setPausedByHousehold`, which reads the row's OWN stored `input.pausedByUser` and
+ORs it with any incoming flag — so a preference recompute can never resurrect a user-paused course.
+The weekly-count path passes no flag; WI-03's enable/disable tool stamps the row's marker.
+
+Targeted file:
+```
+$ npx vitest run test/meal-reminders.test.ts
+ ✓ test/meal-reminders.test.ts (22 tests) 1803ms
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+```
+
+WI-02 cases (all green):
+- Test Case 1 (AC-2): `America/Chicago` shifts every course's `input.tz` + `next_run_at`; the cron
+  string (local wall-clock) is unchanged and the next fire is 16:30 local (DST-robust assertion);
+  `CST`/`Austin`/`EST`/`PST` rejected with no change; a household with no reminders is a no-op.
+- Test Case 2 (AC-3): the 4-combination truth table for `is_paused = count === 0 || pausedByUser`,
+  incl. the critical `count 3 + pausedByUser` stays paused; plus the bump case (count-paused resumes,
+  user-paused does not).
+- Test Case 3 (AC-4): no tz fact ⇒ provisioning + recompute both fall back to `DEFAULT_TZ` (UTC) and
+  never throw.
+
+Full suite from clean (dev server stopped):
+```
+$ pkill -f "nitro dev"; npm test
+ Test Files  84 passed (84)
+      Tests  651 passed | 1 skipped (652)
+   Duration  25.68s
+```
 
 ## Deployment Strategy
 
