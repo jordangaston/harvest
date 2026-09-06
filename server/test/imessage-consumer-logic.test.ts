@@ -826,6 +826,10 @@ describe("WI-04: an eligible unasked emit heartbeat-fires and delivers (arm 2 in
     await new Consumer(db, sender, crashingChef, new StubThreadLock()).handle({ threadId });
     expect(sender.calls).toHaveLength(1); // went out before the "crash"
 
+    // The crashed send counts as conversational activity — age it past the quiet gate so the
+    // retry beat (which in production lands ≥5m later) is allowed to run.
+    await db.update(threadMessages).set({ createdAt: new Date(Date.now() - 6 * 60_000) });
+
     // Retry beat: same unasked emit → same guid scope → the send is swallowed, the turn continues,
     // and the emit gets marked done.
     const retryChef: Chef = {
@@ -842,6 +846,51 @@ describe("WI-04: an eligible unasked emit heartbeat-fires and delivers (arm 2 in
     expect(outbound).toHaveLength(1); // one journal row, not two
     const [after] = await db.select().from(tasks).where(eq(tasks.id, emitId));
     expect(after!.status).toBe("filled"); // the retry still marked it done
+  });
+});
+
+describe("WI-05: the heartbeat only speaks into silence", () => {
+  it("a beat during an active conversation is a silent no-op even with actionable work", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000); // due at rung 1
+    // The bot replied seconds ago — the household is mid-conversation.
+    await db.insert(threadMessages).values({
+      id: randomUUID(),
+      threadId,
+      direction: "outbound",
+      type: "text",
+      body: "sounds great!",
+      messageGuid: `${randomUUID()}#0`,
+    });
+
+    const { chef } = nudgingChef(objectiveId);
+    const respondSpy = vi.spyOn(chef, "respond");
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(respondSpy).not.toHaveBeenCalled();
+    expect(sender.calls).toHaveLength(0);
+  });
+
+  it("the same beat fires once the last message is a full rung old", async () => {
+    const { threadId } = await seedThread();
+    const { objectiveId, taskId } = await seedAskedTask(threadId, FOLLOW_UP_LADDER[0] + 60_000);
+    await db.insert(threadMessages).values({
+      id: randomUUID(),
+      threadId,
+      direction: "outbound",
+      type: "text",
+      body: "sounds great!",
+      messageGuid: `${randomUUID()}#0`,
+      createdAt: new Date(Date.now() - FOLLOW_UP_LADDER[0] - 60_000), // quiet for 6m
+    });
+
+    const { chef, intents } = nudgingChef(objectiveId);
+    const sender = new StubSpectrumSender();
+    await new Consumer(db, sender, chef, new StubThreadLock()).handle({ threadId });
+
+    expect(intents).toEqual([{ taskIds: [taskId] }]);
+    expect(sender.calls).toHaveLength(1);
   });
 });
 

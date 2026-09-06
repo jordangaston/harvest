@@ -5,7 +5,7 @@ import { selectSender, type Sender } from './sender.js';
 import { selectChef, ObjectiveRepository, type Chef, type ConfirmTask, type OutboundSink, type TaskUpdate } from './chef.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 import type { Doorbell } from './doorbell.js';
-import { actionable } from './heartbeat.js';
+import { actionable, FOLLOW_UP_LADDER } from './heartbeat.js';
 import type { ChatEvent } from '../chef/types.js';
 import { TAPBACK_GLYPHS } from '../chef/types.js';
 
@@ -158,7 +158,14 @@ export class Consumer {
         // fresh state, so a nudge can never race a reply that already answered. `now` is read once per
         // iteration — the ladder measures elapsed time from each task's `nudged_at`.
         const now = new Date();
-        const due = firstIteration && kickOff && !lastPopped && !kickoffPending && active ? actionable(active.tasks, now) : [];
+        const armReachable = firstIteration && kickOff && !lastPopped && !kickoffPending && !!active;
+        // The heartbeat only speaks into SILENCE: mid-conversation there is almost always an eligible
+        // unasked task (the chef asks one question at a time), so without a quiet gate every beat that
+        // lands between turns fires an extra question at a household that is actively answering. Quiet
+        // = no conversational message, either direction, within the first ladder rung.
+        const lastMessage = armReachable ? (await this.threads.loadRecentMessages(threadId, 1))[0] : undefined;
+        const threadQuiet = !lastMessage || now.getTime() - lastMessage.createdAt.getTime() >= FOLLOW_UP_LADDER[0];
+        const due = armReachable && threadQuiet ? actionable(active!.tasks, now) : [];
         // Emits take the turn when due (WI-04): their sends must ride the OBJECTIVE-ID guid scope —
         // the scope every emit delivery uses — so a retry of content a kick-off already sent is
         // swallowed by the sink, the chef keeps going, and the emit still gets marked done. Nudge

@@ -111,8 +111,17 @@ Extensions:
 
 ## What's actionable
 
+**Precondition — the heartbeat only speaks into silence.** Before either arm is
+evaluated, the consumer checks the thread's newest conversational message (either
+direction): anything younger than the first ladder rung (5m) means the household is
+mid-conversation — the chef's normal turns carry it, and the beat is a silent no-op.
+Without this gate every beat that lands between turns fires an extra question, because
+mid-objective there is almost always an eligible unasked task (the chef asks one
+question at a time). Found in live testing 2026-09-05: a beat 16s after the bot's reply
+asked the next onboarding question.
+
 ```
-actionable(tasks, now) =
+actionable(tasks, now) =   // evaluated only when the thread has been quiet ≥ LADDER[0]
   // Arm 1 — quiet ask, nudge on the ladder
   tasks where status = 'asked'
     and followUpsSent < LADDER.length
@@ -467,3 +476,4 @@ maintained. Promote it to a direct dependency.
 | 2026-09-05 | Claude (w/ Jordan) | Broaden trigger: heartbeat fires on ANY actionable work (quiet asks on the ladder OR eligible unasked tasks — "can the objective advance?"); add cost decision: dynamic table + sweep vs. platform cron per thread |
 | 2026-09-05 | Claude | Arm 2 narrowed to elicits (as built in WI-02): the heartbeat asks questions, never re-delivers emit content |
 | 2026-09-05 | Claude (w/ Jordan) | WI-04 reverses the WI-02 narrowing: arm 2 includes emits, made safe by scoping emit-bearing heartbeat turns to the kick-off's objective-id guid domain — duplicates swallow silently and the emit still gets marked done |
+| 2026-09-05 | Claude (w/ Jordan) | Live-test fix: quiet gate — the heartbeat only fires when the thread has been silent ≥ the first ladder rung (5m); arm 2 previously fired seconds after a reply |
