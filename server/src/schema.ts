@@ -495,19 +495,21 @@ export const mealPlanEntries = sqliteTable(
   (t) => [index('meal_plan_entries_user_date_idx').on(t.userId, t.date)],
 );
 
-// W2 grocery list: one flat, per-user list. `amount`+`unit` carry a structured
-// quantity; `quantity_text` holds a freeform amount when there's no numeric amount.
-// `aisle`/`icon` are denormalized from the catalog at add time. `source_recipe_id`
-// (null = manual) is `set null` so deleting a recipe keeps its items.
+// W2 grocery list: one flat list per HOUSEHOLD (moved from per-user — groceries-chef).
+// One member's item merges with another's. `added_by_user_id` is free attribution (no UI).
+// `amount`+`unit` carry a structured quantity; `quantity_text` holds a freeform amount
+// when there's no numeric amount. `aisle`/`icon` are denormalized from the catalog at add
+// time. `source_recipe_id` (null = manual) is `set null` so deleting a recipe keeps its items.
 export const groceryItems = sqliteTable(
   'grocery_items',
   {
     id: uuidPk(),
-    userId: text('user_id')
+    householdId: text('household_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+      .references(() => households.id, { onDelete: 'cascade' }),
+    addedByUserId: text('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
-    amount: text('amount'), // pg numeric → text
+    amount: text('amount'), // numeric → text
     unit: text('unit'),
     quantityText: text('quantity_text'),
     aisle: text('aisle', { enum: GROCERY_AISLES }).notNull(),
@@ -517,7 +519,7 @@ export const groceryItems = sqliteTable(
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [index('grocery_items_user_idx').on(t.userId)],
+  (t) => [index('grocery_items_household_idx').on(t.householdId)],
 );
 
 // Nutrition estimation (WI-1): the seeded USDA FNDDS (Survey) catalog. `fdc_foods`

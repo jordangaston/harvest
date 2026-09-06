@@ -64,7 +64,66 @@ another household: A's item ids 404. As a household-less user: clean 4xx on list
 
 ## Test Run
 
-To be filled during execution.
+Executed 2026-09-05 on branch `jordangaston/first-meal-plan`.
+
+### Migration (AC-1) — `test/grocery-migration.test.ts`
+
+Reconstructs the pre-0043 state (old user-scoped `grocery_items` + `users`/`households`/
+`household_members`/`recipes`), seeds a row each for user A and B (both members of H1) and
+user C (no membership), runs the real `drizzle/0043_household_grocery_items.sql`, and asserts.
+
+```
+✓ test/grocery-migration.test.ts (2 tests)
+  ✓ backfills household_id + added_by_user_id, deletes orphans, and drops user_id
+  ✓ is safe to re-run the backfill before the drop (idempotent, deterministic)
+```
+
+A + B rows carry `household_id = H1` and their own `added_by_user_id`; C's orphan row is
+deleted; `user_id` column dropped; `grocery_items_household_idx` present, `grocery_items_user_idx`
+gone. Verified the whole journal (44 migrations incl. 0043) applies cleanly on an empty DB.
+
+### Endpoints re-auth + household scope (AC-2, AC-3, AC-4, AC-5) — `test/grocery.test.ts`
+
+```
+✓ test/grocery.test.ts (11 tests)
+  grocery items API: adds/merges/recipe-items/check-edit-delete; 404s another household's
+    item; rejects empty add + unauthenticated read; NO_HOUSEHOLD 409 (not 500) for a
+    household-less caller (list AND add).
+  household scoping: member A sees + checks off B's item; A's eggs + B's eggs merge to one
+    line (amount 5); a second household's list is isolated.
+```
+
+### O-03 resolver — `test/increment2-repositories.test.ts`
+
+```
+✓ HouseholdRepository > householdIdForUser resolves a member to their household;
+  null for a non-member (O-03)
+```
+
+### Unit (AC-6) — `test/grocery-unit.test.ts`
+
+```
+✓ test/grocery-unit.test.ts (7 tests)   — service/catalog add+merge over the household-scoped fake repo
+```
+
+### Canonical suite — `npm test` (dev server stopped)
+
+```
+Test Files  85 passed (85)
+     Tests  666 passed | 1 skipped (667)
+```
+
+Notes:
+- The migration's step 3 is the **point of no return** (drops `user_id`); steps 1–2 are
+  additive and re-runnable, proven by the idempotency test. Deploy code + migration together
+  (DESIGN § Deployment) — old mobile clients keep working (wire shapes unchanged; the public
+  `toPublicGroceryItem` shape exposes neither `user_id` nor `household_id`).
+- `UserRepository.deleteAccount` no longer deletes `grocery_items` — the list belongs to the
+  household now, and `added_by_user_id` is `set null` on user delete (attribution only).
+- `npm test` now sets `ulimit -n 30000` (the documented libSQL/vitest fd remedy): the
+  pre-existing per-migrate fd leak in libSQL's `client.close()` (verified identical on the
+  clean base — 21→63 fds over 35 cycles) tipped one fd-heavy file over the default worker
+  limit once this WI added a migration. Not a regression in this change.
 
 ## Deployment Strategy
 

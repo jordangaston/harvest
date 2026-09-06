@@ -28,7 +28,7 @@ import { preferencesBodySchema, toPreferencesDTO, fromPreferencesDTO } from "./p
 import { authGuard } from "./auth-guard.js";
 import { normalizeE164 } from "./util/phone.js";
 import { InvalidPhoneError } from "./util/phone.js";
-import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError } from "./errors.js";
+import { AppError, OtpRequestFailedError, InvalidOtpError, NotFoundError, InvalidRangeError, NoHouseholdError } from "./errors.js";
 import {
   createUserSchema,
   anonUserSchema,
@@ -345,18 +345,27 @@ app.delete("/v1/meal-plan/:id", guard, async (c) => {
   return c.body(null, 204);
 });
 
-/** GET /v1/grocery_items — the caller's grocery list (flat; the client groups/sorts). */
+/** The caller's household id, derived from the token — never accepted from the client.
+ * @throws {NoHouseholdError} clean 4xx when the caller belongs to no household. */
+async function householdOf(authUserId: string): Promise<string> {
+  const householdId = await households.householdIdForUser(authUserId);
+  if (!householdId) throw new NoHouseholdError();
+  return householdId;
+}
+
+/** GET /v1/grocery_items — the household's grocery list (flat; the client groups/sorts). */
 app.get("/v1/grocery_items", guard, async (c) => {
-  const items = await groceries.list(c.get("authUserId")!);
+  const items = await groceries.list(await householdOf(c.get("authUserId")!));
   return c.json({ items: items.map(toPublicGroceryItem) });
 });
 
-/** POST /v1/grocery_items — adds one or many items. Resolves aisle/icon + default
- * unit and merges by name+unit. 201. */
+/** POST /v1/grocery_items — adds one or many items to the household list. Resolves aisle/icon
+ * + default unit and merges by name+unit across the household. Records the caller as adder. 201. */
 app.post("/v1/grocery_items", guard, async (c) => {
   const { items } = addGroceryItemsSchema.parse(await c.req.json());
+  const authUserId = c.get("authUserId")!;
   const created = await groceries.add(
-    c.get("authUserId")!,
+    await householdOf(authUserId),
     items.map((i) => ({
       name: i.name,
       amount: i.amount ?? null,
@@ -364,20 +373,21 @@ app.post("/v1/grocery_items", guard, async (c) => {
       quantityText: i.quantity_text ?? null,
       sourceRecipeId: i.source_recipe_id ?? null,
     })),
+    authUserId,
   );
   return c.json({ items: created.map(toPublicGroceryItem) }, 201);
 });
 
-/** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the caller's. */
+/** PATCH /v1/grocery_items/:id — check off or edit a quantity. 404 if not the household's. */
 app.patch("/v1/grocery_items/:id", guard, async (c) => {
   const patch = patchGroceryItemSchema.parse(await c.req.json());
-  const item = await groceries.patch(c.get("authUserId")!, c.req.param("id")!, patch);
+  const item = await groceries.patch(await householdOf(c.get("authUserId")!), c.req.param("id")!, patch);
   return c.json({ item: toPublicGroceryItem(item) });
 });
 
-/** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the caller's. */
+/** DELETE /v1/grocery_items/:id — remove an item. 204; 404 if not the household's. */
 app.delete("/v1/grocery_items/:id", guard, async (c) => {
-  await groceries.remove(c.get("authUserId")!, c.req.param("id")!);
+  await groceries.remove(await householdOf(c.get("authUserId")!), c.req.param("id")!);
   return c.body(null, 204);
 });
 

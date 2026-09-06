@@ -12,11 +12,13 @@ export interface InsertGroceryItem {
   aisle: GroceryItem['aisle'];
   icon: string;
   sourceRecipeId: string | null;
+  addedByUserId: string | null;
 }
 
 /**
- * The per-user grocery list. One flat table; the merge decision (sum vs. new row)
- * lives in the service, this exposes the primitives it needs.
+ * The household grocery list. One flat table; the merge decision (sum vs. new row)
+ * lives in the service, this exposes the primitives it needs. Every read/write is
+ * scoped by `household_id` (attribution — who added a row — is free on `added_by_user_id`).
  */
 export class GroceryRepository {
   constructor(private readonly db: Database) {}
@@ -26,29 +28,29 @@ export class GroceryRepository {
     return new GroceryRepository(db);
   }
 
-  /** The user's whole list (with each item's source recipe title, for the by-recipe
+  /** The household's whole list (with each item's source recipe title, for the by-recipe
    * sort), oldest-first within the stable position order. */
-  async listByUser(userId: string): Promise<GroceryItem[]> {
+  async listByHousehold(householdId: string): Promise<GroceryItem[]> {
     const rows = await this.db
       .select({ ...getTableColumns(groceryItems), sourceRecipeTitle: recipes.title })
       .from(groceryItems)
       .leftJoin(recipes, eq(recipes.id, groceryItems.sourceRecipeId))
-      .where(eq(groceryItems.userId, userId))
+      .where(eq(groceryItems.householdId, householdId))
       .orderBy(asc(groceryItems.position), asc(groceryItems.createdAt));
     return rows.map((r) => GroceryItemSchema.parse(r));
   }
 
   /**
-   * Finds an existing merge target: the user's item with the same name (case-insensitive)
+   * Finds an existing merge target: the household's item with the same name (case-insensitive)
    * and the same unit that already carries a numeric amount. Null-safe on unit.
    */
-  async findMergeCandidate(userId: string, name: string, unit: string | null): Promise<GroceryItem | undefined> {
+  async findMergeCandidate(householdId: string, name: string, unit: string | null): Promise<GroceryItem | undefined> {
     const [row] = await this.db
       .select()
       .from(groceryItems)
       .where(
         and(
-          eq(groceryItems.userId, userId),
+          eq(groceryItems.householdId, householdId),
           sql`lower(${groceryItems.name}) = lower(${name})`,
           sql`${groceryItems.unit} is not distinct from ${unit}`,
           sql`${groceryItems.amount} is not null`,
@@ -59,11 +61,12 @@ export class GroceryRepository {
   }
 
   /** Inserts a new item; `numeric` amount is bound as a string. */
-  async insert(userId: string, item: InsertGroceryItem): Promise<GroceryItem> {
+  async insert(householdId: string, item: InsertGroceryItem): Promise<GroceryItem> {
     const [row] = await this.db
       .insert(groceryItems)
       .values({
-        userId,
+        householdId,
+        addedByUserId: item.addedByUserId,
         name: item.name,
         amount: item.amount == null ? null : String(item.amount),
         unit: item.unit,
@@ -87,11 +90,11 @@ export class GroceryRepository {
   }
 
   /**
-   * Applies an owner-scoped patch (checked / amount / unit). Returns undefined if the
-   * item isn't the caller's, so the service can 404.
+   * Applies a household-scoped patch (checked / amount / unit). Returns undefined if the
+   * item isn't the household's, so the service can 404.
    */
   async patch(
-    userId: string,
+    householdId: string,
     id: string,
     patch: { checked?: boolean; amount?: number | null; unit?: string | null },
   ): Promise<GroceryItem | undefined> {
@@ -102,16 +105,16 @@ export class GroceryRepository {
     const [row] = await this.db
       .update(groceryItems)
       .set(values)
-      .where(and(eq(groceryItems.id, id), eq(groceryItems.userId, userId)))
+      .where(and(eq(groceryItems.id, id), eq(groceryItems.householdId, householdId)))
       .returning();
     return row ? GroceryItemSchema.parse(row) : undefined;
   }
 
-  /** Deletes an owner's item; returns false if it wasn't theirs. */
-  async remove(userId: string, id: string): Promise<boolean> {
+  /** Deletes a household's item; returns false if it wasn't theirs. */
+  async remove(householdId: string, id: string): Promise<boolean> {
     const rows = await this.db
       .delete(groceryItems)
-      .where(and(eq(groceryItems.id, id), eq(groceryItems.userId, userId)))
+      .where(and(eq(groceryItems.id, id), eq(groceryItems.householdId, householdId)))
       .returning({ id: groceryItems.id });
     return rows.length > 0;
   }

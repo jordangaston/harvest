@@ -63,6 +63,14 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class NoHouseholdError extends AppError {
+  /** 409 NO_HOUSEHOLD — the caller belongs to no household, so there's no grocery list to
+   * read or write. A clean 4xx (not a 500); the iMessage flow always creates a household. */
+  constructor() {
+    super('NO_HOUSEHOLD', 409, 'you are not part of a household');
+  }
+}
+
 export class InvalidRangeError extends AppError {
   /** 400 INVALID_RANGE — the meal-plan start/end range is missing, malformed, or too wide. */
   constructor(message = 'start and end must be valid dates no more than 31 days apart') {
