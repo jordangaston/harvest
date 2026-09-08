@@ -1,22 +1,14 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { mapIngredientIcon } from '../parse/icons.js';
 import { AISLE_DEFAULT_UNIT, type CatalogEntry } from './aisle-map.js';
 import type { GroceryAisle } from '../schema.js';
+import catalogEntries from '../../seed/grocery-catalog.json';
 
 // DECISION (serverless port): the 18.7 KB catalog is static reference data, not
-// per-user rows — it stays a BUNDLED JSON read once via readFileSync (works in the
-// Vercel Node runtime and offline in tests). Only per-user `grocery_items` live in
-// Turso; the catalog is never seeded into the DB.
-//
-// Under Nitro/`vercel dev` the module is bundled, so `import.meta.url` points into
-// node_modules — not the source tree. Resolve from the process cwd (the `server/`
-// dir for dev, tests, and the deployed function), falling back to the
-// module-relative path for any runner whose cwd differs.
-const CWD_CATALOG = join(process.cwd(), 'seed', 'grocery-catalog.json');
-const MODULE_CATALOG = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'seed', 'grocery-catalog.json');
-const CATALOG_PATH = existsSync(CWD_CATALOG) ? CWD_CATALOG : MODULE_CATALOG;
+// per-user rows — so it's imported directly and inlined into the bundle by the
+// builder. A runtime `readFileSync` of the seed path does NOT survive bundling
+// (the file isn't traced into the Vercel function), so the import is the reliable
+// way to ship it. Only per-user `grocery_items` live in Turso; the catalog is
+// never seeded into the DB.
 
 /** What resolving a raw ingredient name yields: where it lives + how to draw + buy it. */
 export interface Resolved {
@@ -40,9 +32,9 @@ export class GroceryCatalog {
     for (const e of entries) if (e.iconKey !== 'default' && !this.byIcon.has(e.iconKey)) this.byIcon.set(e.iconKey, e);
   }
 
-  /** Load from the committed seed file. */
+  /** Load from the committed, bundled seed catalog. */
   static create(): GroceryCatalog {
-    return new GroceryCatalog(JSON.parse(readFileSync(CATALOG_PATH, 'utf8')) as CatalogEntry[]);
+    return new GroceryCatalog(catalogEntries as unknown as CatalogEntry[]);
   }
 
   /**

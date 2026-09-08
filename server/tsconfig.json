@@ -4,6 +4,7 @@
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
