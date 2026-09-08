@@ -9,6 +9,11 @@ const tsconfig = fileURLToPath(new URL("./tsconfig.json", import.meta.url));
 
 export default defineConfig({
   modules: ["workflow/nitro"],
+  // The iMessage sender's gRPC transport (@photon-ai/advanced-imessage) checks its
+  // peer deps at runtime via `import.meta.resolve('nice-grpc')` and only imports the
+  // client dynamically, so nft never traces them and the deployed function 500s with
+  // ERR_MODULE_NOT_FOUND. Force them into the output node_modules so the resolve succeeds.
+  traceDeps: ["nice-grpc", "nice-grpc-common", "@grpc/grpc-js"],
   routes: {
     "/**": "./src/index.ts",
   },
