@@ -30,6 +30,7 @@
     "build:styles": "tailwindcss -i styles/recipe.css -o styles/recipe.gen.css --minify && node scripts/publish-recipe-css.mjs"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
     "@libsql/client": "^0.17.4",
     "@mastra/core": "^1.63.2",
     "@spectrum-ts/core": "^12.8.0",
@@ -44,6 +45,8 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "libphonenumber-js": "^1.13.11",
+    "nice-grpc": "^2.1.17",
+    "nice-grpc-common": "^2.0.4",
     "nitro": "^3.0.260610-beta",
     "pluralize": "^8.0.0",
     "react": "^19.2.8",

@@ -1,4 +1,5 @@
 {
   "devCommand": "npm run dev",
+  "installCommand": "npm install",
   "crons": [{ "path": "/crons/dispatch", "schedule": "* * * * *" }]
 }
