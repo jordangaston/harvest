@@ -10,6 +10,8 @@ summary: "Score any recommender against metadata weak-labels, a small human gold
 
 **Proposal in one line:** build one offline harness that turns "which recommender is better?" from an eyeball judgment into a single number, in under 30 seconds, before we have any users.
 
+> **New to the terminology?** *triplet accuracy, weak supervision, gold set, active learning, Precision@10 / nDCG@10, Spearman correlation* and the rest are defined in the [Recommendations & Evaluation glossary](../../../docs/recommender-eval-glossary.md). This doc uses those terms deliberately — the glossary is the shared vocabulary.
+
 ## Motivation
 
 **Situation.** We are about to replace the recommender's core with the [embedding model](embedding-recipe-similarity).
