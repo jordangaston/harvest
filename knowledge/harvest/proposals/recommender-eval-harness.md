@@ -37,11 +37,11 @@ A recommender is a function: `rank(recipeId) -> RecipeId[]`. The IDF engine and 
 
 ### Three tiers of judgment
 
-**Tier 1 — metadata weak-labels (free, instant, the daily driver).** Cuisine, course, and base are free labels. Turn them into triplets: an anchor, a positive (shares cuisine + dish type), a negative (shares neither — nor even the protein). Metric: **triplet accuracy** — how often the model ranks the positive closer than the negative. One number, millions of triplets for free, runs in seconds.
+**Tier 1 — metadata weak-labels (free, instant, the daily driver).** Cuisine and dish form are free labels already on every recipe. Turn them into triplets: an anchor, a positive (shares cuisine + dish form), a negative (shares neither). Metric: **triplet accuracy** — how often the model ranks the positive closer than the negative. One number, millions of triplets for free, runs in seconds.
 
 The caveat that governs its use: optimizing Tier 1 alone just teaches a model to recover cuisine labels we already have. Same-cuisine is not always "similar," and cross-cuisine can be (two coconut curries). Tier 1 is necessary, not sufficient — superb at catching gross failure (the IDF rare-ingredient weirdness scores terribly), useless as the final word.
 
-**Tier 2 — a small human-corrected gold set (~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal.
+**Tier 2 — a small human-corrected gold set (~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal. Two named techniques stack here: **pairwise preference elicitation** (relative "A or B?" judgments are more reliable than absolute ratings — a psychometrics / learning-to-rank staple) and **disagreement-based active learning** (query-by-committee: spend labels where the models disagree, since agreement is uninformative).
 
 **Labeling is LLM-drafted, human-corrected.** An LLM answers each pairwise question first; humans review and correct its calls through an **admin portal** (a review queue: the anchor + two candidates, the LLM's pick and reason, accept-or-flip). This turns 300 labels from "300 judgments made from scratch" into "300 judgments reviewed," which is faster and keeps a human as the final authority on the gold set. Corrected labels are what gets checked into the versioned test set.
 
@@ -52,7 +52,7 @@ The caveat that governs its use: optimizing Tier 1 alone just teaches a model to
 A fast metric that lies is worse than none. Four cheap checks:
 
 1. **Baselines in the harness.** Always score a *random* and a *popularity* recommender alongside the real ones. A trustworthy metric must show `random < popularity < IDF < embeddings`. If the real model barely beats random, the metric or the model is broken — and we learn it immediately.
-2. **Correlate Tier 1 against Tier 2.** Before trusting triplet accuracy for daily iteration, confirm models that win on metadata also win on the human gold set. If they diverge, the proxy is lying; stop trusting it.
+2. **Correlate Tier 1 against Tier 2.** Score every model we have (IDF, the five variants, embeddings) on both tiers, giving each two numbers, then take the **Spearman rank correlation** between the two score vectors across models. High ρ = the cheap metric orders models the same way the human gold set does, so it is a valid daily driver; low or negative ρ = the proxy is lying, stop trusting it. Recompute as the gold set grows.
 3. **Known-answer probes (the unit test).** ~20 hand-picked cases asserted in the repo: "carbonara → pasta/Italian, never a smoothie." The smallest thing that fails loudly on a regression.
 4. **A regression probe for the original symptom.** The reason this work exists: IDF recommends weird dishes off one rare ingredient. For queries containing a rare ingredient, measure the fraction of the top-k that shares that rare ingredient. Judge it **relative to IDF, not against an absolute threshold** — IDF and embeddings are scored in the same run, so "fixed" means embeddings' rare-ingredient dominance is far below IDF's (target: less than half). Track it as its own number so we can *prove* embeddings fixed it, not merely assert it.
 
@@ -80,15 +80,14 @@ Three procedures the design above assumes but does not spell out: how Tier 1 tri
 
 One grounding note on what "recommender" means here. The harness scores a **recipe-to-recipe similarity** function — `rank(recipeId) -> RecipeId[]` — not the personalized swipe ranker. Today that similarity is the sparse IDF taste profile (`recipeTasteProfiles.weights`, a `baseIngredientId -> idfWeight` map) compared by in-memory cosine (`server/src/ranking/taste/taste-profile.ts`, sourced through `TasteSpace` in `taste/index.ts`); the [embedding model](embedding-recipe-similarity) is the replacement. Both implement the same `rank(recipeId)` signature — the single pipe the harness runs. (`RankingEngine.rank(recipes, prefs)` in `server/src/ranking/ranking-engine.ts` is the separate user-preference ranker, out of scope here.)
 
-Metadata comes from the `recipeCategories` join table (`server/src/schema.ts`), one row per `(recipeId, facet, value)`, exposed in the domain model as `RecipeCategories { cuisine[], mealType[], dishType[], primaryIngredient[], foodCategory[] }`. Three facets drive the triplets, in **two roles** — dish identity defines a positive; the protein only hardens a negative:
+Metadata comes from the `recipeCategories` join table (`server/src/schema.ts`), one row per `(recipeId, facet, value)`, exposed in the domain model as `RecipeCategories { cuisine[], mealType[], dishType[], primaryIngredient[], foodCategory[] }`. Two facets drive the triplets; together they define "same kind of dish":
 
 | Facet | Example values | Role |
 |---|---|---|
-| `cuisine` | italian, thai, mexican (slugs from the `cuisines` table) | defines the positive |
-| `dish_type` | pasta, pizza, soup, salad, curry, dessert, main_course … (25 values) | defines the positive |
-| `primary_ingredient` | seafood, poultry, beef, pork, tofu, beans, grain … | hardens the negative |
+| `cuisine` | italian, thai, mexican (slugs from the `cuisines` table) | tradition |
+| `dish_type` (form, post-[split](../specs/split-course-facet/spec.md)) | pasta, pizza, soup, salad, curry … | dish form |
 
-`dish_type` is the "what kind of dish" label — Pasta, Soup, Pizza, Curry — and with `cuisine` it captures "same kind of dish, same tradition," which is what makes a pair *similar*. `primary_ingredient` is the protein/base; it deliberately does **not** gate the positive (see below).
+Same tradition + same form is what makes a pair *similar*. We leave `primary_ingredient` (the protein) out entirely: requiring it to match over-constrains the positive (a chicken vs. lamb tikka are plainly alike), and it duplicates what the embedding model already learns from ingredients directly. `course` (main / side / dessert) isn't a similarity axis either — it's reserved as a retrieval *filter* (don't pair a dessert with a main).
 
 **Blocker — `dish_type` must be split first.** Today `dish_type` also carries meal-role values (`main_course`, `side_dish`, `appetizer`, `dessert`), which would leak weak positives (two unrelated dishes matching only on `main_course`). The [split-course-facet spec](../specs/split-course-facet/spec.md) lifts those into a separate `course` facet, leaving `dish_type` as pure form. This harness's Tier 1 keys its positive on `cuisine` + `dish_type` (form) and can use `course` as a filter to keep a dessert from pairing with a main — both assume that split has landed.
 
@@ -99,10 +98,10 @@ Script `labels:triplets` (`tsx scripts/build-eval-triplets.ts`), run once, outpu
 A triplet is `{ anchor, positive, negative }`. Each facet is an array, so "shares" means set intersection:
 
 - **Anchor** — any recipe with `cuisine` and `dish_type` both non-empty.
-- **Positive** — shares at least one value on **both `cuisine` and `dish_type`** (both intersections non-empty). "Same kind of dish, same tradition" — e.g. two Italian pastas, regardless of protein.
-- **Negative** — shares **nothing** on `cuisine`, `dish_type`, *or* `primary_ingredient` (all three intersections empty). "Unrelated dish."
+- **Positive** — shares at least one value on **both `cuisine` and `dish_type`** (both intersections non-empty). "Same kind of dish, same tradition" — e.g. two Italian pastas.
+- **Negative** — shares **nothing** on `cuisine` or `dish_type` (both intersections empty). "Unrelated dish."
 
-Why the protein (`primary_ingredient`) doesn't gate the positive: requiring it to match would reject genuinely similar pairs that differ only by protein — a chicken tikka and a lamb tikka share cuisine and `dish_type` and are obviously alike. The dish-identity signal lives in `dish_type` (pasta / pizza / soup / curry), so `cuisine` + `dish_type` defines the positive. The protein earns its keep on the **negative** instead: a beef pasta and a beef stew share a protein and shouldn't be labeled "unrelated," so a hard negative must differ on it too.
+This is **weak (distant) supervision** — triplets auto-labeled from metadata we already have, no annotator: noisy per label, but free and millions-strong, which is exactly what makes it the daily driver. Only the two similarity axes gate the label; `primary_ingredient` is left out (it over-constrains the positive and duplicates the ingredient signal the model already learns), and `course` is a retrieval filter, not a triplet axis.
 
 The generator (deterministic, with the seed recorded in the file header):
 
