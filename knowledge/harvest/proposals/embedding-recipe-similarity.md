@@ -146,7 +146,7 @@ Skip-gram implicitly factors the PMI matrix, so both routes reach nearly the sam
 
 | ID | Question | Status | Resolution |
 |---|---|---|---|
-| Q-01 | How many recipes are in the seed corpus today, and what is the per-ingredient count distribution? | open | |
+| Q-01 | How many recipes are in the seed corpus today, and what is the per-ingredient count distribution? | partial | Count is >10k today (past the ~5–10k floor), with a clear path to ~30k. The per-ingredient / per-pair distribution is still to be measured — step 1 of the data-prerequisite gate in § Data requirements. |
 | Q-02 | Prune threshold — 20 or 30 recipes? Decide from the Q-01 histogram. | open | |
 | Q-03 | SVD dimension — 50 vs 100 vs 150? Tune against the harness. | open | |
 | Q-04 | Pseudo-token weight for cuisine/base relative to ingredients? Tune against the harness. | open | |
