@@ -95,7 +95,13 @@ Same tradition + same form is what makes a pair *similar*. We leave `primary_ing
 
 ### 1. Generating the Tier 1 triplet labels
 
-Script `labels:triplets` (`tsx scripts/build-eval-triplets.ts`), run once, output committed to `eval/gold/triplets.jsonl`.
+**Step 0 — audit coverage, then backfill the gaps (do this first).** A triplet needs an anchor and candidates that all carry `cuisine` and `dish_type`, so facet coverage is the hard ceiling on how rich the set can be — patch it before generating anything. Both facets come from a single LLM call in `RecipeCategorizer.analyze()` (`server/src/categorize/`), which degrades to *empty* on LLM failure — so gaps are recipes seeded or ingested while the analyzer was off or misconfigured (a known one: an `OPENAI_API_KEY` mismatch silently emptied `cuisine`). We patch them by re-running the same categorizer over only the gap recipes; no new classifier.
+
+1. **Measure.** Count recipes with ≥1 `cuisine` value, ≥1 `dish_type` value, and both — and list the gaps. That "both" count is the ceiling on triplet richness.
+2. **Backfill.** For each gap recipe, re-run `RecipeCategorizer.analyze(title, ingredients, steps)` and upsert only the *missing* `recipe_categories` rows (never overwrite good data). One LLM call each; reuses existing code.
+3. **Re-audit.** Whatever still can't be classified is excluded from triplet eligibility — but only after we've maximized the usable corpus.
+
+Then generate the triplets. Script `labels:triplets` (`tsx scripts/build-eval-triplets.ts`), run once, output committed to `eval/gold/triplets.jsonl`.
 
 A triplet is `{ anchor, positive, negative }`. Each facet is an array, so "shares" means set intersection:
 
