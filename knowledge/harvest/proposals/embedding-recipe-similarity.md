@@ -82,6 +82,14 @@ Two levers matter more than raw count:
 
 The number to measure before building: the per-ingredient recipe-count distribution. If the 200th-most-common ingredient still appears in 30+ recipes, the corpus is large enough.
 
+**This is a gate on the build, not an assumption — a Phase 2 prerequisite with a human in the loop.** Today's corpus is already >10k (past the floor), with a clear path to ~30k. Three steps:
+
+1. **Measure** — run the per-ingredient / per-pair distribution above and report the gap to the density rule.
+2. **Source** to ~30k — founder-directed, from vetted recipe sources (not just whatever scrapes easiest).
+3. **QA together** — before new recipes enter the corpus, jointly confirm coverage is spread across cuisines (not 30k all-Italian — *coverage beats count*), ingredients parse, and facets categorize.
+
+The build starts only once the density rule holds on a quality-checked corpus — sign-off is explicit, not implied.
+
 ### Modules
 
 ```mermaid
