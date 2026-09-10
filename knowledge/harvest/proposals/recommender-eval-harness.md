@@ -37,7 +37,7 @@ A recommender is a function: `rank(recipeId) -> RecipeId[]`. The IDF engine and 
 
 ### Three tiers of judgment
 
-**Tier 1 — metadata weak-labels (free, instant, the daily driver).** Cuisine, course, and base are free labels. Turn them into triplets: an anchor, a positive (shares cuisine + course + base), a negative (shares none). Metric: **triplet accuracy** — how often the model ranks the positive closer than the negative. One number, millions of triplets for free, runs in seconds.
+**Tier 1 — metadata weak-labels (free, instant, the daily driver).** Cuisine, course, and base are free labels. Turn them into triplets: an anchor, a positive (shares cuisine + dish type), a negative (shares neither — nor even the protein). Metric: **triplet accuracy** — how often the model ranks the positive closer than the negative. One number, millions of triplets for free, runs in seconds.
 
 The caveat that governs its use: optimizing Tier 1 alone just teaches a model to recover cuisine labels we already have. Same-cuisine is not always "similar," and cross-cuisine can be (two coconut curries). Tier 1 is necessary, not sufficient — superb at catching gross failure (the IDF rare-ingredient weirdness scores terribly), useless as the final word.
 
@@ -80,13 +80,15 @@ Three procedures the design above assumes but does not spell out: how Tier 1 tri
 
 One grounding note on what "recommender" means here. The harness scores a **recipe-to-recipe similarity** function — `rank(recipeId) -> RecipeId[]` — not the personalized swipe ranker. Today that similarity is the sparse IDF taste profile (`recipeTasteProfiles.weights`, a `baseIngredientId -> idfWeight` map) compared by in-memory cosine (`server/src/ranking/taste/taste-profile.ts`, sourced through `TasteSpace` in `taste/index.ts`); the [embedding model](embedding-recipe-similarity) is the replacement. Both implement the same `rank(recipeId)` signature — the single pipe the harness runs. (`RankingEngine.rank(recipes, prefs)` in `server/src/ranking/ranking-engine.ts` is the separate user-preference ranker, out of scope here.)
 
-Metadata comes from the `recipeCategories` join table (`server/src/schema.ts`), one row per `(recipeId, facet, value)`, exposed in the domain model as `RecipeCategories { cuisine[], mealType[], dishType[], primaryIngredient[], foodCategory[] }`. The proposal's "cuisine + course + base" maps to three facets:
+Metadata comes from the `recipeCategories` join table (`server/src/schema.ts`), one row per `(recipeId, facet, value)`, exposed in the domain model as `RecipeCategories { cuisine[], mealType[], dishType[], primaryIngredient[], foodCategory[] }`. Three facets drive the triplets, in **two roles** — dish identity defines a positive; the protein only hardens a negative:
 
-| Proposal term | Facet | Values |
+| Facet | Example values | Role |
 |---|---|---|
-| cuisine | `cuisine` | controlled slugs from the `cuisines` table |
-| course | `dish_type` | `main_course, side_dish, appetizer, salad, soup, stew, dessert, curry, stir_fry, …` (25 values) |
-| base | `primary_ingredient` | `seafood, poultry, beef, pork, lamb, egg, cheese, tofu, beans, vegetable, pasta, grain` |
+| `cuisine` | italian, thai, mexican (slugs from the `cuisines` table) | defines the positive |
+| `dish_type` | pasta, pizza, soup, salad, curry, dessert, main_course … (25 values) | defines the positive |
+| `primary_ingredient` | seafood, poultry, beef, pork, tofu, beans, grain … | hardens the negative |
+
+`dish_type` is the "what kind of dish" label — Pasta, Soup, Pizza, Curry — and with `cuisine` it captures "same kind of dish, same tradition," which is what makes a pair *similar*. `primary_ingredient` is the protein/base; it deliberately does **not** gate the positive (see below).
 
 ### 1. Generating the Tier 1 triplet labels
 
@@ -94,9 +96,11 @@ Script `labels:triplets` (`tsx scripts/build-eval-triplets.ts`), run once, outpu
 
 A triplet is `{ anchor, positive, negative }`. Each facet is an array, so "shares" means set intersection:
 
-- **Anchor** — any recipe with all three facets non-empty. Recipes missing a facet are skipped (can't form a clean label).
-- **Positive** — shares at least one value on **each** of the three facets (`cuisine ∩`, `dish_type ∩`, `primary_ingredient ∩` all non-empty). "Same kind of dish."
-- **Negative** — shares **nothing** on any facet (all three intersections empty). "Unrelated dish."
+- **Anchor** — any recipe with `cuisine` and `dish_type` both non-empty.
+- **Positive** — shares at least one value on **both `cuisine` and `dish_type`** (both intersections non-empty). "Same kind of dish, same tradition" — e.g. two Italian pastas, regardless of protein.
+- **Negative** — shares **nothing** on `cuisine`, `dish_type`, *or* `primary_ingredient` (all three intersections empty). "Unrelated dish."
+
+Why the protein (`primary_ingredient`) doesn't gate the positive: requiring it to match would reject genuinely similar pairs that differ only by protein — a chicken tikka and a lamb tikka share cuisine and `dish_type` and are obviously alike. The dish-identity signal lives in `dish_type` (pasta / pizza / soup / curry), so `cuisine` + `dish_type` defines the positive. The protein earns its keep on the **negative** instead: a beef pasta and a beef stew share a protein and shouldn't be labeled "unrelated," so a hard negative must differ on it too.
 
 The generator (deterministic, with the seed recorded in the file header):
 
