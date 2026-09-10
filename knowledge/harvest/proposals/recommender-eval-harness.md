@@ -90,6 +90,8 @@ Metadata comes from the `recipeCategories` join table (`server/src/schema.ts`), 
 
 `dish_type` is the "what kind of dish" label — Pasta, Soup, Pizza, Curry — and with `cuisine` it captures "same kind of dish, same tradition," which is what makes a pair *similar*. `primary_ingredient` is the protein/base; it deliberately does **not** gate the positive (see below).
 
+**Blocker — `dish_type` must be split first.** Today `dish_type` also carries meal-role values (`main_course`, `side_dish`, `appetizer`, `dessert`), which would leak weak positives (two unrelated dishes matching only on `main_course`). The [split-course-facet spec](../specs/split-course-facet/spec.md) lifts those into a separate `course` facet, leaving `dish_type` as pure form. This harness's Tier 1 keys its positive on `cuisine` + `dish_type` (form) and can use `course` as a filter to keep a dessert from pairing with a main — both assume that split has landed.
+
 ### 1. Generating the Tier 1 triplet labels
 
 Script `labels:triplets` (`tsx scripts/build-eval-triplets.ts`), run once, output committed to `eval/gold/triplets.jsonl`.
