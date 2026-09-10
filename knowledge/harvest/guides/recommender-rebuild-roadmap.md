@@ -24,20 +24,29 @@ flowchart LR
   P3 --> P4["Phase 4 — ship"]
 ```
 
+## How to execute this (start here)
+
+If you are an agent picking up this work, this document is your entry point — derive the order from the dependency table below; do not ask for it.
+
+1. **Work one spec at a time, in dependency order.** From the table, pick the next spec whose dependencies are all done *and* that has a **full triple** (`spec.md` + `plan.md` + `tasks.md`). Implement that triple in order: `spec.md` (what/why) → `plan.md` (approach) → `tasks.md` (checklist).
+2. **Start with [`split-course-facet`](../specs/split-course-facet/spec.md)** — no dependencies, blocks the rest. [`eval-harness-core`](../specs/eval-harness-core/spec.md) is also dependency-free, so it can proceed in parallel.
+3. **Do not implement the lean specs** (`corpus-sourcing`, `embedding-recommender`, `tier2-gold-set`, `ship-recommender-swap`) yet — they are scoped but have no `plan`/`tasks`, and their dependencies are unmet. When one becomes next, its plan + tasks must be written first (stop and flag).
+4. **Follow [`server/CLAUDE.md`](../../../server/CLAUDE.md)** throughout — Zod domain models, Drizzle migrations-only, `static create()` wiring, and the testing rules. A spec is done only when its `tasks.md` "Done when" holds and the full suite is green.
+
 ## Work breakdown (specs)
 
-Each unit is a spec in [`specs/`](../specs/split-course-facet/spec.md); the near-term ones carry a full plan + tasks, later ones stay lean until their phase starts.
+Each unit is a spec in `specs/`; order is derivable from **Depends on**. "Ready" = actionable now.
 
-| Phase | Spec | Fidelity |
-|---|---|---|
-| 0.1 | [split-course-facet](../specs/split-course-facet/spec.md) | full triple |
-| 0.2 | [facet-coverage-backfill](../specs/facet-coverage-backfill/spec.md) | full triple |
-| 1.3 | [eval-harness-core](../specs/eval-harness-core/spec.md) | full triple |
-| 1.4 | [tier1-metadata-eval](../specs/tier1-metadata-eval/spec.md) | full triple |
-| 1.5 | [corpus-sourcing](../specs/corpus-sourcing/spec.md) | lean |
-| 2 | [embedding-recommender](../specs/embedding-recommender/spec.md) | lean |
-| 3 | [tier2-gold-set](../specs/tier2-gold-set/spec.md) | lean |
-| 4 | [ship-recommender-swap](../specs/ship-recommender-swap/spec.md) | lean |
+| Phase | Spec | Depends on | Fidelity | Ready? |
+|---|---|---|---|---|
+| 0.1 | [split-course-facet](../specs/split-course-facet/spec.md) | — | full triple | ✅ now |
+| 1.3 | [eval-harness-core](../specs/eval-harness-core/spec.md) | — | full triple | ✅ now (parallel) |
+| 0.2 | [facet-coverage-backfill](../specs/facet-coverage-backfill/spec.md) | 0.1 | full triple | after 0.1 |
+| 1.4 | [tier1-metadata-eval](../specs/tier1-metadata-eval/spec.md) | 0.1, 0.2, 1.3 | full triple | after deps |
+| 1.5 | [corpus-sourcing](../specs/corpus-sourcing/spec.md) | categorizer | lean | founder-gated |
+| 2 | [embedding-recommender](../specs/embedding-recommender/spec.md) | 1.3, 1.5 | lean | needs plan+tasks |
+| 3 | [tier2-gold-set](../specs/tier2-gold-set/spec.md) | 1.3, 1.4, 2 | lean | needs plan+tasks |
+| 4 | [ship-recommender-swap](../specs/ship-recommender-swap/spec.md) | 2, 3 | lean | needs plan+tasks |
 
 ## Phase 0 — Foundations (unblocks everything)
 
