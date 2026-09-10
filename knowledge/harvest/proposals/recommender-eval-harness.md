@@ -54,12 +54,12 @@ A fast metric that lies is worse than none. Four cheap checks:
 1. **Baselines in the harness.** Always score a *random* and a *popularity* recommender alongside the real ones. A trustworthy metric must show `random < popularity < IDF < embeddings`. If the real model barely beats random, the metric or the model is broken — and we learn it immediately.
 2. **Correlate Tier 1 against Tier 2.** Before trusting triplet accuracy for daily iteration, confirm models that win on metadata also win on the human gold set. If they diverge, the proxy is lying; stop trusting it.
 3. **Known-answer probes (the unit test).** ~20 hand-picked cases asserted in the repo: "carbonara → pasta/Italian, never a smoothie." The smallest thing that fails loudly on a regression.
-4. **A regression probe for the original symptom.** The reason this work exists: IDF recommends weird dishes off one rare ingredient. For queries containing a rare ingredient, measure whether the top-k is dominated by it. Track it as its own number so we can *prove* embeddings fixed it, not merely assert it.
+4. **A regression probe for the original symptom.** The reason this work exists: IDF recommends weird dishes off one rare ingredient. For queries containing a rare ingredient, measure the fraction of the top-k that shares that rare ingredient. Judge it **relative to IDF, not against an absolute threshold** — IDF and embeddings are scored in the same run, so "fixed" means embeddings' rare-ingredient dominance is far below IDF's (target: less than half). Track it as its own number so we can *prove* embeddings fixed it, not merely assert it.
 
 ### Metrics
 
 - **Triplet accuracy** — Tier 1 and Tier 2 headline. Interpretable, single scalar, drives daily iteration.
-- **Precision@k / nDCG@k** — on the Tier 2 query set, for graded final judgment.
+- **Precision@10 / nDCG@10** — on the Tier 2 query set, for graded final judgment. k = 10, tied to the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations, so quality is measured over exactly the window a user sees per batch.
 
 ### The build
 
@@ -100,5 +100,5 @@ Metadata triplets give a free, instant, million-example signal for the daily loo
 |---|---|---|---|
 | Q-01 | Do we have any implicit behavioral signal today (saves, imports) usable as an early Tier 3? | resolved | No usable signal today. Tier 3 stays an empty slot until launch behavioral data exists; the harness ships on Tiers 1+2. |
 | Q-02 | Who labels the ~200–300 Tier 2 pairs, and by when? | resolved | LLM drafts every label; humans review and correct through an admin portal. Corrected labels become the checked-in gold set. |
-| Q-03 | Threshold on the rare-ingredient regression probe that counts as "fixed"? | open | |
-| Q-04 | k for Precision@k / nDCG@k — tie to how many recommendations the app surfaces. | open | |
+| Q-03 | Threshold on the rare-ingredient regression probe that counts as "fixed"? | resolved | No absolute threshold — judged relative to IDF (scored in the same run). "Fixed" = embeddings' rare-ingredient dominance below half of IDF's. |
+| Q-04 | k for Precision@k / nDCG@k — tie to how many recommendations the app surfaces. | resolved | k = 10, the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations. |
