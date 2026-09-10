@@ -24,6 +24,21 @@ flowchart LR
   P3 --> P4["Phase 4 — ship"]
 ```
 
+## Work breakdown (specs)
+
+Each unit is a spec in [`specs/`](../specs/split-course-facet/spec.md); the near-term ones carry a full plan + tasks, later ones stay lean until their phase starts.
+
+| Phase | Spec | Fidelity |
+|---|---|---|
+| 0.1 | [split-course-facet](../specs/split-course-facet/spec.md) | full triple |
+| 0.2 | [facet-coverage-backfill](../specs/facet-coverage-backfill/spec.md) | full triple |
+| 1.3 | [eval-harness-core](../specs/eval-harness-core/spec.md) | full triple |
+| 1.4 | [tier1-metadata-eval](../specs/tier1-metadata-eval/spec.md) | full triple |
+| 1.5 | [corpus-sourcing](../specs/corpus-sourcing/spec.md) | lean |
+| 2 | [embedding-recommender](../specs/embedding-recommender/spec.md) | lean |
+| 3 | [tier2-gold-set](../specs/tier2-gold-set/spec.md) | lean |
+| 4 | [ship-recommender-swap](../specs/ship-recommender-swap/spec.md) | lean |
+
 ## Phase 0 — Foundations (unblocks everything)
 
 1. **Ship the course/form split** — add the `course` facet, reduce `dish_type` to forms, migrate existing rows, simplify `course.ts`.
