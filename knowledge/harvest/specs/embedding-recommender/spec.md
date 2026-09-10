@@ -19,7 +19,7 @@ One-line: the co-occurrence embedding recommender — PMI → SVD → SIF poolin
 ## Goals
 
 - Learn ingredient vectors from positive PMI over pair co-occurrence, factored by SVD (~100 dims).
-- Pool into recipe vectors with SIF; fold cuisine/base in as pseudo-tokens; recommend by brute-force cosine.
+- Pool into recipe vectors with SIF; fold **cuisine, dish form, and base** in as pseudo-tokens (course stays a retrieval filter); recommend by brute-force cosine.
 - Implement the [eval-harness-core](../eval-harness-core/spec.md) `rank(recipeId)` interface so it's scored like any model.
 
 ## Non-goals

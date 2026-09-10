@@ -56,15 +56,15 @@ A recipe is a set of ingredients, so pool its ingredient vectors into one recipe
 
 ### 3. Metadata as pseudo-tokens
 
-We hold three signals beyond ingredients: cuisine, meal course, and flavor base. Fold cuisine and base into the *same* machinery by appending them as pseudo-tokens to each recipe before building the matrix:
+Beyond ingredients we fold in three signals: **cuisine**, **dish form** (`dish_type`), and **base**. Append all three as pseudo-tokens to each recipe before building the matrix:
 
 ```
-[coconut milk, fish sauce, lemongrass, chili, CUISINE:thai, BASE:curry_paste]
+[coconut milk, fish sauce, lemongrass, chili, CUISINE:thai, DISH:curry, BASE:curry_paste]
 ```
 
-The tag then co-occurs with its ingredients, earns its own vector, and pulls same-cuisine recipes together — so two Thai curries sharing few exact ingredients still land near each other. No new model. A tunable knob: repeating a tag (or up-weighting it in pooling) increases how strongly cuisine dominates over raw ingredients.
+Each tag then co-occurs with the recipe's ingredients, earns its own vector, and pulls like-tagged recipes together — so two Thai curries sharing few exact ingredients still land near each other, and two pastas cluster on form. No new model. A tunable knob: repeating a tag (or up-weighting it in pooling) increases how strongly that signal dominates over raw ingredients.
 
-**Course is a filter, not a feature.** We do not want "similar taste" to cross a dessert and a main. Course constrains retrieval (return nearest neighbors, then keep the same meal role) rather than entering the vector, where it would only muddy the taste signal.
+**Course (meal role) is a filter, not a feature.** This is `course` — the meal-role facet split out of `dish_type` (see the [course/form split](../specs/split-course-facet/spec.md)) — *not* dish form, which we fold in above. We don't want "similar taste" to cross a dessert and a main, so course constrains retrieval (return nearest neighbors, then keep the same course) rather than entering the vector, where it would only muddy the taste signal. Dish *form* is different — a soft feature, because cross-form similarity is sometimes real (a lasagna and a baked ziti), so it nudges rather than hard-filters.
 
 ### Data requirements
 
