@@ -43,7 +43,7 @@ A recommender is a function: `rank(recipeId) -> RecipeId[]`. The IDF engine and 
 
 The caveat that governs its use: optimizing Tier 1 alone just teaches a model to recover cuisine labels we already have. Same-cuisine is not always "similar," and cross-cuisine can be (two coconut curries). Tier 1 is necessary, not sufficient — superb at catching gross failure (the IDF rare-ingredient weirdness scores terribly), useless as the final word.
 
-**Tier 2 — a small human-corrected gold set (~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal. Two named techniques stack here: **pairwise preference elicitation** (relative "A or B?" judgments are more reliable than absolute ratings — a psychometrics / learning-to-rank staple) and **disagreement-based active learning** (query-by-committee: spend labels where the models disagree, since agreement is uninformative).
+**Tier 2 — a small human-corrected gold set (\~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal. Two named techniques stack here: **[pairwise preference elicitation](../../../docs/recommender-eval-glossary.md)** (relative "A or B?" judgments are more reliable than absolute ratings — a psychometrics / learning-to-rank staple) and **[disagreement-based active learning](../../../docs/recommender-eval-glossary.md)** (query-by-committee: spend labels where the models disagree, since agreement is uninformative).
 
 **Labeling is LLM-drafted, human-corrected.** An LLM answers each pairwise question first; humans review and correct its calls through an **admin portal** (a review queue: the anchor + two candidates, the LLM's pick and reason, accept-or-flip). This turns 300 labels from "300 judgments made from scratch" into "300 judgments reviewed," which is faster and keeps a human as the final authority on the gold set. Corrected labels are what gets checked into the versioned test set.
 
@@ -55,13 +55,13 @@ A fast metric that lies is worse than none. Four cheap checks:
 
 1. **Baselines in the harness.** Always score a *random* and a *popularity* recommender alongside the real ones. A trustworthy metric must show `random < popularity < IDF < embeddings`. If the real model barely beats random, the metric or the model is broken — and we learn it immediately.
 2. **Correlate Tier 1 against Tier 2.** Score every model we have (IDF, the five variants, embeddings) on both tiers, giving each two numbers, then take the **Spearman rank correlation** between the two score vectors across models. High ρ = the cheap metric orders models the same way the human gold set does, so it is a valid daily driver; low or negative ρ = the proxy is lying, stop trusting it. Recompute as the gold set grows.
-3. **Known-answer probes (the unit test).** ~20 hand-picked cases asserted in the repo: "carbonara → pasta/Italian, never a smoothie." The smallest thing that fails loudly on a regression.
+3. **Known-answer probes (the unit test).** \~20 hand-picked cases asserted in the repo: "carbonara → pasta/Italian, never a smoothie." The smallest thing that fails loudly on a regression.
 4. **A regression probe for the original symptom.** The reason this work exists: IDF recommends weird dishes off one rare ingredient. For queries containing a rare ingredient, measure the fraction of the top-k that shares that rare ingredient. Judge it **relative to IDF, not against an absolute threshold** — IDF and embeddings are scored in the same run, so "fixed" means embeddings' rare-ingredient dominance is far below IDF's (target: less than half). Track it as its own number so we can *prove* embeddings fixed it, not merely assert it.
 
 ### Metrics
 
 - **Triplet accuracy** — Tier 1 and Tier 2 headline. Interpretable, single scalar, drives daily iteration.
-- **Precision@10 / nDCG@10** — on the Tier 2 query set, for graded final judgment. k = 10, tied to the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations, so quality is measured over exactly the window a user sees per batch.
+- **[Precision@10 / nDCG@10](../../../docs/recommender-eval-glossary.md)** — on the Tier 2 query set, for graded final judgment. k = 10, tied to the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations, so quality is measured over exactly the window a user sees per batch.
 
 ### The build
 
@@ -103,14 +103,14 @@ A triplet is `{ anchor, positive, negative }`. Each facet is an array, so "share
 - **Positive** — shares at least one value on **both `cuisine` and `dish_type`** (both intersections non-empty). "Same kind of dish, same tradition" — e.g. two Italian pastas.
 - **Negative** — shares **nothing** on `cuisine` or `dish_type` (both intersections empty). "Unrelated dish."
 
-This is **weak (distant) supervision** — triplets auto-labeled from metadata we already have, no annotator: noisy per label, but free and millions-strong, which is exactly what makes it the daily driver. Only the two similarity axes gate the label; `primary_ingredient` is left out (it over-constrains the positive and duplicates the ingredient signal the model already learns), and `course` is a retrieval filter, not a triplet axis.
+This is **[weak (distant) supervision](../../../docs/recommender-eval-glossary.md)** — triplets auto-labeled from metadata we already have, no annotator: noisy per label, but free and millions-strong, which is exactly what makes it the daily driver. Only the two similarity axes gate the label; `primary_ingredient` is left out (it over-constrains the positive and duplicates the ingredient signal the model already learns), and `course` is a retrieval filter, not a triplet axis.
 
 The generator (deterministic, with the seed recorded in the file header):
 
 1. Load all recipes + their `RecipeCategories`.
 2. Build a simple inverted index of facet value → recipeIds (`cuisine:italian -> […]`, etc.).
 3. Positive pool = recipes in the intersection of all three of the anchor's facet buckets; negative pool = recipes absent from all three.
-4. Sample up to *K* triplets per anchor (cap ~5) so popular cuisines don't swamp the set; dedup; drop anchors with an empty positive or negative pool.
+4. Sample up to *K* triplets per anchor (cap \~5) so popular cuisines don't swamp the set; dedup; drop anchors with an empty positive or negative pool.
 5. Write `{anchorId, positiveId, negativeId}` rows plus a header (seed, corpus size N, generation date).
 
 The harness scores each model on **triplet accuracy** — the fraction where `cosine(anchor, positive) > cosine(anchor, negative)`. Millions are available for free; the checked-in file freezes a fixed sample so the number is comparable across runs.
@@ -132,7 +132,7 @@ flowchart LR
     C -->|pairs.jsonl = gold| H[Harness]
 ```
 
-**Stage A — mine the disagreements** (`labels:mine`). Run both recommenders over a sample of anchors. For each anchor, form the question `(anchor, A, B)` from the two candidates the models rank most *oppositely* — one ranks A over B, the other B over A, by the widest margin. These max-disagreement pairs carry the signal; agreement teaches nothing. Take ~300 → `candidates.jsonl`.
+**Stage A — mine the disagreements** (`labels:mine`). Run both recommenders over a sample of anchors. For each anchor, form the question `(anchor, A, B)` from the two candidates the models rank most *oppositely* — one ranks A over B, the other B over A, by the widest margin. These max-disagreement pairs carry the signal; agreement teaches nothing. Take \~300 → `candidates.jsonl`.
 
 **Stage B — LLM drafts each pick** (`labels:draft`). For each `(anchor, A, B)`, prompt the LLM with the three recipes' `title`, `cuisine`, `dishType`, `primaryIngredient`, and top ingredients, and ask the same relative question the human will: *"Is A or B more similar to the anchor?"* Return `{ pick: "A" | "B", reason: <one line> }` → `drafts.jsonl`. Reuse the existing server LLM client (the chef already runs DeepSeek).
 
@@ -142,7 +142,7 @@ Why LLM-draft-then-correct beats labeling cold: 300 pairs reviewed (confirm the 
 
 ### 3. The label-review portal
 
-**Recommendation: a local-first review tool, not a hosted web app.** The product is Expo/React Native — there is no web surface, and no admin auth beyond the server's bearer guard (`server/src/auth-guard.ts`). Standing up a deployed, authenticated portal for a one-off pass of ~300 labels is the over-build. Instead:
+**Recommendation: a local-first review tool, not a hosted web app.** The product is Expo/React Native — there is no web surface, and no admin auth beyond the server's bearer guard (`server/src/auth-guard.ts`). Standing up a deployed, authenticated portal for a one-off pass of \~300 labels is the over-build. Instead:
 
 A single `tsx scripts/label-portal.ts` that starts a **Hono** server (already a dependency) bound to `localhost`, serving:
 
@@ -166,7 +166,7 @@ The review state the portal needs is small:
 ## Drawbacks
 
 - **Tier 1 can mislead if trusted blindly** — mitigated only by the Tier 1↔Tier 2 correlation check. Without Tier 2, we are optimizing a proxy.
-- **Tier 2 costs human hours** — ~200–300 labels. The disagreement-sampling trick minimizes it, but it is not free.
+- **Tier 2 costs human hours** — \~200–300 labels. The disagreement-sampling trick minimizes it, but it is not free.
 - **Offline ≠ online.** Until Tier 3 exists, we are betting offline quality predicts real behavior. The harness makes the bet measurable, not certain.
 
 ## Alternatives
@@ -188,6 +188,7 @@ Metadata triplets give a free, instant, million-example signal for the daily loo
 | ID | Question | Status | Resolution |
 |---|---|---|---|
 | Q-01 | Do we have any implicit behavioral signal today (saves, imports) usable as an early Tier 3? | resolved | No usable signal today. Tier 3 stays an empty slot until launch behavioral data exists; the harness ships on Tiers 1+2. |
-| Q-02 | Who labels the ~200–300 Tier 2 pairs, and by when? | resolved | LLM drafts every label; humans review and correct through an admin portal. Corrected labels become the checked-in gold set. |
+| Q-02 | Who labels the \~200–300 Tier 2 pairs, and by when? | resolved | LLM drafts every label; humans review and correct through an admin portal. Corrected labels become the checked-in gold set. |
 | Q-03 | Threshold on the rare-ingredient regression probe that counts as "fixed"? | resolved | No absolute threshold — judged relative to IDF (scored in the same run). "Fixed" = embeddings' rare-ingredient dominance below half of IDF's. |
 | Q-04 | k for Precision@k / nDCG@k — tie to how many recommendations the app surfaces. | resolved | k = 10, the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations. |
+

@@ -19,6 +19,9 @@ High-value, evergreen docs. Check the relevant one before starting related work.
 - **`lib/motion.ts`** — the canonical RN motion-token scale (durations, easing, toast timing).
 - **`docs/orchestration-runbook.md`** — running this repo's multi-agent sprints with the Orca CLI: dispatching
   Feature Leads to isolated worktrees and the `worker-start`/terminal gotchas. (See "Multi-agent sprint workflow" below.)
+- **`docs/recommender-eval-glossary.md`** — shared vocabulary for the recommender work: triplet accuracy,
+  weak supervision, gold set, active learning, Precision@k / nDCG@k, Spearman, cosine/IDF/PMI/SVD, and the
+  recipe facets. Read before touching the eval harness, embedding model, or the course/form split.
 
 Sprint records (context on how the import feature was built and fixed): `docs/sprint-import/`,
 `docs/sprint-import-fixes/`, `docs/sprint-import-fixes-2/` — each has a `POSTMORTEM.md` + `SPRINT-REPORT.md`.
