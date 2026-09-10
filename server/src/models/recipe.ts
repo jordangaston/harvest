@@ -68,6 +68,8 @@ export interface IngredientDetail {
 export interface RecipeCategories {
   cuisine: string[];
   mealType: string[];
+  /** The recipe's role(s) in a meal (`main_course`, `side_dish`, …); orthogonal to mealType + dishType. */
+  course: string[];
   dishType: string[];
   primaryIngredient: string[];
   /** The recipe's food classes (`red_meat`, `seafood`, …), from the DietClassifier at ingest. */
@@ -76,7 +78,7 @@ export interface RecipeCategories {
 
 /** An empty facet set — the default when a recipe has no categories. */
 export function emptyCategories(): RecipeCategories {
-  return { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] };
+  return { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] };
 }
 
 /** One diet's stored compatibility verdict + optional blocker (WI-DS-1). */
@@ -162,6 +164,7 @@ export interface PublicDietVerdict {
 export interface PublicCategories {
   cuisine: string[];
   meal_type: string[];
+  course: string[];
   dish_type: string[];
   primary_ingredient: string[];
 }
@@ -291,6 +294,7 @@ export function toPublicRecipe(detail: RecipeDetail): PublicRecipe {
     categories: {
       cuisine: detail.categories.cuisine,
       meal_type: detail.categories.mealType,
+      course: detail.categories.course,
       dish_type: detail.categories.dishType,
       primary_ingredient: detail.categories.primaryIngredient,
     },

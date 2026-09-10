@@ -2,24 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { isStandaloneMeal, wantsMainsOnly } from '../src/ranking/course.js';
 import type { RankableRecipe } from '../src/ranking/types.js';
 
-const rec = (dishType: string[]) =>
-  ({ categories: { cuisine: [], dishType, primaryIngredient: [] } }) as unknown as RankableRecipe;
+const rec = (course: string[]) =>
+  ({ categories: { cuisine: [], course, dishType: [], primaryIngredient: [] } }) as unknown as RankableRecipe;
 
 describe('isStandaloneMeal', () => {
-  it('keeps mains', () => {
-    for (const d of ['main_course', 'pasta', 'soup', 'salad', 'taco', 'bowl']) {
-      expect(isStandaloneMeal(rec([d])), d).toBe(true);
+  it('keeps a main_course', () => {
+    expect(isStandaloneMeal(rec(['main_course']))).toBe(true);
+  });
+  it('drops an appetizer/side/dessert-only recipe', () => {
+    for (const c of ['appetizer', 'side_dish', 'dessert']) {
+      expect(isStandaloneMeal(rec([c])), c).toBe(false);
     }
   });
-  it('drops side/bread/dessert/drink-only', () => {
-    for (const d of ['bread', 'side_dish', 'dessert', 'cookie', 'beverage', 'sauce']) {
-      expect(isStandaloneMeal(rec([d])), d).toBe(false);
-    }
+  it('keeps a recipe that is also a main (dessert + main_course)', () => {
+    expect(isStandaloneMeal(rec(['dessert', 'main_course']))).toBe(true);
   });
-  it('keeps a recipe that is also a main (soup + bread)', () => {
-    expect(isStandaloneMeal(rec(['soup', 'bread']))).toBe(true);
-  });
-  it('keeps unknown dish type (no over-filtering)', () => {
+  it('keeps an unknown course (no over-filtering on missing data)', () => {
     expect(isStandaloneMeal(rec([]))).toBe(true);
   });
 });

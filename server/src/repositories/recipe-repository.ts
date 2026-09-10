@@ -29,6 +29,7 @@ import { mapIngredientIcon } from '../parse/icons.js';
 const FACET_BY_KEY = {
   cuisine: 'cuisine',
   mealType: 'meal_type',
+  course: 'course',
   dishType: 'dish_type',
   primaryIngredient: 'primary_ingredient',
   foodCategory: 'food_category',
@@ -188,7 +189,7 @@ export class RecipeRepository {
       .where(eq(recipeCategories.recipeId, recipeId))
       .orderBy(recipeCategories.facet, recipeCategories.value);
     const categories = emptyCategories();
-    const BUCKET = { cuisine: categories.cuisine, meal_type: categories.mealType, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient, food_category: categories.foodCategory };
+    const BUCKET = { cuisine: categories.cuisine, meal_type: categories.mealType, course: categories.course, dish_type: categories.dishType, primary_ingredient: categories.primaryIngredient, food_category: categories.foodCategory };
     for (const { facet, value } of rows) BUCKET[facet].push(value);
     return categories;
   }
@@ -524,7 +525,7 @@ export class RecipeRepository {
           nutrition: nutritionPanelFrom(recipe),
           totalMinutes: recipe.totalMinutes,
           mealTypes: mealTypes.get(recipe.id) ?? [],
-          categories: categories.get(recipe.id) ?? { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },
+          categories: categories.get(recipe.id) ?? { cuisine: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] },
           baseIngredientIds: baseIngredients.get(recipe.id) ?? [],
           allergens: {
             contains: allergensContains,
@@ -558,7 +559,8 @@ export class RecipeRepository {
     });
   }
 
-  /** Batches the 3 affinity facets (cuisine/dish_type/primary_ingredient) per recipe id. */
+  /** Batches the `RankableRecipe.categories` facets (cuisine/course/dish_type/primary/food) per
+   * recipe id; meal_type is excluded (it's the recipe's own top-level `mealTypes`). */
   private async affinityCategoriesByRecipe(
     recipeIds: string[],
   ): Promise<Map<string, RankableRecipe['categories']>> {
@@ -568,10 +570,10 @@ export class RecipeRepository {
       .select({ recipeId: recipeCategories.recipeId, facet: recipeCategories.facet, value: recipeCategories.value })
       .from(recipeCategories)
       .where(inArray(recipeCategories.recipeId, recipeIds));
-    const BUCKET = { cuisine: 'cuisine', dish_type: 'dishType', primary_ingredient: 'primaryIngredient', food_category: 'foodCategory' } as const;
+    const BUCKET = { cuisine: 'cuisine', course: 'course', dish_type: 'dishType', primary_ingredient: 'primaryIngredient', food_category: 'foodCategory' } as const;
     for (const { recipeId, facet, value } of rows) {
-      if (!(facet in BUCKET)) continue; // ignore meal_type — not an affinity facet
-      const cats = map.get(recipeId) ?? { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] };
+      if (!(facet in BUCKET)) continue; // ignore meal_type — not carried on RankableRecipe.categories
+      const cats = map.get(recipeId) ?? { cuisine: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] };
       cats[BUCKET[facet as keyof typeof BUCKET]].push(value);
       map.set(recipeId, cats);
     }

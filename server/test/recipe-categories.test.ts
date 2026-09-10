@@ -5,6 +5,7 @@ import { RecipeRepository, type RecipeInput } from "../src/repositories/recipe-r
 import { recipeCategories } from "../src/schema.js";
 import { buildApp } from "../src/index.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
+import { backfillCourseFacet } from "../src/categorize/backfill-course-facet.js";
 
 /**
  * WI-TS-1: `recipe_categories` persistence + read + API shape. Offline, against a
@@ -49,19 +50,19 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const id = await repo.persist(
-      { ...BASE, categories: { cuisine: ["italian"], mealType: [], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: ["italian"], mealType: [], course: [], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] } },
       userId,
     );
 
     const detail = await repo.findById(id);
-    expect(detail!.categories).toEqual({ cuisine: ["italian"], mealType: [], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] });
+    expect(detail!.categories).toEqual({ cuisine: ["italian"], mealType: [], course: [], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] });
   });
 
   it("reads a facet's values ordered deterministically", async () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const id = await repo.persist(
-      { ...BASE, categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: ["seafood", "poultry"], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: ["seafood", "poultry"], foodCategory: [] } },
       userId,
     );
 
@@ -74,12 +75,12 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const repo = RecipeRepository.create(db);
     const absent = await repo.persist(BASE, userId);
     const empty = await repo.persist(
-      { ...BASE, categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] } },
       userId,
     );
 
     expect((await db.select().from(recipeCategories)).length).toBe(0);
-    const emptyCats = { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] };
+    const emptyCats = { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] };
     expect((await repo.findById(absent))!.categories).toEqual(emptyCats);
     expect((await repo.findById(empty))!.categories).toEqual(emptyCats);
   });
@@ -88,7 +89,7 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const id = await repo.persist(
-      { ...BASE, categories: { cuisine: ["italian"], mealType: [], dishType: [], primaryIngredient: ["seafood"], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: ["italian"], mealType: [], course: [], dishType: [], primaryIngredient: ["seafood"], foodCategory: [] } },
       userId,
     );
 
@@ -108,7 +109,7 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const id = await repo.persist(
-      { ...BASE, categories: { cuisine: ["italian"], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: ["italian"], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] } },
       userId,
     );
     expect((await db.select().from(recipeCategories).where(eq(recipeCategories.recipeId, id))).length).toBe(1);
@@ -121,11 +122,11 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const seafood = await repo.persist(
-      { ...BASE, title: "Scampi", categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: ["seafood"], foodCategory: [] } },
+      { ...BASE, title: "Scampi", categories: { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: ["seafood"], foodCategory: [] } },
       userId,
     );
     await repo.persist(
-      { ...BASE, title: "Roast Chicken", categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: ["poultry"], foodCategory: [] } },
+      { ...BASE, title: "Roast Chicken", categories: { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: ["poultry"], foodCategory: [] } },
       userId,
     );
 
@@ -141,7 +142,7 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     const { userId } = await mintUser();
     const repo = RecipeRepository.create(db);
     const id = await repo.persist(
-      { ...BASE, categories: { cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: ["red_meat"] } },
+      { ...BASE, categories: { cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: ["red_meat"] } },
       userId,
     );
 
@@ -154,7 +155,7 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
   it("surfaces categories on GET /v1/recipes/:id", async () => {
     const { token, userId } = await mintUser();
     const id = await RecipeRepository.create(db).persist(
-      { ...BASE, categories: { cuisine: ["italian"], mealType: [], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] } },
+      { ...BASE, categories: { cuisine: ["italian"], mealType: [], course: ["main_course"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] } },
       userId,
     );
 
@@ -163,8 +164,32 @@ describe("recipe_categories persistence (WI-TS-1)", () => {
     expect((await res.json()).recipe.categories).toEqual({
       cuisine: ["italian"],
       meal_type: [],
+      course: ["main_course"],
       dish_type: ["pasta"],
       primary_ingredient: ["seafood"],
     });
+  });
+});
+
+describe("backfillCourseFacet — course/form split data move", () => {
+  it("re-tags existing dish_type role rows to course, leaving forms and counts intact", async () => {
+    const { userId } = await mintUser();
+    const repo = RecipeRepository.create(db);
+    const id = await repo.persist(BASE, userId);
+    // Seed the pre-split shape: role words and a form all under dish_type.
+    await db.insert(recipeCategories).values([
+      { recipeId: id, facet: "dish_type", value: "main_course" },
+      { recipeId: id, facet: "dish_type", value: "side_dish" },
+      { recipeId: id, facet: "dish_type", value: "pasta" },
+    ]);
+
+    const { rowsMoved } = await backfillCourseFacet(db);
+
+    expect(rowsMoved).toBe(2);
+    const cats = (await repo.findById(id))!.categories;
+    expect(cats.course).toEqual(["main_course", "side_dish"]);
+    expect(cats.dishType).toEqual(["pasta"]); // the form stays put
+    // No rows lost — the move re-tags, never deletes.
+    expect((await db.select().from(recipeCategories).where(eq(recipeCategories.recipeId, id))).length).toBe(3);
   });
 });

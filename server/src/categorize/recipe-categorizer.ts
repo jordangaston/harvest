@@ -70,6 +70,7 @@ export class RecipeCategorizer {
       categories: {
         cuisine: valid('cuisine', analysis.cuisine),
         mealType: valid('mealType', analysis.mealType),
+        course: valid('course', analysis.course),
         dishType,
         primaryIngredient: valid('primaryIngredient', primaryIngredient),
         // Food classes are classified by the diet step (name-first), which merges them in later.
@@ -106,7 +107,7 @@ export class RecipeCategorizer {
     try {
       return await this.analyzer.analyze(title, names, steps);
     } catch {
-      return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
+      return { cuisine: [], mealType: [], course: [], dishType: [], stepTechniques: [], mealPrepFit: null };
     }
   }
 }
@@ -125,6 +126,6 @@ function heuristicMealPrepFit(dishType: string[], servings: number | null): Meal
 }
 
 /** Keeps only VOCAB members for the facet (defence — the LLM can emit anything). */
-function valid(facet: 'cuisine' | 'mealType' | 'dishType' | 'primaryIngredient', values: string[]): string[] {
+function valid(facet: 'cuisine' | 'mealType' | 'course' | 'dishType' | 'primaryIngredient', values: string[]): string[] {
   return values.filter((v) => inVocab(facet, v));
 }
