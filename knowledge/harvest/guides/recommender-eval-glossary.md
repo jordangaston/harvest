@@ -1,6 +1,6 @@
 # Recommendations & Evaluation — Glossary
 
-*Terms of art used across the recommender work — the [eval harness](../knowledge/harvest/proposals/recommender-eval-harness.md), the [embedding model](../knowledge/harvest/proposals/embedding-recipe-similarity.md), and the [course/form split](../knowledge/harvest/specs/split-course-facet/spec.md). Each entry: what it means, how **we** use it, and what it's normally for. Read this before reviewing those docs.*
+*Terms of art used across the recommender work — the [eval harness](../proposals/recommender-eval-harness.md), the [embedding model](../proposals/embedding-recipe-similarity.md), and the [course/form split](../specs/split-course-facet/spec.md). Each entry: what it means, how **we** use it, and what it's normally for. Read this before reviewing those docs.*
 
 ## Evaluation shape
 
@@ -59,7 +59,7 @@ Here, a recipe-to-recipe *similarity* function: given one recipe, return the mos
 The cosine of the angle between two vectors — 1 = identical direction, 0 = unrelated. **In Harvest:** how recipe taste profiles are compared (`server/src/ranking/taste/taste-profile.ts`). **Typically:** the default similarity measure for embeddings and sparse text vectors, because it ignores magnitude and compares direction.
 
 ### Embedding (vector)
-A fixed-length list of numbers representing an item so that similar items sit close together. **In Harvest:** the [embedding proposal](../knowledge/harvest/proposals/embedding-recipe-similarity.md) learns ingredient vectors and pools them into a recipe vector. **Typically:** the representation underneath most modern similarity, search, and recommendation.
+A fixed-length list of numbers representing an item so that similar items sit close together. **In Harvest:** the [embedding proposal](../proposals/embedding-recipe-similarity.md) learns ingredient vectors and pools them into a recipe vector. **Typically:** the representation underneath most modern similarity, search, and recommendation.
 
 ### Nearest-neighbor search (brute-force vs. ANN)
 Finding the closest vectors to a query. **Brute-force** compares against every item (one matrix multiply); **ANN** (approximate nearest neighbor, e.g. FAISS) trades exactness for speed at large scale. **In Harvest:** brute-force cosine is fine at our corpus size; we skip ANN until the corpus is genuinely large. **Typically:** brute-force below ~100k items, ANN above.
@@ -94,7 +94,7 @@ The culinary tradition (italian, thai, mexican …), from the authored `cuisines
 *When* a dish is eaten: breakfast, brunch, lunch, dinner, snack. Orthogonal to form — french toast is a `breakfast` (meal_type) that is a `pancake`/`bread` (dish form).
 
 ### course
-*Role in a meal*: appetizer, main_course, side_dish, dessert. **In Harvest:** being split out of `dish_type` (see the [split spec](../knowledge/harvest/specs/split-course-facet/spec.md)); used as a retrieval *filter* (don't pair a dessert with a main), not as a similarity axis.
+*Role in a meal*: appetizer, main_course, side_dish, dessert. **In Harvest:** being split out of `dish_type` (see the [split spec](../specs/split-course-facet/spec.md)); used as a retrieval *filter* (don't pair a dessert with a main), not as a similarity axis.
 
 ### dish_type (dish form)
 *What the dish physically is*: pasta, pizza, soup, salad, curry, stir_fry … (forms only, once `course` is split off). **In Harvest:** with `cuisine`, this is the "same kind of dish" signal that defines a triplet positive.

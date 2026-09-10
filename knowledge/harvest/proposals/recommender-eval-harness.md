@@ -10,7 +10,7 @@ summary: "Score any recommender against metadata weak-labels, a small human gold
 
 **Proposal in one line:** build one offline harness that turns "which recommender is better?" from an eyeball judgment into a single number, in under 30 seconds, before we have any users.
 
-> **New to the terminology?** *triplet accuracy, weak supervision, gold set, active learning, Precision@10 / nDCG@10, Spearman correlation* and the rest are defined in the [Recommendations & Evaluation glossary](../../../docs/recommender-eval-glossary.md). This doc uses those terms deliberately — the glossary is the shared vocabulary.
+> **New to the terminology?** *triplet accuracy, weak supervision, gold set, active learning, Precision@10 / nDCG@10, Spearman correlation* and the rest are defined in the [Recommendations & Evaluation glossary](../guides/recommender-eval-glossary.md). This doc uses those terms deliberately — the glossary is the shared vocabulary.
 
 ## Motivation
 
@@ -43,7 +43,7 @@ A recommender is a function: `rank(recipeId) -> RecipeId[]`. The IDF engine and 
 
 The caveat that governs its use: optimizing Tier 1 alone just teaches a model to recover cuisine labels we already have. Same-cuisine is not always "similar," and cross-cuisine can be (two coconut curries). Tier 1 is necessary, not sufficient — superb at catching gross failure (the IDF rare-ingredient weirdness scores terribly), useless as the final word.
 
-**Tier 2 — a small human-corrected gold set (\~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal. Two named techniques stack here: **[pairwise preference elicitation](../../../docs/recommender-eval-glossary.md)** (relative "A or B?" judgments are more reliable than absolute ratings — a psychometrics / learning-to-rank staple) and **[disagreement-based active learning](../../../docs/recommender-eval-glossary.md)** (query-by-committee: spend labels where the models disagree, since agreement is uninformative).
+**Tier 2 — a small human-corrected gold set (\~200–300 judgments, the source of truth).** Ask pairwise questions ("is A more similar to B or C?") — humans are far more consistent at relative than absolute calls. The trick that makes 300 labels go far: **label the disagreements.** Run both recommenders, find the pairs where they most disagree, and label only those. Agreement cases teach nothing; the disagreements carry all the signal. Two named techniques stack here: **[pairwise preference elicitation](../guides/recommender-eval-glossary.md)** (relative "A or B?" judgments are more reliable than absolute ratings — a psychometrics / learning-to-rank staple) and **[disagreement-based active learning](../guides/recommender-eval-glossary.md)** (query-by-committee: spend labels where the models disagree, since agreement is uninformative).
 
 **Labeling is LLM-drafted, human-corrected.** An LLM answers each pairwise question first; humans review and correct its calls through an **admin portal** (a review queue: the anchor + two candidates, the LLM's pick and reason, accept-or-flip). This turns 300 labels from "300 judgments made from scratch" into "300 judgments reviewed," which is faster and keeps a human as the final authority on the gold set. Corrected labels are what gets checked into the versioned test set.
 
@@ -61,7 +61,7 @@ A fast metric that lies is worse than none. Four cheap checks:
 ### Metrics
 
 - **Triplet accuracy** — Tier 1 and Tier 2 headline. Interpretable, single scalar, drives daily iteration.
-- **[Precision@10 / nDCG@10](../../../docs/recommender-eval-glossary.md)** — on the Tier 2 query set, for graded final judgment. k = 10, tied to the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations, so quality is measured over exactly the window a user sees per batch.
+- **[Precision@10 / nDCG@10](../guides/recommender-eval-glossary.md)** — on the Tier 2 query set, for graded final judgment. k = 10, tied to the swipe deck's `DECK_DEFAULT_LIMIT` — the only surface that shows recommendations, so quality is measured over exactly the window a user sees per batch.
 
 ### The build
 
@@ -103,7 +103,7 @@ A triplet is `{ anchor, positive, negative }`. Each facet is an array, so "share
 - **Positive** — shares at least one value on **both `cuisine` and `dish_type`** (both intersections non-empty). "Same kind of dish, same tradition" — e.g. two Italian pastas.
 - **Negative** — shares **nothing** on `cuisine` or `dish_type` (both intersections empty). "Unrelated dish."
 
-This is **[weak (distant) supervision](../../../docs/recommender-eval-glossary.md)** — triplets auto-labeled from metadata we already have, no annotator: noisy per label, but free and millions-strong, which is exactly what makes it the daily driver. Only the two similarity axes gate the label; `primary_ingredient` is left out (it over-constrains the positive and duplicates the ingredient signal the model already learns), and `course` is a retrieval filter, not a triplet axis.
+This is **[weak (distant) supervision](../guides/recommender-eval-glossary.md)** — triplets auto-labeled from metadata we already have, no annotator: noisy per label, but free and millions-strong, which is exactly what makes it the daily driver. Only the two similarity axes gate the label; `primary_ingredient` is left out (it over-constrains the positive and duplicates the ingredient signal the model already learns), and `course` is a retrieval filter, not a triplet axis.
 
 The generator (deterministic, with the seed recorded in the file header):
 
