@@ -10,6 +10,8 @@ summary: "Learn ingredient vectors from co-occurrence (PMI + SVD), pool into rec
 
 **Proposal in one line:** represent recipes by ingredient vectors learned from *co-occurrence* — which ingredients keep company — instead of weighting ingredients by how rare they are.
 
+*Part of the [Recommender Rebuild roadmap](../guides/recommender-rebuild-roadmap.md) — this is the model under test.*
+
 ## Motivation
 
 **Situation.** We recommend recipes by ingredient similarity. Today's engine builds a bag-of-ingredients vector per recipe and weights each ingredient by IDF (rarer counts for more).

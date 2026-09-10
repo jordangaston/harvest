@@ -12,6 +12,8 @@ tags:
 ---
 One-line: give a recipe's **course** (its role in a meal) a dedicated facet so `dish_type` can hold only the dish's **form**.
 
+*Part of the [Recommender Rebuild roadmap](../../guides/recommender-rebuild-roadmap.md) — a Phase 0 blocker.*
+
 ## Goals
 
 - Split the overloaded `dish_type` facet into two orthogonal facets: **`course`** (role in a meal) and **`dish_type`** (dish form). Each answers one question.
