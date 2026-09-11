@@ -11,6 +11,7 @@ import { idfRecommender, randomRecommender, embeddingRecommender } from '../src/
 import { EmbeddingSpace, DEFAULT_OPTIONS } from '../src/ranking/embedding/embedding-space.js';
 import { tripletAccuracy, type Triplet } from '../src/eval/recsys/triplets.js';
 import { rareIngredientProbe } from '../src/eval/recsys/probes.js';
+import { evaluateGraded, spearman, type LabeledQuery } from '../src/eval/recsys/metrics.js';
 
 /**
  * recsys eval runner (`eval:recsys`) — Tier 1: triplet accuracy per model and the rare-ingredient
@@ -54,6 +55,7 @@ const embedding = embeddingRecommender(EmbeddingSpace.build(bags, DEFAULT_OPTION
 const models = [embedding, idf, random];
 
 // ── Triplet accuracy (Tier 1 headline) ──────────────────────────────────────
+const tier1 = new Map<string, number>();
 const triplets = loadTriplets();
 if (triplets.length === 0) {
   console.log(`No eval/gold/triplets.jsonl — run \`npm run labels:triplets\` first.`);
@@ -61,6 +63,7 @@ if (triplets.length === 0) {
   console.log(`triplet accuracy — ${triplets.length} triplets`);
   for (const m of models) {
     const s = tripletAccuracy(m, triplets);
+    tier1.set(m.name, s.accuracy);
     console.log(`  ${m.name.padEnd(10)} ${s.accuracy.toFixed(3)}`);
   }
 }
@@ -72,5 +75,33 @@ console.log(`\nrare-ingredient probe — top-10 share (df ≤ 5, ≤200 anchors)
 for (const m of models) {
   const p = rareIngredientProbe(m, profiles, df, { dfThreshold: 5, topK: 10, maxAnchors: 200, seed: 42 });
   console.log(`  ${m.name.padEnd(10)} ${p.share.toFixed(3)}  (n=${p.n})`);
+}
+
+// ── Tier 2: graded metrics over the human gold set + Tier 1↔Tier 2 Spearman ──
+const pairsPath = join(GOLD, 'pairs.jsonl');
+if (!existsSync(pairsPath)) {
+  console.log(`\nTier 2: no eval/gold/pairs.jsonl yet — mine → draft → review in the portal first.`);
+} else {
+  const byAnchor = new Map<string, Record<string, number>>();
+  for (const line of readFileSync(pairsPath, 'utf8').trim().split('\n')) {
+    const o = JSON.parse(line) as { a: string; c: string; rel: number | null };
+    if (o.rel == null) continue; // skipped verdict
+    const labels = byAnchor.get(o.a) ?? {};
+    labels[o.c] = o.rel;
+    byAnchor.set(o.a, labels);
+  }
+  const gold: LabeledQuery[] = [...byAnchor].map(([anchor, labels]) => ({ anchor, labels }));
+  console.log(`\nTier 2 — P@10 / nDCG@10 over ${gold.length} labeled anchors`);
+  const tier2 = new Map<string, number>();
+  for (const m of models) {
+    const g = evaluateGraded(m, gold, 10);
+    tier2.set(m.name, g.ndcgAtK);
+    console.log(`  ${m.name.padEnd(10)} P@10 ${g.precisionAtK.toFixed(3)}  nDCG@10 ${g.ndcgAtK.toFixed(3)}`);
+  }
+  const names = models.map((m) => m.name).filter((n) => tier1.has(n) && tier2.has(n));
+  if (names.length >= 2) {
+    const rho = spearman(names.map((n) => tier1.get(n)!), names.map((n) => tier2.get(n)!));
+    console.log(`\nTier 1 ↔ Tier 2 Spearman (model ranking): ρ = ${rho.toFixed(3)}  ${rho >= 0.9 ? '→ Tier 1 validated as a proxy' : '→ proxy weak, investigate'}`);
+  }
 }
 process.exit(0);

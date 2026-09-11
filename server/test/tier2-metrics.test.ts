@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { precisionAtK, ndcgAtK, spearman, evaluateGraded } from '../src/eval/recsys/metrics.js';
 import { mineDisagreements } from '../src/eval/recsys/mine.js';
+import { draftMessages, parseDraft } from '../src/eval/recsys/draft.js';
 import type { Recommender } from '../src/eval/recsys/types.js';
 
 /** Score a fixed order regardless of anchor — lets tests pin a model's ranking. Returns sorted
@@ -66,5 +67,21 @@ describe('mineDisagreements', () => {
     expect(mined[0]!.disagreement).toBe(2);
     expect(mined.length).toBe(2);
     expect(mined.some((m) => m.candidate === 'y')).toBe(false); // y (0 disagreement) not in top-2? z=2,x=2,y=0
+  });
+});
+
+describe('draft parse/prompt', () => {
+  it('clamps rel to an integer 0–3 and defaults on bad output', () => {
+    expect(parseDraft('{"rel":2,"reason":"both pasta"}')).toEqual({ rel: 2, reason: 'both pasta' });
+    expect(parseDraft('{"rel":9}').rel).toBe(3); // clamped
+    expect(parseDraft('{"rel":-4}').rel).toBe(0); // clamped
+    expect(parseDraft('not json').rel).toBe(0); // degrades
+  });
+  it('builds a system+user message pair naming both recipes', () => {
+    const msgs = draftMessages({ id: '1', title: 'Carbonara', ingredients: ['egg', 'pasta'] }, { id: '2', title: 'Ramen', ingredients: ['noodle'] });
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]!.role).toBe('system');
+    expect(msgs[1]!.content).toContain('Carbonara');
+    expect(msgs[1]!.content).toContain('Ramen');
   });
 });
