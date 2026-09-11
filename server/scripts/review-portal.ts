@@ -63,7 +63,7 @@ async function load(){const r=await fetch('/api/next');const d=await r.json();
   '<div class=draft>'+draft+'</div>'+
   '<div class=btns>'+[0,1,2,3].map(n=>'<button onclick=vote('+n+') class="'+(c.draft&&c.draft.rel===n?'on':'')+'">'+n+'</button>').join('')+
   '<button class=skip onclick=vote(null)>Skip</button></div>'+
-  '<p style=color:#7a6a52>0 unrelated · 1 loosely · 2 similar · 3 very similar</p>';}
+  '<p style=color:#7a6a52><b>good rec = 2 or 3</b> · 0 unrelated · 1 bad rec (superficial overlap — user would be confused) · 2 good rec · 3 near-duplicate</p>';}
 function esc(s){return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
 async function vote(rel){if(!cur)return;await fetch('/api/verdict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({a:cur.a.id,c:cur.c.id,rel})});load();}
 document.addEventListener('keydown',e=>{if(['0','1','2','3'].includes(e.key))vote(+e.key);if(e.key===' '){e.preventDefault();vote(null);}});

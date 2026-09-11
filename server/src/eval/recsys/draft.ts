@@ -8,8 +8,14 @@ export interface RecipeCard {
   ingredients: string[];
 }
 
-/** Graded relevance for the "you might also like" judgement. */
-export const REL_SCALE = '0 = unrelated, 1 = loosely related, 2 = similar, 3 = very similar / near-duplicate';
+/** Graded relevance for the "you might also like" judgement — anchored on rec QUALITY: a good rec
+ * is a 2 or a 3; both 0 and 1 are bad recs (1 just has a superficial thread). */
+export const REL_SCALE =
+  '0 = unrelated (no meaningful connection); ' +
+  '1 = BAD rec — shares only something superficial (a condiment, one minor ingredient, a loose theme), ' +
+  'so a user who liked A would be frustrated or confused to see B recommended; ' +
+  '2 = GOOD rec — a sensible "you might also like" (dish form aligns, plus cuisine or a main ingredient); ' +
+  '3 = very similar — essentially the same dish (form + cuisine + overlapping main ingredients)';
 
 export interface Draft {
   rel: number;
@@ -23,8 +29,12 @@ export function draftMessages(a: RecipeCard, b: RecipeCard): { role: 'system' | 
     {
       role: 'system',
       content:
-        "You judge how similar two recipes are for a 'you might also like' recommender. Consider cuisine, " +
-        `dish form, main ingredients, and role in a meal. Rate similarity: ${REL_SCALE}. ` +
+        "You judge whether recipe B is a good 'you might also like' recommendation for someone who liked " +
+        'recipe A. A good recommendation is a 2 or a 3; both 0 and 1 are bad recs. Weigh dish form, cuisine, ' +
+        `main ingredients, and role in a meal — a shared condiment or one incidental ingredient is NOT similarity. ` +
+        `Scale: ${REL_SCALE}. ` +
+        'Example: "Grilled Baby Potatoes with Dijon & Thyme" vs "Mustard-Crème Fraîche Sauce" = 1 (they share ' +
+        'mustard, but a sauce is not a sensible rec for a potato side). ' +
         'Return JSON {"rel": <0-3 integer>, "reason": "<one short sentence>"}.',
     },
     { role: 'user', content: `Recipe A:\n${card(a)}\n\nRecipe B:\n${card(b)}` },

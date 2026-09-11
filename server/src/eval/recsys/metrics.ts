@@ -43,15 +43,16 @@ export interface GradedReport {
 }
 
 /** Score a model over the labeled gold set: mean P@k and nDCG@k across queries (each query ranks
- * only its own labeled candidates). Queries with <2 labels are skipped (nothing to rank). */
-export function evaluateGraded(rec: Recommender, gold: LabeledQuery[], k = 10): GradedReport {
+ * only its own labeled candidates). Queries with <2 labels are skipped (nothing to rank). `rel` is
+ * the P@k relevance threshold — 2 by design, since a "good rec" is a 2 or a 3 (a 1 is a bad rec). */
+export function evaluateGraded(rec: Recommender, gold: LabeledQuery[], k = 10, rel = 2): GradedReport {
   const ps: number[] = [];
   const ns: number[] = [];
   for (const q of gold) {
     const cands = Object.keys(q.labels);
     if (cands.length < 2) continue;
     const ranked = rankIds(rec, q.anchor, cands);
-    ps.push(precisionAtK(ranked, q.labels, k));
+    ps.push(precisionAtK(ranked, q.labels, k, rel));
     ns.push(ndcgAtK(ranked, q.labels, k));
   }
   const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length);
