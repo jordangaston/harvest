@@ -13,7 +13,11 @@ export interface EmbeddingOptions {
   sifA: number;
 }
 
-export const DEFAULT_OPTIONS: EmbeddingOptions = { minDf: 20, dims: 100, sifA: 1e-3 };
+// Tuned on Tier 1 (triplet accuracy 0.877, rare-ingredient probe 0.009): minDf=30 aligns with the
+// corpus density rule (only trust ingredients seen in ≥30 recipes); dims=250 captures more
+// co-occurrence structure. sifA stays 1e-3 — raising it inflates triplet accuracy only by
+// up-weighting the cuisine/dish pseudo-tokens the metric is built from (gaming, not quality).
+export const DEFAULT_OPTIONS: EmbeddingOptions = { minDf: 30, dims: 250, sifA: 1e-3 };
 
 export interface Ppmi {
   tokens: string[];
