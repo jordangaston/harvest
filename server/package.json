@@ -24,6 +24,7 @@
     "build:taste": "tsx scripts/build-taste-space.ts",
     "eval:affinity": "tsx scripts/eval-affinity.ts",
     "eval:recsys": "tsx scripts/eval-recsys.ts",
+    "labels:triplets": "tsx scripts/build-eval-triplets.ts",
     "demo:affinity": "tsx scripts/demo-affinity.ts",
     "reclassify:diets": "tsx scripts/reclassify-diets.ts",
     "eval:matcher": "tsx scripts/eval-matcher.ts",

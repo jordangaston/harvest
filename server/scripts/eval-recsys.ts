@@ -1,53 +1,61 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 config();
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createClient } from '@libsql/client';
 import { makeDb } from '../src/db.js';
 import { TasteRepository } from '../src/ranking/taste/taste-repository.js';
 import { TasteSpace } from '../src/ranking/taste/taste-space.js';
-import { idfRecommender, randomRecommender, popularityRecommender } from '../src/eval/recsys/recommenders.js';
-import { evaluate, formatReport } from '../src/eval/recsys/harness.js';
-import type { GoldSet } from '../src/eval/recsys/types.js';
+import { idfRecommender, randomRecommender } from '../src/eval/recsys/recommenders.js';
+import { tripletAccuracy, type Triplet } from '../src/eval/recsys/triplets.js';
+import { rareIngredientProbe } from '../src/eval/recsys/probes.js';
 
 /**
- * recsys eval runner (`eval:recsys`): score every registered recipe-similarity model against the
- * checked-in gold set (`eval/gold/*.json`) and print the headline MRR + per-cuisine diagnostics.
- * The IDF model is today's taste-profile cosine; `random`/`popularity` are the floor. `popularity`
- * is unavailable until the signal ships (`recipes.popularity` doesn't exist). Target DB from
- * `TURSO_DATABASE_URL`. The gold content itself is produced by the Tier specs.
+ * recsys eval runner (`eval:recsys`) — Tier 1: triplet accuracy per model and the rare-ingredient
+ * probe, through the eval-harness-core interface. Target DB from `TURSO_DATABASE_URL`. Triplets come
+ * from the committed `eval/gold/triplets.jsonl` (`labels:triplets`).
  */
-const GOLD_DIR = join(process.cwd(), 'eval', 'gold');
+const GOLD = join(process.cwd(), 'eval', 'gold');
 
-function loadGold(): GoldSet {
-  let files: string[] = [];
-  try {
-    files = readdirSync(GOLD_DIR).filter((f) => f.endsWith('.json'));
-  } catch {
-    return { queries: [] };
+function loadTriplets(): Triplet[] {
+  const path = join(GOLD, 'triplets.jsonl');
+  if (!existsSync(path)) return [];
+  const lines = readFileSync(path, 'utf8').trim().split('\n');
+  const out: Triplet[] = [];
+  for (const line of lines) {
+    const o = JSON.parse(line) as { a?: string; pos?: string; neg?: string };
+    if (o.a && o.pos && o.neg) out.push({ anchor: o.a, positive: o.pos, negative: o.neg });
   }
-  const queries = files.flatMap((f) => (JSON.parse(readFileSync(join(GOLD_DIR, f), 'utf8')) as GoldSet).queries ?? []);
-  return { queries };
-}
-
-const gold = loadGold();
-if (gold.queries.length === 0) {
-  console.log(`No gold queries in ${GOLD_DIR}. Generate a test set (Tier 1) first — see eval/gold/README.md.`);
-  process.exit(0);
+  return out;
 }
 
 const client = createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN });
-const space = new TasteSpace(await TasteRepository.create(makeDb(client)).allProfiles());
-
+const db = makeDb(client);
+const profiles = await TasteRepository.create(db).allProfiles();
+const space = new TasteSpace(profiles);
 const idf = idfRecommender(space);
 const random = randomRecommender();
-const popularity = popularityRecommender(new Map()); // empty until recipes.popularity ships
+const models = [idf, random];
 
-const reports = [
-  evaluate(idf, gold),
-  evaluate(random, gold),
-  evaluate(popularity, gold, popularity.available ? undefined : 'unavailable — recipes.popularity not populated'),
-];
-console.log(formatReport(reports));
+// ── Triplet accuracy (Tier 1 headline) ──────────────────────────────────────
+const triplets = loadTriplets();
+if (triplets.length === 0) {
+  console.log(`No eval/gold/triplets.jsonl — run \`npm run labels:triplets\` first.`);
+} else {
+  console.log(`triplet accuracy — ${triplets.length} triplets`);
+  for (const m of models) {
+    const s = tripletAccuracy(m, triplets);
+    console.log(`  ${m.name.padEnd(10)} ${s.accuracy.toFixed(3)}`);
+  }
+}
+
+// ── Rare-ingredient probe (relative to IDF) ──────────────────────────────────
+const dfRows = (await client.execute('SELECT base_ingredient_id, document_frequency FROM ingredient_distinctiveness')).rows as unknown as { base_ingredient_id: string; document_frequency: number }[];
+const df = new Map(dfRows.map((r) => [r.base_ingredient_id, Number(r.document_frequency)]));
+console.log(`\nrare-ingredient probe — top-10 share (df ≤ 5, ≤200 anchors)`);
+for (const m of models) {
+  const p = rareIngredientProbe(m, profiles, df, { dfThreshold: 5, topK: 10, maxAnchors: 200, seed: 42 });
+  console.log(`  ${m.name.padEnd(10)} ${p.share.toFixed(3)}  (n=${p.n})`);
+}
 process.exit(0);
