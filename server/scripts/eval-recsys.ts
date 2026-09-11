@@ -7,7 +7,8 @@ import { createClient } from '@libsql/client';
 import { makeDb } from '../src/db.js';
 import { TasteRepository } from '../src/ranking/taste/taste-repository.js';
 import { TasteSpace } from '../src/ranking/taste/taste-space.js';
-import { idfRecommender, randomRecommender } from '../src/eval/recsys/recommenders.js';
+import { idfRecommender, randomRecommender, embeddingRecommender } from '../src/eval/recsys/recommenders.js';
+import { EmbeddingSpace, DEFAULT_OPTIONS } from '../src/ranking/embedding/embedding-space.js';
 import { tripletAccuracy, type Triplet } from '../src/eval/recsys/triplets.js';
 import { rareIngredientProbe } from '../src/eval/recsys/probes.js';
 
@@ -36,7 +37,21 @@ const profiles = await TasteRepository.create(db).allProfiles();
 const space = new TasteSpace(profiles);
 const idf = idfRecommender(space);
 const random = randomRecommender();
-const models = [idf, random];
+
+// Embedding model: token bags = base ingredients (profile keys) + cuisine/dish-form pseudo-tokens.
+const facetRows = (await client.execute("SELECT recipe_id, facet, value FROM recipe_categories WHERE facet IN ('cuisine','dish_type')")).rows as unknown as { recipe_id: string; facet: string; value: string }[];
+const pseudo = new Map<string, string[]>();
+for (const r of facetRows) {
+  const list = pseudo.get(r.recipe_id) ?? [];
+  list.push(`${r.facet}:${r.value}`);
+  pseudo.set(r.recipe_id, list);
+}
+const bags = new Map<string, string[]>();
+for (const [id, profile] of profiles) bags.set(id, [...Object.keys(profile), ...(pseudo.get(id) ?? [])]);
+console.log(`building embedding space over ${bags.size} recipes (minDf=${DEFAULT_OPTIONS.minDf}, dims=${DEFAULT_OPTIONS.dims})…`);
+const embedding = embeddingRecommender(EmbeddingSpace.build(bags, DEFAULT_OPTIONS));
+
+const models = [embedding, idf, random];
 
 // ── Triplet accuracy (Tier 1 headline) ──────────────────────────────────────
 const triplets = loadTriplets();
