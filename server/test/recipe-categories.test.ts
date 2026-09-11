@@ -6,6 +6,7 @@ import { recipeCategories } from "../src/schema.js";
 import { buildApp } from "../src/index.js";
 import { migratedFileDb } from "./helpers/migrated-db.js";
 import { backfillCourseFacet } from "../src/categorize/backfill-course-facet.js";
+import { foldBurgerToSandwich } from "../src/categorize/backfill-fold-burger.js";
 
 /**
  * WI-TS-1: `recipe_categories` persistence + read + API shape. Offline, against a
@@ -191,5 +192,29 @@ describe("backfillCourseFacet — course/form split data move", () => {
     expect(cats.dishType).toEqual(["pasta"]); // the form stays put
     // No rows lost — the move re-tags, never deletes.
     expect((await db.select().from(recipeCategories).where(eq(recipeCategories.recipeId, id))).length).toBe(3);
+  });
+});
+
+describe("foldBurgerToSandwich — vocab fold data move", () => {
+  it("renames burger to sandwich, dedups a recipe already tagged sandwich, and is idempotent", async () => {
+    const { userId } = await mintUser();
+    const repo = RecipeRepository.create(db);
+    const plain = await repo.persist(BASE, userId); // burger only
+    const already = await repo.persist({ ...BASE, title: "Slider Plate" }, userId); // burger + sandwich
+    await db.insert(recipeCategories).values([
+      { recipeId: plain, facet: "dish_type", value: "burger" },
+      { recipeId: already, facet: "dish_type", value: "burger" },
+      { recipeId: already, facet: "dish_type", value: "sandwich" },
+    ]);
+
+    const r = await foldBurgerToSandwich(db);
+
+    expect(r.folded).toBe(1); // `plain` renamed
+    expect(r.deduped).toBe(1); // `already` had sandwich → its burger row deleted, not duplicated
+    expect((await repo.findById(plain))!.categories.dishType).toEqual(["sandwich"]);
+    expect((await repo.findById(already))!.categories.dishType).toEqual(["sandwich"]); // single row, no dup
+
+    // Idempotent: a second run finds no burger rows.
+    expect(await foldBurgerToSandwich(db)).toEqual({ folded: 0, deduped: 0 });
   });
 });
