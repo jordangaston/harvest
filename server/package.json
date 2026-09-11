@@ -23,6 +23,7 @@
     "backfill:food-category": "tsx scripts/backfill-food-category.ts",
     "build:taste": "tsx scripts/build-taste-space.ts",
     "eval:affinity": "tsx scripts/eval-affinity.ts",
+    "corpus:density": "tsx scripts/measure-corpus-density.ts",
     "demo:affinity": "tsx scripts/demo-affinity.ts",
     "reclassify:diets": "tsx scripts/reclassify-diets.ts",
     "eval:matcher": "tsx scripts/eval-matcher.ts",
