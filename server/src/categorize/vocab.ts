@@ -18,9 +18,13 @@ export const VOCAB = {
   // WHAT form the dish takes (Edamam dishType, cleaned to dish forms only — meal-timing moved to
   // mealType, meal role moved to course). snake_case for multi-word values.
   dishType: [
-    'salad', 'soup', 'stew', 'bread', 'pancake', 'pastry', 'pie', 'pizza', 'pasta', 'sandwich',
-    'burger', 'taco', 'bowl', 'casserole', 'curry', 'stir_fry', 'cookie', 'ice_cream', 'sauce',
-    'beverage', 'cocktail', 'sushi',
+    'salad', 'soup', 'stew', 'bread', 'pancake', 'cereal', 'pastry', 'pie', 'pizza', 'pasta',
+    'sandwich', 'taco', 'bowl', 'casserole', 'curry', 'stir_fry', 'cookie', 'ice_cream',
+    // `cereal` = granola/muesli/oatmeal/porridge; `snack` = the portable snackable form a bar,
+    // popcorn, or spiced nuts takes (distinct from mealType `snack`, which is WHEN it's eaten).
+    // `condiment` = a rub/spice-blend/dressing/marinade/stock/component (Edamam "Preps"); `preserve`
+    // = jam/pickle/preserve. A burger is a sandwich — folded into `sandwich`, no separate `burger`.
+    'snack', 'sauce', 'condiment', 'preserve', 'beverage', 'cocktail', 'sushi',
   ],
   primaryIngredient: [
     'seafood', 'poultry', 'beef', 'pork', 'lamb', 'egg', 'cheese', 'tofu', 'beans', 'vegetable',

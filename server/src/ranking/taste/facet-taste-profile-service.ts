@@ -3,7 +3,7 @@ import { TasteSpace } from './taste-space.js';
 import { TasteRepository, type AffinityFacet, type CategoryFacet } from './taste-repository.js';
 
 /**
- * The typical taste of a facet value (cuisine "italian", dish_type "burger") — the centroid of
+ * The typical taste of a facet value (cuisine "italian", dish_type "sandwich") — the centroid of
  * the recipes carrying that tag. Derived on the fly from the in-memory space and memoized per
  * `(facet, value)` (D-09: no stored table). An `ingredient` like resolves to a unit direction
  * on that base ingredient. Resolution is a tag lookup, never title/text matching (D-10).

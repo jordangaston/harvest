@@ -53,6 +53,13 @@ describe("VOCAB", () => {
     expect(inVocab("dishType", "pasta")).toBe(true);
   });
 
+  // Edamam-reconciliation additions + the burger→sandwich fold.
+  it("carries the reconciled dish forms and folds burger into sandwich", () => {
+    for (const form of ["cereal", "snack", "condiment", "preserve"]) expect(inVocab("dishType", form), form).toBe(true);
+    expect(inVocab("dishType", "burger")).toBe(false); // a burger is a sandwich
+    expect(inVocab("dishType", "sandwich")).toBe(true);
+  });
+
   // O-CL-1: the expanded cuisine vocabulary (from cuisines-data.ts) is the exact chokepoint
   // that silently swallowed richer picks before the overhaul.
   it("includes the expanded cuisine hierarchy (tex_mex, cajun, …) so constrain keeps them", () => {
