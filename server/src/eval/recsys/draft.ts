@@ -30,11 +30,20 @@ export function draftMessages(a: RecipeCard, b: RecipeCard): { role: 'system' | 
       role: 'system',
       content:
         "You judge whether recipe B is a good 'you might also like' recommendation for someone who liked " +
-        'recipe A. A good recommendation is a 2 or a 3; both 0 and 1 are bad recs. Weigh dish form, cuisine, ' +
-        `main ingredients, and role in a meal — a shared condiment or one incidental ingredient is NOT similarity. ` +
-        `Scale: ${REL_SCALE}. ` +
-        'Example: "Grilled Baby Potatoes with Dijon & Thyme" vs "Mustard-Crème Fraîche Sauce" = 1 (they share ' +
-        'mustard, but a sauce is not a sensible rec for a potato side). ' +
+        'recipe A. Judge the DISH AS A WHOLE — its form (pasta, soup, taco, cocktail…), its main ' +
+        'ingredients, and its cuisine — NOT whether the two happen to share one ingredient. A person who ' +
+        'liked A should want to cook B next.\n' +
+        'Rate LOW (0 or 1) when the only link is superficial, even if an ingredient matches:\n' +
+        '• single-ingredient / garnish overlap — e.g. both contain corn, or both contain mustard — but the ' +
+        'dishes are otherwise different. This is the most common bad rec; do not be fooled by a shared ingredient.\n' +
+        "• role mismatch — B is a sauce, side, condiment, drink, or component but A is a full dish (or vice versa).\n" +
+        'Rate HIGH (2 or 3) only when B shares A\'s overall character: same/related form AND overlapping mains ' +
+        'or cuisine. A good recommendation is a 2 or a 3; both 0 and 1 are bad recs.\n' +
+        `Scale: ${REL_SCALE}.\n` +
+        'Examples: "Ramen Carbonara" (a noodle dish) → "Soba Noodles" or "Chicken Lo Mein" = 2-3 (both noodle ' +
+        'dishes); → "Corn on the Cob" or "Creamed Corn Chicken" = 0-1 (shares only the corn garnish, a totally ' +
+        'different dish). "Grilled Potatoes with Dijon" → "Mustard-Crème Fraîche Sauce" = 1 (shares only mustard; ' +
+        'a sauce is not a dish to recommend). ' +
         'Return JSON {"rel": <0-3 integer>, "reason": "<one short sentence>"}.',
     },
     { role: 'user', content: `Recipe A:\n${card(a)}\n\nRecipe B:\n${card(b)}` },

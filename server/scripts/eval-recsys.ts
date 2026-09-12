@@ -12,6 +12,7 @@ import { EmbeddingSpace, DEFAULT_OPTIONS } from '../src/ranking/embedding/embedd
 import { tripletAccuracy, type Triplet } from '../src/eval/recsys/triplets.js';
 import { rareIngredientProbe } from '../src/eval/recsys/probes.js';
 import { evaluateGraded, pairwiseConcordance, spearman, type LabeledQuery } from '../src/eval/recsys/metrics.js';
+import { goldFile } from '../src/eval/recsys/gold-paths.js';
 
 /**
  * recsys eval runner (`eval:recsys`) — Tier 1: triplet accuracy per model and the rare-ingredient
@@ -77,20 +78,34 @@ for (const m of models) {
   console.log(`  ${m.name.padEnd(10)} ${p.share.toFixed(3)}  (n=${p.n})`);
 }
 
-// ── Tier 2: graded metrics over the human gold set + Tier 1↔Tier 2 Spearman ──
-const pairsPath = join(GOLD, 'pairs.jsonl');
-if (!existsSync(pairsPath)) {
-  console.log(`\nTier 2: no eval/gold/pairs.jsonl yet — mine → draft → review in the portal first.`);
+// ── Tier 2: graded metrics + Tier 1↔Tier 2 Spearman. Labels = DeepSeek drafts as the base,
+// overridden by human verdicts (pairs) where present. ──
+const draftsPath = goldFile('drafts');
+const pairsPath = goldFile('pairs');
+const readRel = (path: string) => {
+  const m = new Map<string, number | null>();
+  if (existsSync(path)) for (const line of readFileSync(path, 'utf8').trim().split('\n').filter(Boolean)) {
+    const o = JSON.parse(line) as { a: string; c: string; rel: number | null };
+    m.set(`${o.a}|${o.c}`, o.rel);
+  }
+  return m;
+};
+const base = readRel(draftsPath);
+const human = readRel(pairsPath);
+if (base.size === 0 && human.size === 0) {
+  console.log(`\nTier 2: no labels yet — mine → draft → review in the portal first.`);
 } else {
   const byAnchor = new Map<string, Record<string, number>>();
-  for (const line of readFileSync(pairsPath, 'utf8').trim().split('\n')) {
-    const o = JSON.parse(line) as { a: string; c: string; rel: number | null };
-    if (o.rel == null) continue; // skipped verdict
-    const labels = byAnchor.get(o.a) ?? {};
-    labels[o.c] = o.rel;
-    byAnchor.set(o.a, labels);
+  for (const key of new Set([...base.keys(), ...human.keys()])) {
+    const rel = human.has(key) ? human.get(key)! : base.get(key)!;
+    if (rel == null) continue; // skipped
+    const [a, c] = key.split('|');
+    const labels = byAnchor.get(a!) ?? {};
+    labels[c!] = rel;
+    byAnchor.set(a!, labels);
   }
   const gold: LabeledQuery[] = [...byAnchor].map(([anchor, labels]) => ({ anchor, labels }));
+  console.log(`\n(labels: ${human.size} human overrides on ${base.size} DeepSeek drafts)`);
   // Pairwise concordance is the headline: the mined pairs are max-disagreement + few-per-anchor, so
   // P@10/nDCG@10 barely discriminate (k > pool). Concordance scores each differently-labeled pair.
   const tier2 = new Map<string, number>();
@@ -99,7 +114,7 @@ if (!existsSync(pairsPath)) {
     const c = pairwiseConcordance(m, gold);
     const g = evaluateGraded(m, gold, 10);
     tier2.set(m.name, c.concordance);
-    console.log(`  ${m.name.padEnd(10)} concordance ${c.concordance.toFixed(3)} (${c.nPairs} pairs)  nDCG@10 ${g.ndcgAtK.toFixed(3)}`);
+    console.log(`  ${m.name.padEnd(10)} concordance ${c.concordance.toFixed(3)} (${c.nPairs} pairs)  P@10 ${g.precisionAtK.toFixed(3)} (good-in-top-10)  nDCG@10 ${g.ndcgAtK.toFixed(3)}`);
   }
   const names = models.map((m) => m.name).filter((n) => tier1.has(n) && tier2.has(n));
   if (names.length >= 2) {

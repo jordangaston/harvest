@@ -2,11 +2,11 @@ import { config } from 'dotenv';
 config({ path: '.env.local' });
 config();
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createClient } from '@libsql/client';
 import { fetchWithRetry } from '../src/parse/http.js';
 import { loadRecipeCards } from '../src/eval/recsys/recipe-cards.js';
 import { draftMessages, parseDraft } from '../src/eval/recsys/draft.js';
+import { goldFile } from '../src/eval/recsys/gold-paths.js';
 
 /**
  * Tier 2 draft labels (`labels:draft`): the LLM rates each mined candidate pair 0–3 for similarity,
@@ -14,9 +14,8 @@ import { draftMessages, parseDraft } from '../src/eval/recsys/draft.js';
  * Resumable (skips pairs already drafted); sequential (LLM rate-limit safe). `--limit N` drafts only
  * the first N undone pairs (smoke test). Uses DeepSeek (OpenAI-compatible); needs `DEEPSEEK_API_KEY`.
  */
-const GOLD = join(process.cwd(), 'eval', 'gold');
-const CANDIDATES = join(GOLD, 'candidates.jsonl');
-const DRAFTS = join(GOLD, 'drafts.jsonl');
+const CANDIDATES = goldFile('candidates');
+const DRAFTS = goldFile('drafts');
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 
 const limitArg = process.argv.find((a) => a.startsWith('--limit='));
