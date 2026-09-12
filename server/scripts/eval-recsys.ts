@@ -11,7 +11,7 @@ import { idfRecommender, randomRecommender, embeddingRecommender } from '../src/
 import { EmbeddingSpace, DEFAULT_OPTIONS } from '../src/ranking/embedding/embedding-space.js';
 import { tripletAccuracy, type Triplet } from '../src/eval/recsys/triplets.js';
 import { rareIngredientProbe } from '../src/eval/recsys/probes.js';
-import { evaluateGraded, spearman, type LabeledQuery } from '../src/eval/recsys/metrics.js';
+import { evaluateGraded, pairwiseConcordance, spearman, type LabeledQuery } from '../src/eval/recsys/metrics.js';
 
 /**
  * recsys eval runner (`eval:recsys`) — Tier 1: triplet accuracy per model and the rare-ingredient
@@ -91,12 +91,15 @@ if (!existsSync(pairsPath)) {
     byAnchor.set(o.a, labels);
   }
   const gold: LabeledQuery[] = [...byAnchor].map(([anchor, labels]) => ({ anchor, labels }));
-  console.log(`\nTier 2 — P@10 / nDCG@10 over ${gold.length} labeled anchors`);
+  // Pairwise concordance is the headline: the mined pairs are max-disagreement + few-per-anchor, so
+  // P@10/nDCG@10 barely discriminate (k > pool). Concordance scores each differently-labeled pair.
   const tier2 = new Map<string, number>();
+  console.log(`\nTier 2 — pairwise concordance over ${gold.length} labeled anchors (nDCG@10 secondary)`);
   for (const m of models) {
+    const c = pairwiseConcordance(m, gold);
     const g = evaluateGraded(m, gold, 10);
-    tier2.set(m.name, g.ndcgAtK);
-    console.log(`  ${m.name.padEnd(10)} P@10 ${g.precisionAtK.toFixed(3)}  nDCG@10 ${g.ndcgAtK.toFixed(3)}`);
+    tier2.set(m.name, c.concordance);
+    console.log(`  ${m.name.padEnd(10)} concordance ${c.concordance.toFixed(3)} (${c.nPairs} pairs)  nDCG@10 ${g.ndcgAtK.toFixed(3)}`);
   }
   const names = models.map((m) => m.name).filter((n) => tier1.has(n) && tier2.has(n));
   if (names.length >= 2) {

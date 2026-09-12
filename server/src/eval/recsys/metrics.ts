@@ -59,6 +59,50 @@ export function evaluateGraded(rec: Recommender, gold: LabeledQuery[], k = 10, r
   return { name: rec.name, precisionAtK: mean(ps), ndcgAtK: mean(ns), nQueries: ps.length };
 }
 
+export interface ConcordanceReport {
+  name: string;
+  /** Fraction of differently-labeled candidate pairs the model orders correctly (0.5 = chance). */
+  concordance: number;
+  /** Anchors with ≥1 differently-labeled pair. */
+  nQueries: number;
+  /** Total differently-labeled pairs scored across all anchors. */
+  nPairs: number;
+}
+
+/**
+ * Pairwise concordance — the right metric for a max-disagreement gold set: for each anchor, over
+ * every pair of its labeled candidates with *different* human relevance, does the model rank the
+ * more-relevant one higher? Discriminative even with few candidates per anchor (unlike P@10/nDCG@10,
+ * which degenerate when k exceeds the pool). Macro-averaged over anchors; 1.0 = perfect, 0.5 = chance.
+ */
+export function pairwiseConcordance(rec: Recommender, gold: LabeledQuery[]): ConcordanceReport {
+  const perAnchor: number[] = [];
+  let totalPairs = 0;
+  for (const q of gold) {
+    const cands = Object.keys(q.labels);
+    if (cands.length < 2) continue;
+    const pos = new Map(rankIds(rec, q.anchor, cands).map((id, i) => [id, i]));
+    let correct = 0;
+    let total = 0;
+    for (let i = 0; i < cands.length; i++) {
+      for (let j = i + 1; j < cands.length; j++) {
+        const a = cands[i]!;
+        const b = cands[j]!;
+        if (q.labels[a] === q.labels[b]) continue; // no signal in a tie
+        total++;
+        const [hi, lo] = q.labels[a]! > q.labels[b]! ? [a, b] : [b, a];
+        if (pos.get(hi)! < pos.get(lo)!) correct++;
+      }
+    }
+    if (total > 0) {
+      perAnchor.push(correct / total);
+      totalPairs += total;
+    }
+  }
+  const mean = perAnchor.length === 0 ? 0 : perAnchor.reduce((a, b) => a + b, 0) / perAnchor.length;
+  return { name: rec.name, concordance: mean, nQueries: perAnchor.length, nPairs: totalPairs };
+}
+
 /** Fractional (tie-averaged) ranks of the values, 1-based. */
 function fractionalRanks(xs: number[]): number[] {
   const order = xs.map((v, i) => ({ v, i })).sort((p, q) => p.v - q.v);

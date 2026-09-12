@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { precisionAtK, ndcgAtK, spearman, evaluateGraded } from '../src/eval/recsys/metrics.js';
+import { precisionAtK, ndcgAtK, spearman, evaluateGraded, pairwiseConcordance } from '../src/eval/recsys/metrics.js';
 import { mineDisagreements } from '../src/eval/recsys/mine.js';
 import { draftMessages, parseDraft } from '../src/eval/recsys/draft.js';
 import type { Recommender } from '../src/eval/recsys/types.js';
@@ -67,6 +67,21 @@ describe('mineDisagreements', () => {
     expect(mined[0]!.disagreement).toBe(2);
     expect(mined.length).toBe(2);
     expect(mined.some((m) => m.candidate === 'y')).toBe(false); // y (0 disagreement) not in top-2? z=2,x=2,y=0
+  });
+});
+
+describe('pairwiseConcordance', () => {
+  const gold = [{ anchor: 'q', labels: { a: 3, b: 2, c: 0 } }]; // pairs a>b, a>c, b>c
+  it('is 1.0 when the model orders every differing pair correctly', () => {
+    const good = fixedOrder('good', ['a', 'b', 'c']);
+    const r = pairwiseConcordance(good, gold);
+    expect(r.concordance).toBe(1);
+    expect(r.nPairs).toBe(3);
+  });
+  it('is 0 when the model reverses every pair, and ignores tied labels', () => {
+    expect(pairwiseConcordance(fixedOrder('bad', ['c', 'b', 'a']), gold).concordance).toBe(0);
+    const tied = [{ anchor: 'q', labels: { a: 2, b: 2 } }]; // no differing pair
+    expect(pairwiseConcordance(fixedOrder('x', ['a', 'b']), tied).nPairs).toBe(0);
   });
 });
 
