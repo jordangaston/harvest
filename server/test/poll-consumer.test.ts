@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { migratedFileDb } from './helpers/migrated-db.js';
-import { PollConsumer } from '../src/imessage/poll-consumer.js';
+import { PollConsumer, REACTION_DEBOUNCE_MS, type OnPollActivity } from '../src/imessage/poll-consumer.js';
 import { StubThreadLock } from '../src/imessage/lock.js';
 import { ThreadRepository } from '../src/repositories/thread-repository.js';
 import { pollVotes, pollStreamCursor, threadMessages } from '../src/schema.js';
@@ -157,5 +157,47 @@ describe('PollConsumer (WI-3)', () => {
     expect(result.ran).toBe(true);
     if (result.ran) expect(result.applied).toBeGreaterThan(0);
     expect(lock.calls).toBe(1); // acquired + released (withThreadLock returned)
+  });
+
+  it('coalesces a vote burst into ONE debounced reaction with the final tally (WI-4 TC-2)', async () => {
+    vi.useFakeTimers();
+    try {
+      // 5 votes land back-to-back, each inside the debounce window; the live stream then stays open
+      // (a deferred) so the timer fires mid-run instead of being cleared on exit. `onPollActivity`
+      // records each call — a correct debounce fires exactly once, seeing all 5.
+      let releaseStream!: () => void;
+      const streamOpen = new Promise<void>((resolve) => (releaseStream = resolve));
+      const client = {
+        events: { catchUp: () => stubStream(async function* () { yield { type: 'catchup.complete', headSequence: 0 }; }) },
+        polls: {
+          subscribeEvents: () =>
+            stubStream(async function* () {
+              for (let i = 0; i < 5; i++) yield voteEvent(i + 1, `+voter${i}`, 'opt2', 'voted');
+              await streamOpen; // hold the stream open past the debounce window
+            }),
+        },
+      } as any;
+
+      const calls: Array<{ guid: string; counts: Record<string, number> }> = [];
+      const onPollActivity: OnPollActivity = async (guid, tally) => {
+        calls.push({ guid, counts: Object.fromEntries(tally.map((o) => [o.text, o.count])) });
+      };
+      const consumer = PollConsumer.create(db, client, new StubThreadLock(), onPollActivity);
+
+      // A far-future deadline so the loop never breaks on the clock — only the released stream ends it.
+      const run = consumer.run({ maxDurationMs: 10_000_000, now: () => 0 });
+      await vi.advanceTimersByTimeAsync(0); // let the 5 votes apply + schedule the (reset) timer
+      expect(calls).toHaveLength(0); // still inside the quiet window — no reaction yet
+
+      await vi.advanceTimersByTimeAsync(REACTION_DEBOUNCE_MS); // quiet period elapses → fire once
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.guid).toBe(GUID);
+      expect(calls[0]!.counts).toEqual({ Pizza: 0, Tacos: 5, Sushi: 0 }); // the FINAL tally, all 5
+
+      releaseStream();
+      await run; // the stream ends, the run returns (clearing any remaining timers)
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

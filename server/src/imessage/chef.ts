@@ -12,6 +12,7 @@ import { onboardingObjective, householdTaskSpecs } from '../chef/objectives/onbo
 import { firstMealPlanObjective, firstMealPlanTaskSpecs } from '../chef/objectives/first-meal-plan.js';
 import { reminderObjective } from '../chef/objectives/meal-reminder.js';
 import { steadyStateObjective } from '../chef/objectives/steady-state.js';
+import { pollReactionObjective } from '../chef/objectives/poll-reaction.js';
 
 /** How many recent messages (both sides) the briefing shows as conversation context. */
 const CONVERSATION_WINDOW = 20;
@@ -73,6 +74,14 @@ export interface ReminderIntent {
   recipes: { title: string; url?: string }[];
 }
 
+/** The poll-reaction intent (polls WI-4): the poll to react to, its title, and the current standings
+ *  (each option with its vote count + voters) the consumer resolved under the debounce. Folded into the
+ *  briefing as a one-line "votes came in, here are the standings" instruction; absent on any other turn. */
+export interface PollIntent {
+  title: string;
+  options: { text: string; count: number; voters: string[] }[];
+}
+
 /**
  * The consumer's entire view of the reasoning layer. `respond` loads the thread's own context,
  * reasons (validated tool writes land mid-turn), and sends its bubbles live through `sink` — then
@@ -80,7 +89,7 @@ export interface ReminderIntent {
  * pending. `heartbeat` (WI-02) turns a bare doorbell into a proactive follow-up on the named tasks.
  */
 export interface Chef {
-  respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent): Promise<ChefReply | null>;
+  respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent, poll?: PollIntent): Promise<ChefReply | null>;
 }
 
 /**
@@ -110,16 +119,19 @@ export class RealChef implements Chef {
     );
   }
 
-  async respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, heartbeat?: HeartbeatIntent, reminder?: ReminderIntent, poll?: PollIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
 
-    // A reminder turn (meal-reminders WI-01) is objective-independent — the consumer already resolved
-    // today's plan under the lock, so the chef just announces it. It runs against the reminder shell
-    // definition, consumes no inbound, and pops nothing.
+    // A reminder turn (meal-reminders WI-01) and a poll-reaction turn (WI-4) are both
+    // objective-independent — the consumer resolved their data (today's plan / the poll standings)
+    // under the lock, so the chef just speaks. Each runs against its shell definition, consumes no
+    // inbound, and pops nothing.
     const turn = reminder
       ? await this.loadReminderTurn(thread.id, thread.householdId, thread.ownerUserId, reminder)
-      : await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId, heartbeat);
+      : poll
+        ? await this.loadPollTurn(thread.id, thread.householdId, thread.ownerUserId, poll)
+        : await this.loadTurn(thread.id, thread.householdId, thread.lastProcessedId, thread.ownerUserId, heartbeat);
     if (!turn) return null;
 
     // One agent runs the whole turn: it acks, calls the objective tools to persist what the household
@@ -150,7 +162,7 @@ export class RealChef implements Chef {
     // stack (null). Read after the run so the pop is visible. A reminder or steady-state turn runs
     // against a shell, not a stack objective, so it never pops (a reminder is objective-independent by
     // construction; steady state reports a null `objectiveId`).
-    const popped = !reminder && turn.objectiveId !== null && (await this.objectives.loadActive(threadId))?.objective.id !== turn.objectiveId;
+    const popped = !reminder && !poll && turn.objectiveId !== null && (await this.objectives.loadActive(threadId))?.objective.id !== turn.objectiveId;
     return { confirmTasks, cursorTo: turn.cursorTo, objectiveId: turn.objectiveId, delivered, popped };
   }
 
@@ -310,6 +322,38 @@ export class RealChef implements Chef {
     };
     return { briefing, turnCtx, triggerExternalId: null, messageTargets: {}, cursorTo: null, confirmTasks: [], objectiveId: reminderObjective.id };
   }
+
+  /**
+   * Builds an objective-independent poll-reaction turn (polls WI-4): the poll-reaction shell, no tasks,
+   * the recent transcript for tone, and the `poll` intent (title + current standings the consumer
+   * resolved under the debounce). Consumes no inbound (`cursorTo` null) and pops nothing — the same
+   * shell mechanism as reminders.
+   */
+  private async loadPollTurn(threadId: string, householdId: string | null, ownerUserId: string, poll: PollIntent) {
+    const members = householdId ? await this.households.loadMembers(householdId) : [];
+    const briefingMembers = members.map((m) => ({ userId: m.userId, name: m.name ?? m.imessageHandle ?? '', handle: m.imessageHandle ?? '' }));
+    const nameByUser = new Map(members.map((m) => [m.userId, m.name ?? undefined]));
+    const recent = await this.threads.loadRecentMessages(threadId, CONVERSATION_WINDOW);
+    const transcript: TranscriptLine[] = recent.map((m) => ({
+      role: m.direction === 'inbound' ? 'household' : 'chef',
+      text: m.body ?? '',
+      name: m.direction === 'inbound' && m.senderUserId ? nameByUser.get(m.senderUserId) : undefined,
+    }));
+
+    const objective = { definition: pollReactionObjective.id } as Objective;
+    const briefing: BriefingInput = { objective, tasks: [], members: briefingMembers, transcript, trigger: '', poll };
+    const turnCtx: TurnContext = {
+      threadId,
+      objectiveId: pollReactionObjective.id,
+      initiatorHandle: await this.threads.handleForUser(ownerUserId),
+      initiatorUserId: ownerUserId,
+      triggerExternalId: null,
+      householdId: householdId ?? null,
+      members: members.map((m) => ({ userId: m.userId, name: m.name ?? undefined })),
+      tasks: [],
+    };
+    return { briefing, turnCtx, triggerExternalId: null, messageTargets: {}, cursorTo: null, confirmTasks: [], objectiveId: pollReactionObjective.id };
+  }
 }
 
 /**
@@ -325,7 +369,7 @@ export class StubChef implements Chef {
     this.threads = ThreadRepository.create(db);
   }
 
-  async respond(threadId: string, sink: OutboundSink, _heartbeat?: HeartbeatIntent, _reminder?: ReminderIntent): Promise<ChefReply | null> {
+  async respond(threadId: string, sink: OutboundSink, _heartbeat?: HeartbeatIntent, _reminder?: ReminderIntent, _poll?: PollIntent): Promise<ChefReply | null> {
     const thread = await this.threads.findById(threadId);
     if (!thread) return null;
     const pending = await this.threads.loadPendingInbound(threadId, thread.lastProcessedId);

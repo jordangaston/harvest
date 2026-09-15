@@ -44,6 +44,9 @@ export interface BriefingInput {
   /** Meal-reminders WI-01: this is a scheduled reminder turn — announce the named course and its
    *  planned recipes (resolved by the consumer under the lock). Folded as one instruction line. */
   reminder?: { meal: string; recipes: { title: string; url?: string }[] };
+  /** Polls WI-4: this is a debounced poll-reaction turn — the poll's title and current standings
+   *  (options with counts + voters) the consumer resolved. Folded as one instruction line. */
+  poll?: { title: string; options: { text: string; count: number; voters: string[] }[] };
 }
 
 /**
@@ -96,6 +99,11 @@ export function prepareBriefing(input: BriefingInput): string {
   const reminderLine = input.reminder
     ? `<reminder>\nScheduled ${input.reminder.meal} reminder — announce tonight's ${input.reminder.meal} to the household and share each recipe card. Planned:\n${input.reminder.recipes.map((r) => `- ${r.title}${r.url ? ` — ${r.url}` : ''}`).join('\n')}\n</reminder>`
     : '';
+  // A poll-reaction turn has no inbound — this line names the poll and its current standings (each
+  // option with its vote count and voters), so the model can call the result and offer a next step.
+  const pollLine = input.poll
+    ? `<poll title="${input.poll.title}">\nVotes came in on this poll — current standings:\n${input.poll.options.map((o) => `- ${o.text}: ${o.count}${o.voters.length ? ` (${o.voters.join(', ')})` : ''}`).join('\n')}\n</poll>`
+    : '';
 
   return [
     `<objective name="${def.id}">\n${def.instructions}\n</objective>`,
@@ -104,6 +112,7 @@ export function prepareBriefing(input: BriefingInput): string {
     `<household>\n${members}\n</household>`,
     heartbeatLine,
     reminderLine,
+    pollLine,
     `<conversation>\n${replyingLine}${conversation}\n</conversation>`,
   ]
     .filter(Boolean)

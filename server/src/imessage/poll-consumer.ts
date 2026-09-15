@@ -2,7 +2,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { AdvancedIMessage, PollEvent } from '@photon-ai/advanced-imessage/grpc';
 import type { Database } from '../db.js';
 import { pollStreamCursor, pollVotes, threadMessages, users } from '../schema.js';
+import { pollTally, type OptionTally } from '../chef/tools/poll-tally.js';
 import { createAdvancedClient } from './advanced-client.js';
+import { Consumer } from './consumer.js';
 import { selectThreadLock, type ThreadLock } from './lock.js';
 
 /** The one lock key — a single consumer holds the poll stream process-wide. */
@@ -11,6 +13,13 @@ const LOCK_KEY = 'poll-consumer';
 const EXIT_BUFFER_MS = 30_000;
 /** The cron function's `maxDuration` (Vercel Pro GA cap) — the route budget + vercel.json must agree. */
 export const POLL_CONSUME_MAX_DURATION_S = 800;
+/** Quiet-period after the last vote before the chef reacts (Q-03) — a burst within this window
+ *  coalesces into ONE turn seeing the final tally. */
+export const REACTION_DEBOUNCE_MS = 5_000;
+
+/** Called once per debounced poll, with the poll's current standings, to run one chef reaction turn.
+ *  The route wires this to the Consumer's turn-run path; tests pass a spy. */
+export type OnPollActivity = (pollMessageGuid: string, tally: OptionTally[]) => Promise<void>;
 
 /** The run summary: `{ran:false,reason:'locked'}` when the lock is held, else counts. */
 export interface ConsumeResult {
@@ -31,18 +40,24 @@ export interface ConsumeResult {
  * option)` + `sequence`: a replayed event at or below the stored sequence is a no-op.
  */
 export class PollConsumer {
+  /** Per-poll debounce timers (WI-4). A vote upsert (re)starts the poll's timer; a burst within the
+   *  window collapses to one pending timer, so exactly one reaction turn fires on the final tally. */
+  private readonly reactionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   private constructor(
     private readonly db: Database,
     private readonly client: AdvancedIMessage,
     private readonly lock: ThreadLock,
+    private readonly onPollActivity: OnPollActivity,
   ) {}
 
   /**
-   * Builds a consumer over the given db + advanced client + lock. The route wires the live
-   * client (WI-1) and process lock via {@link createPollConsumer}; tests pass stubs.
+   * Builds a consumer over the given db + advanced client + lock, plus the debounced reaction hook
+   * (WI-4, default no-op). The route wires the live client (WI-1), process lock, and reaction turn
+   * via {@link createPollConsumer}; tests pass stubs.
    */
-  static create(db: Database, client: AdvancedIMessage, lock: ThreadLock): PollConsumer {
-    return new PollConsumer(db, client, lock);
+  static create(db: Database, client: AdvancedIMessage, lock: ThreadLock, onPollActivity: OnPollActivity = async () => {}): PollConsumer {
+    return new PollConsumer(db, client, lock, onPollActivity);
   }
 
   /**
@@ -62,8 +77,44 @@ export class PollConsumer {
       const throughSequence = await this.currentSequence();
       return { applied, throughSequence };
     });
+    // The worker is exiting — drop any pending reaction timers so they can't fire against a closed
+    // stream / after the process is torn down. Any debounce still pending at exit is dropped, not
+    // flushed — the next cron's catchUp replays those deltas and re-triggers the reaction (accepted
+    // edge, WI-4).
+    this.clearReactionTimers();
     if (!outcome.ran) return { ran: false, reason: 'locked' };
     return { ran: true, ...outcome.value! };
+  }
+
+  /** Cancels every pending reaction timer (worker exit). */
+  private clearReactionTimers(): void {
+    for (const timer of this.reactionTimers.values()) clearTimeout(timer);
+    this.reactionTimers.clear();
+  }
+
+  /**
+   * (Re)starts the poll's debounce timer after a vote (WI-4). A burst within {@link REACTION_DEBOUNCE_MS}
+   * keeps resetting it, so only the last vote's timer survives — when it fires it loads the then-current
+   * tally and runs ONE chef reaction turn. Errors in the turn are logged, not thrown (a background timer).
+   */
+  private scheduleReaction(pollMessageGuid: string): void {
+    clearTimeout(this.reactionTimers.get(pollMessageGuid));
+    this.reactionTimers.set(
+      pollMessageGuid,
+      setTimeout(() => {
+        this.reactionTimers.delete(pollMessageGuid);
+        void this.react(pollMessageGuid);
+      }, REACTION_DEBOUNCE_MS),
+    );
+  }
+
+  /** Loads the poll's current standings and runs the one reaction turn. */
+  private async react(pollMessageGuid: string): Promise<void> {
+    try {
+      await this.onPollActivity(pollMessageGuid, await pollTally(this.db, pollMessageGuid));
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'poll reaction failed', pollMessageGuid, error: String(error) }));
+    }
   }
 
   /**
@@ -117,6 +168,7 @@ export class PollConsumer {
       const voter = event.actor?.address;
       if (voter) {
         await this.upsertVote(event.pollMessageGuid, voter, delta.optionIdentifier, delta.type === 'voted', event.sequence);
+        this.scheduleReaction(event.pollMessageGuid);
         wrote = true;
       }
     } else {
@@ -176,7 +228,17 @@ export class PollConsumer {
   }
 }
 
-/** Wires a live consumer for the cron route: the request-time db + the advanced client (WI-1) + the process lock. */
+/**
+ * Wires a live consumer for the cron route: the request-time db + the advanced client (WI-1) + the
+ * process lock, plus the debounced reaction hook (WI-4) — one lazily-built {@link Consumer} runs the
+ * chef reaction turn for the poll's thread. The Consumer is built on first activity (its `create`
+ * selects the env sender/chef, async) and reused across bursts.
+ */
 export function createPollConsumer(db: Database): PollConsumer {
-  return PollConsumer.create(db, createAdvancedClient(), selectThreadLock());
+  let consumer: Promise<Consumer> | undefined;
+  const onPollActivity: OnPollActivity = async (pollMessageGuid, tally) => {
+    consumer ??= Consumer.create(db);
+    await (await consumer).reactToPoll(pollMessageGuid, tally);
+  };
+  return PollConsumer.create(db, createAdvancedClient(), selectThreadLock(), onPollActivity);
 }
