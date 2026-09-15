@@ -62,7 +62,23 @@ Vercel Cron + one lock-guarded function that holds the stream to ~`maxDuration`.
 **Expected Outcomes:** the vote deltas appear. If not, record the fallback and adjust seam logic.
 
 ## Test Run
-_To be determined._
+
+Implemented on `jordangaston/polls`. Unit/integration suite `server/test/poll-consumer.test.ts`
+(5 tests, all green) covers: voted/unvoted/multi-select application + tally (TC-1), voter→user
+resolution, cursor advance + idempotent replay (TC-2), lock-prevents-overlap (TC-3), and
+near-timeout exit + lock release (TC-4). Full server suite green (see PR/commit).
+
+### Q-01 (catchUp replays poll vote deltas on shared) — **pending manual verification**
+Probe `server/scripts/spike-poll-catchup.ts` runs against live shared creds. On the attempted
+run it confirmed `events.catchUp` **does stream durable events** (it actively replays), and the
+SDK's `CatchUpEvent` union includes `poll.changed`, so poll deltas are in the durable log. But
+`catchUp(0)` replays the entire history from sequence 0 and did not reach `catchup.complete`
+within a ~90s window (large backlog), so the vote-specific replay could not be confirmed cleanly
+in-session. Not a build blocker (per the spec's Q-01 escalation): the catchUp seam path is kept
+as the design's recovery. **To verify manually**, run the probe from a recent cursor (edit it to
+seed `priorSeq` near the current head rather than 0) so `catchUp` returns promptly, then confirm
+the `voted` delta appears. If it does not, the fallback is to recover the vote seam via a bounded
+`subscribeEvents` replay from the saved cursor (the live stream is proven to carry votes).
 
 ## Deployment Strategy
 

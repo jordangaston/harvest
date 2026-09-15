@@ -15,6 +15,7 @@ import { INBOUND_TOPIC } from "./imessage/doorbell.js";
 import { send } from "./queue.js";
 import { CronJobsRepository } from "./crons/cron-jobs-repository.js";
 import { sweep } from "./crons/sweep.js";
+import { createPollConsumer, POLL_CONSUME_MAX_DURATION_S } from "./imessage/poll-consumer.js";
 import { UserService, type Resolution } from "./services/user-service.js";
 import { OtpService } from "./services/otp-service.js";
 import { RecipeService } from "./services/recipe-service.js";
@@ -91,6 +92,19 @@ app.get("/crons/dispatch", async (c) => {
     return c.json({ error: "unauthorized" }, 401);
   const dispatched = await sweep(cronJobs, send, new Date());
   return c.json({ dispatched });
+});
+
+/** GET /crons/poll-consume — the vote-ingestion loop-worker (WI-3), invoked by Vercel Cron
+ * every minute as a relaunch trigger. The lock keeps a single consumer holding the poll stream
+ * for the full maxDuration; most ticks no-op (locked) and on death the next tick resumes,
+ * `catchUp` sealing the gap. Same `CRON_SECRET` guard as /crons/dispatch. `maxDuration` is set
+ * in vercel.json (Nitro/Vercel functions config), not an export const. */
+app.get("/crons/poll-consume", async (c) => {
+  const secret = process.env.CRON_SECRET ?? "";
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`)
+    return c.json({ error: "unauthorized" }, 401);
+  const result = await createPollConsumer(db).run({ maxDurationMs: POLL_CONSUME_MAX_DURATION_S * 1000 });
+  return c.json(result);
 });
 
 /** GET /r/:id — the public recipe web page (the iMessage recipe app card's target,
