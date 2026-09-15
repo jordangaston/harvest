@@ -3,6 +3,8 @@ import { createTool } from '@mastra/core/tools';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
 import { z } from 'zod';
 import type { Database } from '../db.js';
+import { createAdvancedClient } from '../imessage/advanced-client.js';
+import { ThreadRepository } from '../repositories/thread-repository.js';
 import { prepareBriefing, type BriefingInput } from './briefing.js';
 import { objectiveDefinition } from './objectives/index.js';
 import { buildTools } from './tools/registry.js';
@@ -45,6 +47,8 @@ export interface ChefTurn {
   /** `[m#]` handle → platform id for every message shown this turn, so a tapback can target any of
    *  them by handle. The model never sees a raw id; the resolver looks it up here. */
   messageTargets: Record<string, string>;
+  /** The thread's chat guid — the poll send targets it (`polls.create(chatGuid, …)`). */
+  chatGuid: string;
   /** Flushes one outbound event live, mid-turn (journal + send, idempotent) — the `send` tool's sink. */
   send: (event: ChatEvent) => Promise<void>;
 }
@@ -61,15 +65,37 @@ export interface ChefAgent {
 
 /** The `send` tool's input — one tool for every outbound kind. `text` sends a message; `tapback`
  *  reacts to the triggering message; `richlink` shares a URL. */
-const SendInput = z.object({
-  type: z.enum(['text', 'tapback', 'richlink']),
+export const SendInput = z.object({
+  type: z.enum(['text', 'tapback', 'richlink', 'poll']),
   text: z.string().optional(),
   url: z.string().optional(),
   emoji: z.enum(CHEF_TAPBACK_KINDS).optional(),
   /** For a tapback: the `[m#]` handle of the message to react to; omit to react to the trigger. */
   target: z.string().optional(),
-});
+  /** For a poll: the choices (`text` is the poll's question/title). Needs ≥2 or the call is dropped. */
+  options: z.array(z.string()).optional(),
+}).strict();
 type SendPayload = z.infer<typeof SendInput>;
+
+/**
+ * Sends a native iMessage poll via the advanced client (WI-1) and persists its anchor row — the poll
+ * path bypasses the text/tapback sink (F-01). Dropped without sending when the title is blank or there
+ * are fewer than 2 options (mirrors the tapback-drop). On success the poll's guid + `optionIdentifier→
+ * text` map is stored as a `type='poll'` `thread_messages` row for WI-3's votes to anchor on.
+ * @returns whether the poll was sent (false ⇒ dropped, no RPC, no row).
+ */
+export async function sendPoll(p: SendPayload, threadId: string, chatGuid: string, db: Database): Promise<boolean> {
+  const title = p.text?.trim();
+  const options = p.options ?? [];
+  if (!title || options.length < 2) return false;
+  const poll = await createAdvancedClient().polls.create(chatGuid, title, options);
+  const body = JSON.stringify({
+    title: poll.title,
+    options: poll.options.map((o) => ({ optionIdentifier: o.optionIdentifier, text: o.text })),
+  });
+  await ThreadRepository.create(db).insertPoll({ threadId, pollMessageGuid: poll.pollMessageGuid, body, triggerId: null });
+  return true;
+}
 
 /** Chef's default tapback — a warm heart. Structurally confined to CHEF_TAPBACK_KINDS
  *  (love/laugh/emphasize), so like/dislike can never be sent (compile-bounded, not just a prompt rule). */
@@ -97,6 +123,8 @@ export function sendEvent(
       const target = p.target ? messageTargets[p.target] : triggerExternalId;
       return target ? { kind: 'tapback', target, emoji: p.emoji ?? defaultTapback() } : null;
     }
+    case 'poll':
+      return null; // a poll is not a sink ChatEvent — it sends via the advanced client (see sendPoll)
   }
 }
 
@@ -238,9 +266,15 @@ export class MastraChefAgent implements ChefAgent {
         'The household\'s only channel — everything they see, you say here. type="text" sends a message ' +
         '(`text`); type="tapback" reacts to a message (`target` its [m#] handle from the transcript, ' +
         'default the one that triggered this turn; optional `emoji`, default a warm heart); ' +
-        'type="richlink" shares a recipe (`url`). One call per bubble.',
+        'type="richlink" shares a recipe (`url`); type="poll" sends a native poll the household taps to ' +
+        'vote on (`text` the question, `options` the 2+ choices) — prefer it over listing choices as text ' +
+        'when you want everyone to pick. One call per bubble.',
       inputSchema: SendInput,
       execute: async (payload: SendPayload) => {
+        if (payload.type === 'poll') {
+          const sent = await sendPoll(payload, turn.ctx.threadId, turn.chatGuid, db);
+          return { sent };
+        }
         const e = sendEvent(payload, turn.triggerExternalId, turn.messageTargets);
         if (e) {
           await turn.send(e);

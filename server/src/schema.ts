@@ -216,7 +216,7 @@ export const threadMessages = sqliteTable(
       .notNull()
       .references(() => threads.id),
     direction: text('direction', { enum: ['inbound', 'outbound'] as const }).notNull(),
-    type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment'] as const }).notNull(),
+    type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment', 'poll'] as const }).notNull(),
     senderUserId: text('sender_user_id').references(() => users.id),
     body: text('body'),
     // Reaction (tapback) substrate (WI-A): the emoji and the guid of the prior message

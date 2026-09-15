@@ -133,6 +133,7 @@ export class RealChef implements Chef {
         ctx: turn.turnCtx,
         triggerExternalId: turn.triggerExternalId,
         messageTargets: turn.messageTargets,
+        chatGuid: thread.chatGuid,
         send: async (event) => {
           delivered = true;
           await sink.send(event);

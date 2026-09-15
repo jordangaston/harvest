@@ -186,6 +186,28 @@ export class ThreadRepository {
     return { id: existing!.id, inserted: false, alreadySent: existing!.sentAt !== null };
   }
 
+  /**
+   * Persists an already-sent poll as its outbound anchor row (WI-2): `type='poll'`, `external_id` and
+   * `message_guid` both the `pollMessageGuid`, `body` the JSON option map. Sent through the advanced
+   * client (not the sink), so it lands here already-sent (`sent_at` now) — WI-3 votes anchor on
+   * `external_id`, reading the option map out of `body`.
+   */
+  async insertPoll(
+    input: { threadId: string; pollMessageGuid: string; body: string; triggerId: string | null },
+    tx: Executor = this.db,
+  ): Promise<void> {
+    await tx.insert(threadMessages).values({
+      threadId: input.threadId,
+      direction: 'outbound',
+      type: 'poll',
+      body: input.body,
+      messageGuid: input.pollMessageGuid,
+      externalId: input.pollMessageGuid,
+      triggerId: input.triggerId,
+      sentAt: new Date(),
+    });
+  }
+
   /** Advances the cursor to the newest processed inbound id and bumps updated_at. */
   async advanceCursor(threadId: string, lastProcessedId: string, tx: Executor = this.db): Promise<void> {
     await tx
