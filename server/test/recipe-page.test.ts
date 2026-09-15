@@ -16,7 +16,7 @@ function recipe(overrides: Partial<PublicRecipe> = {}): PublicRecipe {
     steps: ['Marinate the fish', 'Broil 8 min'],
     cost_per_serving_cents: null,
     cost_coverage: null,
-    categories: { cuisine: [], meal_type: [], dish_type: [], primary_ingredient: [] },
+    categories: { cuisine: [], meal_type: [], course: [], dish_type: [], primary_ingredient: [] },
     diets: [],
     ...overrides,
   };

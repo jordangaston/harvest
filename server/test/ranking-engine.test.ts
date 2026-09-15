@@ -24,7 +24,7 @@ function rankableRecipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe
     nutrition: EMPTY_PANEL,
     totalMinutes: 30,
     mealTypes: [],
-    categories: { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },
+    categories: { cuisine: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] },
     baseIngredientIds: [],
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
@@ -63,7 +63,7 @@ function fp(p: { facet: FoodPref['dimension']; value: string; sentiment?: 'like'
 }
 /** A RankableRecipe categories bucket with foodCategory defaulting to []. */
 function cats(o: Partial<RankableRecipe['categories']> = {}): RankableRecipe['categories'] {
-  return { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [], ...o };
+  return { cuisine: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [], ...o };
 }
 /** A RankableRecipe nutrition panel with one macro set (per serving). */
 function panel(o: Partial<Record<LabelCoreKey, number | null>> = {}): Record<LabelCoreKey, number | null> {

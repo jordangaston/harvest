@@ -26,7 +26,7 @@ beforeEach(async () => {
 });
 afterEach(() => cleanup());
 
-const cats = (o: Partial<RecipeCategories>): RecipeCategories => ({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [], ...o });
+const cats = (o: Partial<RecipeCategories>): RecipeCategories => ({ cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [], ...o });
 
 /** A dinner recipe with the given facets; `min` sets cook time, `owner` the visibility. */
 function dinnerRecipe(title: string, c: Partial<RecipeCategories>, min: number): RecipeInput {
@@ -55,9 +55,9 @@ describe('TC-1 — generate composes plates (main + directive sides)', () => {
     const { userId, householdId } = await seedUserAndHousehold();
     const recipes = RecipeRepository.create(db);
     // Two beef mains (no vegetable) + one veg side_dish in the corpus.
-    await recipes.persist(dinnerRecipe('Beef Stew', { dishType: ['main_course'], foodCategory: ['red_meat'] }, 40), userId);
-    await recipes.persist(dinnerRecipe('Beef Chili', { dishType: ['main_course'], foodCategory: ['red_meat'] }, 45), userId);
-    await recipes.persist(dinnerRecipe('Roast Broccoli', { dishType: ['side_dish'], foodCategory: ['vegetable'] }, 20), userId);
+    await recipes.persist(dinnerRecipe('Beef Stew', { course: ['main_course'], foodCategory: ['red_meat'] }, 40), userId);
+    await recipes.persist(dinnerRecipe('Beef Chili', { course: ['main_course'], foodCategory: ['red_meat'] }, 45), userId);
+    await recipes.persist(dinnerRecipe('Roast Broccoli', { course: ['side_dish'], foodCategory: ['vegetable'] }, 20), userId);
 
     // Household plans 2 dinners; the owner wants a vegetable with every dinner.
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 2, snack: 0, kids: 0 }, cookDays: ['monday', 'tuesday'] });
@@ -87,8 +87,8 @@ describe('F2 — tier bonus: the household own recipes lead the global corpus', 
     // A global recipe carrying the owner's liked cuisine (so it out-ranks on pure ranking score) vs a
     // plain owned recipe. The tier bonus (imported) must still win the slot for the owned one.
     await PreferenceRepository.create(db).upsertFoodPref(userId, { dimension: 'cuisine', value: 'italian', scope: 'recipe', direction: 'more', strength: 'firm' });
-    const globalId = await recipes.persist(dinnerRecipe('Global Pasta', { dishType: ['main_course'], cuisine: ['italian'] }, 30), null);
-    const ownedId = await recipes.persist(dinnerRecipe('My Stew', { dishType: ['main_course'] }, 40), userId);
+    const globalId = await recipes.persist(dinnerRecipe('Global Pasta', { course: ['main_course'], cuisine: ['italian'] }, 30), null);
+    const ownedId = await recipes.persist(dinnerRecipe('My Stew', { course: ['main_course'] }, 40), userId);
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
 
     const planned = await MealPlanGeneratorService.create(db).generate(userId, householdId, '2026-09-10', '2026-09-16');
@@ -105,9 +105,9 @@ describe('TC-2 — criteria filter + more-options pagination', () => {
     const recipes = RecipeRepository.create(db);
     // Three quick fish + one slow fish + one quick non-fish.
     const fishIds: string[] = [];
-    for (const t of ['Fish Tacos', 'Fish Curry', 'Fish Chowder']) fishIds.push(await recipes.persist(dinnerRecipe(t, { dishType: ['main_course'], primaryIngredient: ['fish'] }, 25), userId));
-    await recipes.persist(dinnerRecipe('Slow Fish Stew', { dishType: ['main_course'], primaryIngredient: ['fish'] }, 90), userId);
-    await recipes.persist(dinnerRecipe('Quick Chicken', { dishType: ['main_course'], primaryIngredient: ['chicken'] }, 20), userId);
+    for (const t of ['Fish Tacos', 'Fish Curry', 'Fish Chowder']) fishIds.push(await recipes.persist(dinnerRecipe(t, { course: ['main_course'], primaryIngredient: ['fish'] }, 25), userId));
+    await recipes.persist(dinnerRecipe('Slow Fish Stew', { course: ['main_course'], primaryIngredient: ['fish'] }, 90), userId);
+    await recipes.persist(dinnerRecipe('Quick Chicken', { course: ['main_course'], primaryIngredient: ['chicken'] }, 20), userId);
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 3, snack: 0, kids: 0 } });
 
     const gen = MealPlanGeneratorService.create(db);
@@ -129,7 +129,7 @@ describe('F4 — slot_options pagination returns a fresh, non-overlapping page',
   it('a second call excluding the first page returns different options', async () => {
     const { userId, householdId } = await seedUserAndHousehold();
     const recipes = RecipeRepository.create(db);
-    for (let i = 0; i < 6; i++) await recipes.persist(dinnerRecipe(`Dinner ${i}`, { dishType: ['main_course'] }, 30), userId);
+    for (let i = 0; i < 6; i++) await recipes.persist(dinnerRecipe(`Dinner ${i}`, { course: ['main_course'] }, 30), userId);
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
     const gen = MealPlanGeneratorService.create(db);
 
@@ -147,8 +147,8 @@ describe('F3 — slot_options excludes what is already planned that week', () =>
   it('never suggests a recipe already on the plan in the surrounding week', async () => {
     const { userId, householdId } = await seedUserAndHousehold();
     const recipes = RecipeRepository.create(db);
-    const plannedId = await recipes.persist(dinnerRecipe('Already Planned', { dishType: ['main_course'] }, 30), userId);
-    await recipes.persist(dinnerRecipe('Fresh Option', { dishType: ['main_course'] }, 30), userId);
+    const plannedId = await recipes.persist(dinnerRecipe('Already Planned', { course: ['main_course'] }, 30), userId);
+    await recipes.persist(dinnerRecipe('Fresh Option', { course: ['main_course'] }, 30), userId);
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
 
     // Plan `plannedId` on a nearby day, then ask for options on another day the same week.
@@ -165,11 +165,11 @@ describe('TC-3 — entry-level add/remove; a manual pick survives a regenerate',
     const { userId, householdId } = await seedUserAndHousehold();
     const recipes = RecipeRepository.create(db);
     const beefIds = [
-      await recipes.persist(dinnerRecipe('Beef Stew', { dishType: ['main_course'], foodCategory: ['red_meat'] }, 40), userId),
-      await recipes.persist(dinnerRecipe('Beef Chili', { dishType: ['main_course'], foodCategory: ['red_meat'] }, 45), userId),
+      await recipes.persist(dinnerRecipe('Beef Stew', { course: ['main_course'], foodCategory: ['red_meat'] }, 40), userId),
+      await recipes.persist(dinnerRecipe('Beef Chili', { course: ['main_course'], foodCategory: ['red_meat'] }, 45), userId),
     ];
-    const sideId = await recipes.persist(dinnerRecipe('Roast Broccoli', { dishType: ['side_dish'], foodCategory: ['vegetable'] }, 20), userId);
-    const pickId = await recipes.persist(dinnerRecipe('Garlic Bread', { dishType: ['side_dish'] }, 15), userId);
+    const sideId = await recipes.persist(dinnerRecipe('Roast Broccoli', { course: ['side_dish'], foodCategory: ['vegetable'] }, 20), userId);
+    const pickId = await recipes.persist(dinnerRecipe('Garlic Bread', { course: ['side_dish'] }, 15), userId);
 
     await HouseholdPreferenceRepository.create(db).savePreferences(householdId, { weeklyMeals: { breakfast: 0, lunch: 0, dinner: 1, snack: 0, kids: 0 } });
     await PreferenceRepository.create(db).upsertFoodPref(userId, { dimension: 'food_category', value: 'vegetable', scope: 'dinner', direction: 'more' });

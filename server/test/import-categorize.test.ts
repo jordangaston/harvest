@@ -87,7 +87,7 @@ async function seedJob() {
 
 describe("toRecipeInput categories passthrough", () => {
   it("carries attached categories into RecipeInput", () => {
-    const cats = { cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] };
+    const cats = { cuisine: ["italian"], mealType: ["dinner"], course: ["main_course"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [] };
     const ri = toRecipeInput({ ...BASE, categories: cats }, input());
     expect(ri.categories).toEqual(cats);
   });
@@ -102,7 +102,7 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
     const { userId, jobId } = await seedJob();
     // salmon → seafood (FDC "Fish"); cuisine/meal_type/dish_type come from the LLM (stubbed here).
     const taste: RecipeAnalyzer = {
-      analyze: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], dishType: ["bowl"], stepTechniques: [], mealPrepFit: null }),
+      analyze: async () => ({ cuisine: ["japanese"], mealType: ["dinner"], course: ["main_course"], dishType: ["bowl"], stepTechniques: [], mealPrepFit: null }),
     };
     const categorized = await attach(offlineCategorizer(taste), BASE);
     const [recipeId] = await persistAndReady(db, [categorized], input({ jobId, userId }));
@@ -130,7 +130,7 @@ describe("categorization persisted through the pipeline (WI-TS-3)", () => {
     // Categorize first (LLM-stubbed cuisine/dishType), then merge the diet step's food classes —
     // the same order the workflow runs, so cuisine/dishType must not be clobbered.
     const taste: RecipeAnalyzer = {
-      analyze: async () => ({ cuisine: ["american"], mealType: ["dinner"], dishType: ["stew"], stepTechniques: [], mealPrepFit: null }),
+      analyze: async () => ({ cuisine: ["american"], mealType: ["dinner"], course: ["main_course"], dishType: ["stew"], stepTechniques: [], mealPrepFit: null }),
     };
     const categorized = await attach(offlineCategorizer(taste), beef);
     const diets = (await DietClassifier.create(db).classify(categorized.ingredients, 4))!;

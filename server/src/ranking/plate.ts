@@ -13,10 +13,10 @@ export interface Plate {
   sides: RankableRecipe[];
 }
 
-/** Whether a recipe is a side dish — the corpus plate completion draws from. Reuses the existing
- * `recipe_categories` dish_type facet; no new role column (design § Plate = main + optional sides). */
+/** Whether a recipe is a side dish — the corpus plate completion draws from. Reads the
+ * `recipe_categories` course facet (`side_dish` is a meal role, not a form). */
 function isSideDish(recipe: RankableRecipe): boolean {
-  return recipe.categories.dishType.includes('side_dish');
+  return recipe.categories.course.includes('side_dish');
 }
 
 /**

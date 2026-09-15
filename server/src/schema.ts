@@ -20,7 +20,7 @@ export const MAJOR_ALLERGENS = ['milk', 'egg', 'fish', 'crustacean_shellfish', '
 export const ALLERGEN_PRESENCE = ['contains', 'may_contain'] as const;
 // TS-signal: the categorization facets. `value` is a controlled-vocabulary string
 // validated in app code (VOCAB), not at the DB layer — like `fdc_foods.category`.
-const FACETS = ['cuisine', 'meal_type', 'dish_type', 'primary_ingredient', 'food_category'] as const;
+const FACETS = ['cuisine', 'meal_type', 'course', 'dish_type', 'primary_ingredient', 'food_category'] as const;
 // Diet-signal (WI-DS-1): the per-diet verdict. `diet_id` is a DietRule id (app-side
 // config, not a DB enum) so a new diet needs no migration — like `recipe_categories.value`.
 export const DIET_VERDICTS = ['compatible', 'incompatible', 'unknown'] as const;

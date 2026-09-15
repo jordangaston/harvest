@@ -14,6 +14,7 @@ import { MEAL_PREP_FITS, type MealPrepFit } from '../schema.js';
 export interface TasteFacets {
   cuisine: string[];
   mealType: string[];
+  course: string[];
   dishType: string[];
 }
 
@@ -41,17 +42,19 @@ const LUNA_MODEL = 'gpt-5.6-luna';
 
 function systemPrompt(): string {
   return (
-    "Classify the recipe's cuisine, meal type, and dish type. These are independent: " +
-    'mealType is WHEN it is eaten (e.g. a french toast is "breakfast"); dishType is the ' +
-    "dish's FORM (e.g. that french toast is a \"pancake\" or \"bread\"). " +
+    "Classify the recipe's cuisine, meal type, course, and dish type. These are independent: " +
+    'mealType is WHEN it is eaten (e.g. a french toast is "breakfast"); course is its ROLE in a ' +
+    'meal (appetizer/main_course/side_dish/dessert — apple pie is a "dessert"); dishType is the ' +
+    "dish's FORM (e.g. that french toast is a \"pancake\" or \"bread\"; the apple pie is a \"pie\"). " +
     'Also, for each step, list the cooking techniques it uses. ' +
     'Also classify how well the recipe suits MEAL PREP (batch-cook, portion, refrigerate/freeze, ' +
     'reheat over days): "designed" (built for it — batch quantities, make-ahead, stores/freezes, ' +
     'portioned), "suitable" (keeps and reheats fine — stews, curries, grain bowls, roasts), or ' +
     '"unsuitable" (degrades — fried/crispy, delicate, eat-immediately, single-serving plating). ' +
-    'Return JSON {"cuisine": string[], "mealType": string[], "dishType": string[], "stepTechniques": string[][], "mealPrepFit": string}. ' +
+    'Return JSON {"cuisine": string[], "mealType": string[], "course": string[], "dishType": string[], "stepTechniques": string[][], "mealPrepFit": string}. ' +
     `Use ONLY these cuisine values: ${VOCAB.cuisine.join(', ')}. ` +
     `Use ONLY these mealType values: ${VOCAB.mealType.join(', ')}. ` +
+    `Use ONLY these course values: ${VOCAB.course.join(', ')}. ` +
     `Use ONLY these dishType values: ${VOCAB.dishType.join(', ')}. ` +
     'Return at most two of each; use an empty array for a facet you are not confident about. ' +
     `For each step, list the cooking techniques it uses, using ONLY these technique names: ${TECHNIQUE_NAMES.join(', ')}. ` +
@@ -95,7 +98,7 @@ export class LunaRecipeAnalyzer implements RecipeAnalyzer {
 /** Offline double: returns nothing, deterministically. Selected when no key is set. */
 export class StubRecipeAnalyzer implements RecipeAnalyzer {
   async analyze(): Promise<RecipeAnalysis> {
-    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
+    return { cuisine: [], mealType: [], course: [], dishType: [], stepTechniques: [], mealPrepFit: null };
   }
 }
 
@@ -106,6 +109,7 @@ function constrain(content: string | undefined, stepCount: number): RecipeAnalys
     const parsed = JSON.parse(content ?? '{}') as {
       cuisine?: unknown;
       mealType?: unknown;
+      course?: unknown;
       dishType?: unknown;
       stepTechniques?: unknown;
       mealPrepFit?: unknown;
@@ -113,12 +117,13 @@ function constrain(content: string | undefined, stepCount: number): RecipeAnalys
     return {
       cuisine: pick(parsed.cuisine, VOCAB.cuisine),
       mealType: pick(parsed.mealType, VOCAB.mealType),
+      course: pick(parsed.course, VOCAB.course),
       dishType: pick(parsed.dishType, VOCAB.dishType),
       stepTechniques: pickTechniques(parsed.stepTechniques, stepCount),
       mealPrepFit: pickMealPrepFit(parsed.mealPrepFit),
     };
   } catch {
-    return { cuisine: [], mealType: [], dishType: [], stepTechniques: [], mealPrepFit: null };
+    return { cuisine: [], mealType: [], course: [], dishType: [], stepTechniques: [], mealPrepFit: null };
   }
 }
 

@@ -11,12 +11,16 @@ export const VOCAB = {
   // WHEN it's eaten (Edamam mealType). Orthogonal to dishType — french toast is a
   // `breakfast` (meal) that in form is a `pancake`/`bread` (dish).
   mealType: ['breakfast', 'brunch', 'lunch', 'dinner', 'snack'],
-  // WHAT form the dish takes (Edamam dishType, cleaned to dish forms only — meal-timing
-  // moved to mealType). snake_case for multi-word values.
+  // The ROLE a dish plays in a meal — orthogonal to both mealType (when) and dishType (form).
+  // Apple pie = course `dessert` + form `pie` + mealType `snack`. Split out of dishType so each
+  // axis answers one question; `main_course` is the only course that stands alone as a meal.
+  course: ['appetizer', 'main_course', 'side_dish', 'dessert'],
+  // WHAT form the dish takes (Edamam dishType, cleaned to dish forms only — meal-timing moved to
+  // mealType, meal role moved to course). snake_case for multi-word values.
   dishType: [
-    'main_course', 'side_dish', 'appetizer', 'salad', 'soup', 'stew', 'bread', 'pancake', 'pastry',
-    'pie', 'pizza', 'pasta', 'sandwich', 'burger', 'taco', 'bowl', 'casserole', 'curry', 'stir_fry',
-    'dessert', 'cookie', 'ice_cream', 'sauce', 'beverage', 'cocktail', 'sushi',
+    'salad', 'soup', 'stew', 'bread', 'pancake', 'pastry', 'pie', 'pizza', 'pasta', 'sandwich',
+    'burger', 'taco', 'bowl', 'casserole', 'curry', 'stir_fry', 'cookie', 'ice_cream', 'sauce',
+    'beverage', 'cocktail', 'sushi',
   ],
   primaryIngredient: [
     'seafood', 'poultry', 'beef', 'pork', 'lamb', 'egg', 'cheese', 'tofu', 'beans', 'vegetable',
@@ -29,6 +33,7 @@ export type Facet = keyof typeof VOCAB;
 const SETS: Record<Facet, Set<string>> = {
   cuisine: new Set(VOCAB.cuisine),
   mealType: new Set(VOCAB.mealType),
+  course: new Set(VOCAB.course),
   dishType: new Set(VOCAB.dishType),
   primaryIngredient: new Set(VOCAB.primaryIngredient),
 };

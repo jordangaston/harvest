@@ -23,7 +23,7 @@ function recipe(overrides: Partial<RankableRecipe> = {}): RankableRecipe {
     nutrition: EMPTY_PANEL,
     totalMinutes: 30,
     mealTypes: [],
-    categories: { cuisine: [], dishType: [], primaryIngredient: [], foodCategory: [] },
+    categories: { cuisine: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] },
     baseIngredientIds: [],
     allergens: { contains: [], mayContain: [], complete: true },
     dietFit: {},
@@ -43,8 +43,8 @@ describe('completePlate — meal-slot plate rules', () => {
   const veggieDinner = directive({ dimension: 'food_category', value: 'vegetable', scope: 'dinner', direction: 'more' });
 
   it('adds a side_dish vegetable when the main lacks a vegetable (TC1)', () => {
-    const main = recipe({ id: 'main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: ['beef'], foodCategory: ['red_meat'] } });
-    const side = recipe({ id: 'broccoli', categories: { cuisine: [], dishType: ['side_dish'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const main = recipe({ id: 'main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: ['beef'], foodCategory: ['red_meat'] } });
+    const side = recipe({ id: 'broccoli', categories: { cuisine: [], course: ['side_dish'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
 
     const plate = completePlate(main, [side], [veggieDinner], 'dinner');
 
@@ -53,8 +53,8 @@ describe('completePlate — meal-slot plate rules', () => {
   });
 
   it('adds no side when the main already carries the vegetable (TC1)', () => {
-    const main = recipe({ id: 'stirfry', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['vegetable'] } });
-    const side = recipe({ id: 'broccoli', categories: { cuisine: [], dishType: ['side_dish'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const main = recipe({ id: 'stirfry', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const side = recipe({ id: 'broccoli', categories: { cuisine: [], course: ['side_dish'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
 
     const plate = completePlate(main, [side], [veggieDinner], 'dinner');
 
@@ -62,8 +62,8 @@ describe('completePlate — meal-slot plate rules', () => {
   });
 
   it('ignores a directive scoped to another slot', () => {
-    const main = recipe({ id: 'main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['red_meat'] } });
-    const side = recipe({ id: 'broccoli', categories: { cuisine: [], dishType: ['side_dish'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const main = recipe({ id: 'main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['red_meat'] } });
+    const side = recipe({ id: 'broccoli', categories: { cuisine: [], course: ['side_dish'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
 
     // A lunch-scope rule must not complete a dinner plate.
     const plate = completePlate(main, [side], [directive({ dimension: 'food_category', value: 'vegetable', scope: 'lunch', direction: 'more' })], 'dinner');
@@ -72,9 +72,9 @@ describe('completePlate — meal-slot plate rules', () => {
   });
 
   it('never appends a non-side (main_course) recipe as a side', () => {
-    const main = recipe({ id: 'main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['red_meat'] } });
+    const main = recipe({ id: 'main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['red_meat'] } });
     // A vegetable main, not a side — must not be pulled in as a side.
-    const veggieMain = recipe({ id: 'veg-main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const veggieMain = recipe({ id: 'veg-main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
 
     const plate = completePlate(main, [veggieMain], [veggieDinner], 'dinner');
 
@@ -82,8 +82,8 @@ describe('completePlate — meal-slot plate rules', () => {
   });
 
   it('does not append for a `less` slot directive (a side cannot subtract)', () => {
-    const main = recipe({ id: 'main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['red_meat'] } });
-    const side = recipe({ id: 'salad', categories: { cuisine: [], dishType: ['side_dish'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const main = recipe({ id: 'main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['red_meat'] } });
+    const side = recipe({ id: 'salad', categories: { cuisine: [], course: ['side_dish'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
 
     const plate = completePlate(main, [side], [directive({ dimension: 'food_category', value: 'vegetable', scope: 'dinner', direction: 'less' })], 'dinner');
 
@@ -91,9 +91,9 @@ describe('completePlate — meal-slot plate rules', () => {
   });
 
   it('adds one side per unmet rule, reusing a side that covers two rules', () => {
-    const main = recipe({ id: 'main', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['red_meat'] } });
+    const main = recipe({ id: 'main', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['red_meat'] } });
     // One side that is both vegetable and high-fiber (carries the fiber nutrient panel field).
-    const combo = recipe({ id: 'combo', categories: { cuisine: [], dishType: ['side_dish'], primaryIngredient: [], foodCategory: ['vegetable'] }, nutrition: { ...EMPTY_PANEL, grams_of_fiber: 6 } });
+    const combo = recipe({ id: 'combo', categories: { cuisine: [], course: ['side_dish'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] }, nutrition: { ...EMPTY_PANEL, grams_of_fiber: 6 } });
     const rules = [
       veggieDinner,
       directive({ dimension: 'nutrient', value: 'fiber', scope: 'dinner', direction: 'more' }),
@@ -134,8 +134,8 @@ describe('checkAggregate — day/week budgets', () => {
   });
 
   it('week count reports unmet when meals bearing the value exceed a `less` target (TC3)', () => {
-    const redMeat = (id: string) => recipe({ id, categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['red_meat'] } });
-    const meals = [redMeat('a'), redMeat('b'), redMeat('c'), redMeat('d'), recipe({ id: 'fish', categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: ['seafood'], foodCategory: ['seafood'] } })];
+    const redMeat = (id: string) => recipe({ id, categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['red_meat'] } });
+    const meals = [redMeat('a'), redMeat('b'), redMeat('c'), redMeat('d'), recipe({ id: 'fish', categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: ['seafood'], foodCategory: ['seafood'] } })];
     const d = directive({ dimension: 'food_category', value: 'red_meat', scope: 'week', direction: 'less', target: 3, unit: 'count' });
 
     const check = checkAggregate(meals, d);
@@ -145,7 +145,7 @@ describe('checkAggregate — day/week budgets', () => {
   });
 
   it('week `more` count is met when enough meals bear the value (AC-4)', () => {
-    const veg = (id: string) => recipe({ id, categories: { cuisine: [], dishType: ['main_course'], primaryIngredient: [], foodCategory: ['vegetable'] } });
+    const veg = (id: string) => recipe({ id, categories: { cuisine: [], course: ['main_course'], dishType: [], primaryIngredient: [], foodCategory: ['vegetable'] } });
     const d = directive({ dimension: 'food_category', value: 'vegetable', scope: 'week', direction: 'more', target: 2, unit: 'count' });
 
     expect(checkAggregate([veg('a'), veg('b'), veg('c')], d).met).toBe(true);

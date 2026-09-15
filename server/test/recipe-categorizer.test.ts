@@ -35,12 +35,22 @@ function analyzerOf(
 }
 
 describe("VOCAB", () => {
-  it("exposes three facet lists and validates membership", () => {
+  it("exposes the facet lists and validates membership", () => {
     expect(VOCAB.cuisine).toContain("italian");
     expect(VOCAB.primaryIngredient).toContain("seafood");
     expect(inVocab("cuisine", "italian")).toBe(true);
     expect(inVocab("cuisine", "klingon")).toBe(false);
     expect(inVocab("primaryIngredient", "seafood")).toBe(true);
+  });
+
+  // split-course-facet: course (role) and dish_type (form) are orthogonal — role words live in
+  // course and are gone from dishType, so `dish_type` can only hold a form.
+  it("splits course out of dishType — course members in-vocab, dishType has no role value", () => {
+    for (const role of ["appetizer", "main_course", "side_dish", "dessert"]) {
+      expect(inVocab("course", role)).toBe(true);
+      expect(inVocab("dishType", role)).toBe(false);
+    }
+    expect(inVocab("dishType", "pasta")).toBe(true);
   });
 
   // O-CL-1: the expanded cuisine vocabulary (from cuisines-data.ts) is the exact chokepoint
@@ -87,11 +97,11 @@ describe("RuleTagger.tag", () => {
 });
 
 describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", () => {
-  it("takes cuisine/meal_type/dish_type from the classifier and primary from FDC + title", async () => {
+  it("takes cuisine/meal_type/course/dish_type from the classifier and primary from FDC + title", async () => {
     const cat = new RecipeCategorizer(
       SCAMPI_MATCHER,
       new RuleTagger(),
-      analyzerOf({ cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"] }),
+      analyzerOf({ cuisine: ["italian"], mealType: ["dinner"], course: ["main_course"], dishType: ["pasta"] }),
     );
     const { categories } = await cat.analyze(
       "Shrimp Scampi",
@@ -99,13 +109,13 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
       [],
     );
     expect(categories).toEqual({
-      cuisine: ["italian"], mealType: ["dinner"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [],
+      cuisine: ["italian"], mealType: ["dinner"], course: ["main_course"], dishType: ["pasta"], primaryIngredient: ["seafood"], foodCategory: [],
     });
   });
 
   it("uses the FDC seed for primary_ingredient when the title has no protein keyword", async () => {
     const matcher = matcherOf({ salmon: { fdcId: 3, category: "Fish", quality: "high" } });
-    const cat = new RecipeCategorizer(matcher, new RuleTagger(), analyzerOf({ cuisine: [], mealType: [], dishType: [] }));
+    const cat = new RecipeCategorizer(matcher, new RuleTagger(), analyzerOf({ cuisine: [], mealType: [], course: [], dishType: [] }));
     const { categories } = await cat.analyze(
       "Weeknight Sheet Pan Dinner",
       [{ name: "salmon" }, { name: "broccoli" }, { name: "olive oil" }],
@@ -118,19 +128,20 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
     const cat = new RecipeCategorizer(
       matcherOf({}),
       new RuleTagger(),
-      analyzerOf({ cuisine: ["italian", "klingon"], mealType: ["brunch", "teatime"], dishType: ["pasta", "warp"] }),
+      analyzerOf({ cuisine: ["italian", "klingon"], mealType: ["brunch", "teatime"], course: ["main_course", "warp"], dishType: ["pasta", "dessert"] }),
     );
     const { categories } = await cat.analyze("Mystery Dish", [{ name: "water" }], []);
     expect(categories.cuisine).toEqual(["italian"]); // non-VOCAB "klingon" dropped
     expect(categories.mealType).toEqual(["brunch"]); // non-VOCAB "teatime" dropped
-    expect(categories.dishType).toEqual(["pasta"]); // non-VOCAB "warp" dropped
+    expect(categories.course).toEqual(["main_course"]); // non-VOCAB "warp" dropped
+    expect(categories.dishType).toEqual(["pasta"]); // role word "dessert" is no longer a dishType — dropped
   });
 
   it("keeps an expanded-vocab cuisine (tex_mex) through constrain", async () => {
     const cat = new RecipeCategorizer(
       matcherOf({}),
       new RuleTagger(),
-      analyzerOf({ cuisine: ["tex_mex"], mealType: ["dinner"], dishType: ["taco"] }),
+      analyzerOf({ cuisine: ["tex_mex"], mealType: ["dinner"], course: ["main_course"], dishType: ["taco"] }),
     );
     const { categories } = await cat.analyze("Tex-Mex Tacos", [{ name: "tortilla" }], []);
     expect(categories.cuisine).toEqual(["tex_mex"]);
@@ -139,7 +150,7 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
   it("returns all-empty and never throws when nothing matches (no network via stub)", async () => {
     const cat = new RecipeCategorizer(matcherOf({}), new RuleTagger(), new StubRecipeAnalyzer());
     const { categories } = await cat.analyze("Mystery", [{ name: "water" }], []);
-    expect(categories).toEqual({ cuisine: [], mealType: [], dishType: [], primaryIngredient: [], foodCategory: [] });
+    expect(categories).toEqual({ cuisine: [], mealType: [], course: [], dishType: [], primaryIngredient: [], foodCategory: [] });
   });
 
   it("degrades to empty taste facets if the classifier throws (primary survives)", async () => {
@@ -150,6 +161,7 @@ describe("RecipeCategorizer.categorize — LLM taste + FDC primary dominance", (
     const { categories } = await cat.analyze("Shrimp Pasta", [{ name: "shrimp" }, { name: "spaghetti" }], []);
     expect(categories.cuisine).toEqual([]);
     expect(categories.mealType).toEqual([]);
+    expect(categories.course).toEqual([]);
     expect(categories.dishType).toEqual([]);
     expect(categories.primaryIngredient).toEqual(["seafood"]);
   });
@@ -160,13 +172,13 @@ describe("RecipeCategorizer.analyze — meal-prep fit (signal #10)", () => {
 
   it("takes the LLM band when present, over the heuristic", async () => {
     // Non-keeps-well dish + low servings would heuristic to `unsuitable`; the LLM `designed` wins.
-    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], dishType: ["salad"] }, "designed"));
+    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], course: [], dishType: ["salad"] }, "designed"));
     const { mealPrepFit } = await cat.analyze("Batch Meal-Prep Salad Jars", [{ name: "water" }], [], 2);
     expect(mealPrepFit).toBe("designed");
   });
 
   it("falls back to `suitable` for a keeps-well dish at batch scale", async () => {
-    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], dishType: ["stew"] }));
+    const cat = new RecipeCategorizer(matcherOf({}), rules, analyzerOf({ cuisine: [], mealType: [], course: [], dishType: ["stew"] }));
     const { mealPrepFit } = await cat.analyze("Beef Stew", [{ name: "beef" }], [], 8);
     expect(mealPrepFit).toBe("suitable");
   });
