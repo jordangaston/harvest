@@ -1,8 +1,8 @@
 import { topEigenpairs } from './svd.js';
 
-/** The co-occurrence embedding model: PPMI over token co-occurrence → SVD → token vectors → SIF
- * pooling → per-recipe vectors. Tokens are a recipe's base ingredients plus folded-in pseudo-tokens
- * (cuisine, dish form). Pure over in-memory bags; the build script is a thin db adapter. */
+/** The co-occurrence embedding model: PPMI over token co-occurrence → SVD → token vectors →
+ * plain-mean pooling → per-recipe vectors. Tokens are a recipe's base ingredients plus folded-in
+ * pseudo-tokens (cuisine, dish form). Pure over in-memory bags; the build script is a thin db adapter. */
 
 export interface EmbeddingOptions {
   /** Prune tokens appearing in fewer than this many recipes (the unreliable tail). */
