@@ -73,21 +73,25 @@ export class PollConsumer {
   async run(opts: { maxDurationMs: number; now?: () => number }): Promise<ConsumeResult> {
     const now = opts.now ?? Date.now;
     const deadline = now() + opts.maxDurationMs - EXIT_BUFFER_MS;
-    const outcome = await this.lock.withThreadLock(LOCK_KEY, async () => {
-      let applied = 0;
-      applied += await this.drainCatchUp();
-      applied += await this.drainLive(deadline, now);
-      const throughSequence = await this.currentSequence();
-      return { applied, throughSequence };
-    });
-    // The worker is exiting. Drop any not-yet-fired debounce timers (their deltas replay on the next
-    // cron's catchUp — accepted edge, WI-4), then await any reaction turn already in flight so a
-    // started reaction (a multi-second chef turn + live sends) isn't cut off when the serverless
-    // function freezes on return.
-    this.clearReactionTimers();
-    await Promise.allSettled(this.pendingReactions);
-    if (!outcome.ran) return { ran: false, reason: 'locked' };
-    return { ran: true, ...outcome.value! };
+    try {
+      const outcome = await this.lock.withThreadLock(LOCK_KEY, async () => {
+        let applied = 0;
+        applied += await this.drainCatchUp();
+        applied += await this.drainLive(deadline, now);
+        const throughSequence = await this.currentSequence();
+        return { applied, throughSequence };
+      });
+      if (!outcome.ran) return { ran: false, reason: 'locked' };
+      return { ran: true, ...outcome.value! };
+    } finally {
+      // The worker is exiting (clean OR via a throw). Drop any not-yet-fired debounce timers (their
+      // deltas replay on the next cron's catchUp — accepted edge, WI-4), then await any reaction turn
+      // already in flight so a started reaction (a multi-second chef turn + live sends) isn't cut off
+      // when the serverless function freezes on return. In `finally` so a stream error can't leave a
+      // dangling timer that fires a `react()` after the run has ended.
+      this.clearReactionTimers();
+      await Promise.allSettled(this.pendingReactions);
+    }
   }
 
   /** Cancels every pending reaction timer (worker exit). */
@@ -136,7 +140,7 @@ export class PollConsumer {
     try {
       for await (const event of stream) {
         if (event.type === 'catchup.complete') break;
-        if (event.type === 'poll.changed' && (await this.apply(event))) applied += 1;
+        if (event.type === 'poll.changed' && (await this.tryApply(event))) applied += 1;
       }
     } finally {
       await stream.close();
@@ -167,7 +171,7 @@ export class PollConsumer {
           break;
         }
         if (result.done) break;
-        if (await this.apply(result.value)) applied += 1;
+        if (await this.tryApply(result.value)) applied += 1;
         if (now() >= deadline) break;
       }
     } finally {
@@ -175,6 +179,21 @@ export class PollConsumer {
       await stream.close();
     }
     return applied;
+  }
+
+  /**
+   * Applies one delta, logging and swallowing a per-event failure (a malformed anchor body, a
+   * transient DB error) so one bad delta can't tear down the long-lived stream and the worker keeps
+   * ingesting. The cursor is NOT advanced on failure, so a retriable event replays on the next
+   * catchUp rather than being silently skipped. @returns whether a vote row was written.
+   */
+  private async tryApply(event: PollEvent): Promise<boolean> {
+    try {
+      return await this.apply(event);
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'poll delta apply failed', sequence: event.sequence, pollMessageGuid: event.pollMessageGuid, error: String(error) }));
+      return false;
+    }
   }
 
   /**

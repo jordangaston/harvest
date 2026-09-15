@@ -176,6 +176,22 @@ describe('PollConsumer (WI-3)', () => {
     release();
   });
 
+  it('a malformed delta is logged and skipped, not fatal — later votes still apply', async () => {
+    // Corrupt the anchor body so a `created` delta's refreshOptionMap JSON.parse throws mid-stream.
+    await db.update(threadMessages).set({ body: '{not json' }).where(eq(threadMessages.externalId, GUID));
+    const bad = { type: 'poll.changed' as const, sequence: 1, actor: { address: '+A', service: 'iMessage' }, chatGuid: 'chat;+;test', isFromMe: false, occurredAt: new Date(), pollMessageGuid: GUID, delta: { type: 'created' as const, title: 'Dinner?', options: [] } };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The bad `created` (seq 1) throws + is swallowed; the vote (seq 2) still applies.
+      const result = await PollConsumer.create(db, stubClient([bad, voteEvent(2, '+A', 'opt1', 'voted')]), new StubThreadLock()).run({ maxDurationMs: 800_000 });
+      expect(result).toMatchObject({ ran: true, applied: 1, throughSequence: 2 });
+      expect(await tally()).toEqual({ opt1: 1 });
+      expect(errors).toHaveBeenCalled(); // the failure was logged, not silent
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it('coalesces a vote burst into ONE debounced reaction with the final tally (WI-4 TC-2)', async () => {
     vi.useFakeTimers();
     try {
