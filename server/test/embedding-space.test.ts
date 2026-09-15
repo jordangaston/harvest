@@ -28,7 +28,7 @@ describe('EmbeddingSpace', () => {
     const bags = new Map<string, string[]>();
     for (let i = 0; i < 8; i++) bags.set(`A${i}`, ['a1', 'a2', 'a3']);
     for (let i = 0; i < 8; i++) bags.set(`B${i}`, ['b1', 'b2', 'b3']);
-    const space = EmbeddingSpace.build(bags, { minDf: 2, dims: 4, sifA: 1e-3 });
+    const space = EmbeddingSpace.build(bags, { minDf: 2, dims: 4 });
 
     const withinA = space.similarity('A0', 'A1');
     const crossAB = space.similarity('A0', 'B0');
@@ -41,8 +41,8 @@ describe('EmbeddingSpace', () => {
       ['A1', ['a1', 'a2', 'a3']],
       ['A2', ['a1', 'a2', 'a3']],
     ]);
-    const s1 = EmbeddingSpace.build(bags, { minDf: 2, dims: 2, sifA: 1e-3 });
-    const s2 = EmbeddingSpace.build(bags, { minDf: 2, dims: 2, sifA: 1e-3 });
+    const s1 = EmbeddingSpace.build(bags, { minDf: 2, dims: 2 });
+    const s2 = EmbeddingSpace.build(bags, { minDf: 2, dims: 2 });
     expect(s1.similarity('A0', 'A1')).toBeCloseTo(s2.similarity('A0', 'A1'), 10);
     expect(s1.similarity('A0', 'ghost')).toBe(0);
   });

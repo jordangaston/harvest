@@ -9,15 +9,13 @@ export interface EmbeddingOptions {
   minDf: number;
   /** SVD dimensions (top-k eigenpairs by |eigenvalue|). */
   dims: number;
-  /** SIF smoothing constant a in weight = a/(a + p(token)). */
-  sifA: number;
 }
 
-// Tuned on Tier 1 (triplet accuracy 0.877, rare-ingredient probe 0.009): minDf=30 aligns with the
-// corpus density rule (only trust ingredients seen in ≥30 recipes); dims=250 captures more
-// co-occurrence structure. sifA stays 1e-3 — raising it inflates triplet accuracy only by
-// up-weighting the cuisine/dish pseudo-tokens the metric is built from (gaming, not quality).
-export const DEFAULT_OPTIONS: EmbeddingOptions = { minDf: 30, dims: 250, sifA: 1e-3 };
+// minDf=30 aligns with the corpus density rule (only trust ingredients seen in ≥30 recipes);
+// dims=250 captures more co-occurrence structure. Pooling is a PLAIN mean of token vectors: SIF
+// frequency-weighting was ablated out — it collapsed each recipe onto its rarest ingredient and
+// scored BELOW random on good-vs-bad human judgment (0.41 vs plain-mean 0.70). See poolRecipes.
+export const DEFAULT_OPTIONS: EmbeddingOptions = { minDf: 30, dims: 250 };
 
 export interface Ppmi {
   tokens: string[];
@@ -70,35 +68,35 @@ export function tokenVectors(ppmi: Ppmi, dims: number): number[][] {
   return ppmi.tokens.map((_t, i) => pairs.map((p, k) => p.vector[i]! * scale[k]!));
 }
 
-/** SIF-pooled, common-component-removed, L2-normalized recipe vectors. */
+/** Plain-mean-pooled, common-component-removed, L2-normalized recipe vectors. Each recipe is the
+ * simple average of its in-vocab token vectors — a stable center of mass over the whole ingredient
+ * set. (SIF frequency-weighting was ablated: it collapsed the recipe onto its rarest ingredient and
+ * scored below random on human good-vs-bad judgment.) */
 export function poolRecipes(
   bags: Map<string, string[]>,
   ppmi: Ppmi,
   vecs: number[][],
-  sifA: number,
 ): Map<string, number[]> {
   const dims = vecs[0]?.length ?? 0;
-  const weightOf = (i: number) => sifA / (sifA + ppmi.counts[i]! / ppmi.n);
 
   const ids: string[] = [];
   const raw: number[][] = [];
   for (const [id, bag] of bags) {
     const v = new Array(dims).fill(0);
-    let wsum = 0;
+    let count = 0;
     for (const t of new Set(bag)) {
       const i = ppmi.index.get(t);
       if (i === undefined) continue;
-      const w = weightOf(i);
-      wsum += w;
-      for (let d = 0; d < dims; d++) v[d] += w * vecs[i]![d]!;
+      count += 1;
+      for (let d = 0; d < dims; d++) v[d] += vecs[i]![d]!;
     }
-    if (wsum === 0) continue; // no pruned-vocab tokens → unrepresentable, skip
-    for (let d = 0; d < dims; d++) v[d] /= wsum;
+    if (count === 0) continue; // no pruned-vocab tokens → unrepresentable, skip
+    for (let d = 0; d < dims; d++) v[d] /= count;
     ids.push(id);
     raw.push(v);
   }
 
-  // SIF common-component removal: subtract the projection onto the first principal component.
+  // Common-component removal: subtract the projection onto the first principal component.
   const pc = firstPrincipalComponent(raw, dims);
   const out = new Map<string, number[]>();
   for (let r = 0; r < raw.length; r++) {
@@ -142,7 +140,7 @@ export class EmbeddingSpace {
   static build(bags: Map<string, string[]>, opts: EmbeddingOptions = DEFAULT_OPTIONS): EmbeddingSpace {
     const ppmi = buildPpmi([...bags.values()], opts.minDf);
     const vecs = tokenVectors(ppmi, opts.dims);
-    return new EmbeddingSpace(poolRecipes(bags, ppmi, vecs, opts.sifA));
+    return new EmbeddingSpace(poolRecipes(bags, ppmi, vecs));
   }
 
   get size(): number {
