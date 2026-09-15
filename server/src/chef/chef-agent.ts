@@ -84,16 +84,28 @@ type SendPayload = z.infer<typeof SendInput>;
  * text` map is stored as a `type='poll'` `thread_messages` row for WI-3's votes to anchor on.
  * @returns whether the poll was sent (false ⇒ dropped, no RPC, no row).
  */
-export async function sendPoll(p: SendPayload, threadId: string, chatGuid: string, db: Database): Promise<boolean> {
+export async function sendPoll(
+  p: SendPayload,
+  threadId: string,
+  chatGuid: string,
+  db: Database,
+  triggerExternalId: string | null,
+): Promise<boolean> {
   const title = p.text?.trim();
   const options = p.options ?? [];
   if (!title || options.length < 2) return false;
+  const repo = ThreadRepository.create(db);
+  // Idempotency gate: polls.create() is a non-idempotent RPC (a fresh guid per call), so a redelivered
+  // turn would double-send. Key the anchor on a deterministic per-turn guid and skip the RPC if this
+  // turn's poll already went out (one poll per turn — the realistic case).
+  const messageGuid = `${triggerExternalId ?? 'poll'}#poll`;
+  if (await repo.pollAlreadySent(messageGuid)) return true;
   const poll = await createAdvancedClient().polls.create(chatGuid, title, options);
   const body = JSON.stringify({
     title: poll.title,
     options: poll.options.map((o) => ({ optionIdentifier: o.optionIdentifier, text: o.text })),
   });
-  await ThreadRepository.create(db).insertPoll({ threadId, pollMessageGuid: poll.pollMessageGuid, body, triggerId: null });
+  await repo.insertPoll({ threadId, messageGuid, pollMessageGuid: poll.pollMessageGuid, body, triggerId: triggerExternalId });
   return true;
 }
 
@@ -272,7 +284,7 @@ export class MastraChefAgent implements ChefAgent {
       inputSchema: SendInput,
       execute: async (payload: SendPayload) => {
         if (payload.type === 'poll') {
-          const sent = await sendPoll(payload, turn.ctx.threadId, turn.chatGuid, db);
+          const sent = await sendPoll(payload, turn.ctx.threadId, turn.chatGuid, db, turn.triggerExternalId);
           return { sent };
         }
         const e = sendEvent(payload, turn.triggerExternalId, turn.messageTargets);

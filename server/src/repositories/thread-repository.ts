@@ -187,13 +187,13 @@ export class ThreadRepository {
   }
 
   /**
-   * Persists an already-sent poll as its outbound anchor row (WI-2): `type='poll'`, `external_id` and
-   * `message_guid` both the `pollMessageGuid`, `body` the JSON option map. Sent through the advanced
-   * client (not the sink), so it lands here already-sent (`sent_at` now) — WI-3 votes anchor on
-   * `external_id`, reading the option map out of `body`.
+   * Persists an already-sent poll as its outbound anchor row (WI-2): `type='poll'`, `external_id` the
+   * server `pollMessageGuid` (WI-3 votes anchor on it), `message_guid` a deterministic per-turn dedup
+   * key (the poll idempotency gate — see `pollAlreadySent`), `body` the JSON option map. Sent through
+   * the advanced client (not the sink), so it lands here already-sent (`sent_at` now).
    */
   async insertPoll(
-    input: { threadId: string; pollMessageGuid: string; body: string; triggerId: string | null },
+    input: { threadId: string; messageGuid: string; pollMessageGuid: string; body: string; triggerId: string | null },
     tx: Executor = this.db,
   ): Promise<void> {
     await tx.insert(threadMessages).values({
@@ -201,11 +201,22 @@ export class ThreadRepository {
       direction: 'outbound',
       type: 'poll',
       body: input.body,
-      messageGuid: input.pollMessageGuid,
+      messageGuid: input.messageGuid,
       externalId: input.pollMessageGuid,
       triggerId: input.triggerId,
       sentAt: new Date(),
     });
+  }
+
+  /** Whether this turn's poll anchor already exists and its send resolved — the poll idempotency gate,
+   *  so a redelivered turn skips the non-idempotent `polls.create()` RPC. Keyed on the deterministic
+   *  per-turn `message_guid` (not the server-assigned `pollMessageGuid`, which differs per attempt). */
+  async pollAlreadySent(messageGuid: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ sentAt: threadMessages.sentAt })
+      .from(threadMessages)
+      .where(eq(threadMessages.messageGuid, messageGuid));
+    return row?.sentAt != null;
   }
 
   /** Advances the cursor to the newest processed inbound id and bumps updated_at. */
