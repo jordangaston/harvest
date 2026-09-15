@@ -26,7 +26,7 @@ import type { DetectedEquipment } from '../equipment/equipment.js';
 import { mapIngredientIcon } from '../parse/icons.js';
 
 /** Maps a `RecipeCategories` key to its `recipe_categories.facet` enum value. */
-const FACET_BY_KEY = {
+export const FACET_BY_KEY = {
   cuisine: 'cuisine',
   mealType: 'meal_type',
   course: 'course',
