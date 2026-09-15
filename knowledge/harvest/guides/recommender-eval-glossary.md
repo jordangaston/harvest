@@ -101,3 +101,7 @@ The culinary tradition (italian, thai, mexican …), from the authored `cuisines
 
 ### primary_ingredient
 The protein/base category: seafood, poultry, beef, tofu, beans, grain … **In Harvest:** deliberately *not* used in the eval triplets — requiring the protein to match over-constrains "similar," and the embedding model learns protein straight from ingredients.
+
+## See also
+
+- **[Recsys / Search Evaluation — Pooling, Its Limits, and Online Eval](./recsys-eval-methodology.md)** — the methodology behind our tiers: what pooling is, why it's standard practice (Cranfield → TREC), where it's blind (pool bias / reusability), and how production engines use rater panels + interleaving + A/B online eval to get past those blind spots.
