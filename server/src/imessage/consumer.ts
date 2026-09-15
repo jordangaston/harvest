@@ -353,8 +353,12 @@ export class Consumer {
     const title = anchor.body ? (JSON.parse(anchor.body).title ?? '') : '';
     const options = tally.map((o) => ({ text: o.text, count: o.count, voters: o.voters }));
     const totalVotes = tally.reduce((sum, o) => sum + o.count, 0);
+    // Scope the idempotency key by the per-option counts vector, not the total: a voter switching
+    // options (unvote A + vote B) leaves the total unchanged but the standings differ, and must still
+    // get a reaction. Identical standings (a redelivery) reuse the scope and are correctly swallowed.
+    const standings = tally.map((o) => o.count).join('-');
     await this.lock.withThreadLock(thread.id, async () => {
-      const sink = new LiveOutboundSink(this.threads, this.sender, thread.id, thread.chatGuid, `poll:${pollMessageGuid}:${totalVotes}`, null);
+      const sink = new LiveOutboundSink(this.threads, this.sender, thread.id, thread.chatGuid, `poll:${pollMessageGuid}:${standings}`, null);
       await this.sender.responding(thread.chatGuid, () => this.chef.respond(thread.id, sink, undefined, undefined, { title, options }));
     });
     console.info(JSON.stringify({ event: 'poll reaction fired', threadId: thread.id, pollMessageGuid, totalVotes }));

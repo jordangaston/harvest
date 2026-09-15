@@ -43,6 +43,9 @@ export class PollConsumer {
   /** Per-poll debounce timers (WI-4). A vote upsert (re)starts the poll's timer; a burst within the
    *  window collapses to one pending timer, so exactly one reaction turn fires on the final tally. */
   private readonly reactionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Reaction turns already dispatched (timer fired) but not yet finished. `run()` awaits these before
+   *  returning so a reaction that started isn't cut off when the serverless function freezes on return. */
+  private readonly pendingReactions = new Set<Promise<void>>();
 
   private constructor(
     private readonly db: Database,
@@ -77,11 +80,12 @@ export class PollConsumer {
       const throughSequence = await this.currentSequence();
       return { applied, throughSequence };
     });
-    // The worker is exiting — drop any pending reaction timers so they can't fire against a closed
-    // stream / after the process is torn down. Any debounce still pending at exit is dropped, not
-    // flushed — the next cron's catchUp replays those deltas and re-triggers the reaction (accepted
-    // edge, WI-4).
+    // The worker is exiting. Drop any not-yet-fired debounce timers (their deltas replay on the next
+    // cron's catchUp — accepted edge, WI-4), then await any reaction turn already in flight so a
+    // started reaction (a multi-second chef turn + live sends) isn't cut off when the serverless
+    // function freezes on return.
     this.clearReactionTimers();
+    await Promise.allSettled(this.pendingReactions);
     if (!outcome.ran) return { ran: false, reason: 'locked' };
     return { ran: true, ...outcome.value! };
   }
@@ -103,7 +107,8 @@ export class PollConsumer {
       pollMessageGuid,
       setTimeout(() => {
         this.reactionTimers.delete(pollMessageGuid);
-        void this.react(pollMessageGuid);
+        const reaction = this.react(pollMessageGuid).finally(() => this.pendingReactions.delete(reaction));
+        this.pendingReactions.add(reaction);
       }, REACTION_DEBOUNCE_MS),
     );
   }
@@ -139,16 +144,34 @@ export class PollConsumer {
     return applied;
   }
 
-  /** Holds the live poll stream, applying deltas until the deadline, then closes it. */
+  /**
+   * Holds the live poll stream, applying deltas until the deadline, then closes it. Each read is
+   * raced against the deadline: an idle poll (no votes arriving) must still exit ~`EXIT_BUFFER_MS`
+   * before `maxDuration` and close the stream, rather than block on the stream until Vercel hard-kills
+   * the function (which would skip the clean close).
+   */
   private async drainLive(deadline: number, now: () => number): Promise<number> {
     let applied = 0;
     const stream = this.client.polls.subscribeEvents();
+    const iterator = stream[Symbol.asyncIterator]();
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<'timeout'>((resolve) => {
+      deadlineTimer = setTimeout(() => resolve('timeout'), Math.max(0, deadline - now()));
+    });
     try {
-      for await (const event of stream) {
-        if (await this.apply(event)) applied += 1;
+      while (true) {
+        const read = iterator.next();
+        const result = await Promise.race([read, timedOut]);
+        if (result === 'timeout') {
+          read.catch(() => {}); // the pending read is aborted by stream.close() below — swallow it
+          break;
+        }
+        if (result.done) break;
+        if (await this.apply(result.value)) applied += 1;
         if (now() >= deadline) break;
       }
     } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       await stream.close();
     }
     return applied;

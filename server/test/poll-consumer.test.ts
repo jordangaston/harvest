@@ -159,6 +159,23 @@ describe('PollConsumer (WI-3)', () => {
     expect(lock.calls).toBe(1); // acquired + released (withThreadLock returned)
   });
 
+  it('exits an idle live stream at the deadline instead of blocking (WI-3 idle seam)', async () => {
+    // A live stream that yields nothing and never ends. Without the deadline race, drainLive would
+    // block here until Vercel hard-kills the function; the timer must end the loop and release cleanly.
+    let release!: () => void;
+    const open = new Promise<void>((r) => (release = r));
+    const client = {
+      events: { catchUp: () => stubStream(async function* () { yield { type: 'catchup.complete', headSequence: 0 }; }) },
+      polls: { subscribeEvents: () => stubStream(async function* () { await open; }) },
+    } as any;
+    const lock = new StubThreadLock();
+    // maxDuration = EXIT_BUFFER_MS (30s) + 50ms slack ⇒ the deadline lands ~50ms out.
+    const result = await PollConsumer.create(db, client, lock).run({ maxDurationMs: 30_050 });
+    expect(result.ran).toBe(true);
+    expect(lock.calls).toBe(1); // released cleanly — did not hang on the idle stream
+    release();
+  });
+
   it('coalesces a vote burst into ONE debounced reaction with the final tally (WI-4 TC-2)', async () => {
     vi.useFakeTimers();
     try {
