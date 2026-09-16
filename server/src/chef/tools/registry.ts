@@ -6,6 +6,7 @@ import { UpdateFactsTool } from './update-facts.js';
 import { UpdateTasksTool } from './update-tasks.js';
 import { GenerateMealPlanTool, SlotOptionsTool, AddRecipeToSlotTool, RemoveRecipeFromSlotTool, SetReminderTimeTool, SetReminderEnabledTool } from './mealplan.js';
 import { ViewGroceryTool, AddGroceryTool, RemoveGroceryTool, CheckGroceryTool } from './grocery.js';
+import { PollTallyTool } from './poll-tally.js';
 import type { Database } from '../../db.js';
 import type { ChefTool, TurnContext } from './types.js';
 
@@ -27,6 +28,7 @@ const FACTORIES: Record<string, (ctx: TurnContext, db: Database) => ChefTool> = 
   grocery__add: AddGroceryTool.create,
   grocery__remove: RemoveGroceryTool.create,
   grocery__check: CheckGroceryTool.create,
+  poll__tally: PollTallyTool.create,
 };
 
 /** Every registered factory id — the steady-state shell's full tool set (chef-steady-state WI-01). */

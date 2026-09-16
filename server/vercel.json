@@ -1,5 +1,8 @@
 {
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "crons": [{ "path": "/crons/dispatch", "schedule": "* * * * *" }]
+  "crons": [
+    { "path": "/crons/dispatch", "schedule": "* * * * *" },
+    { "path": "/crons/poll-consume", "schedule": "* * * * *" }
+  ]
 }

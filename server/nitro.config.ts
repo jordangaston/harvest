@@ -31,5 +31,10 @@ export default defineConfig({
     queues: {
       triggers: [{ topic: "import-intake" }, { topic: "inbound-messages" }],
     },
+    // WI-3: the poll vote loop-worker holds the stream to ~maxDuration, so its cron route needs
+    // the Pro GA 800s cap (default is 300s). Keep in sync with POLL_CONSUME_MAX_DURATION_S.
+    functionRules: {
+      "/crons/poll-consume": { maxDuration: 800 },
+    },
   },
 });

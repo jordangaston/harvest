@@ -1,4 +1,7 @@
+import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db.js';
+import { threadMessages } from '../schema.js';
+import type { OptionTally } from '../chef/tools/poll-tally.js';
 import { ThreadRepository } from '../repositories/thread-repository.js';
 import { HouseholdRepository } from '../repositories/household-repository.js';
 import { selectSender, type Sender } from './sender.js';
@@ -327,6 +330,38 @@ export class Consumer {
       await this.sender.responding(thread.chatGuid, () => this.chef.respond(thread.id, sink, undefined, { meal: reminder.meal, recipes }));
       console.info(JSON.stringify({ event: 'reminder fired', threadId: thread.id, meal: reminder.meal, recipes: recipes.length }));
     }
+  }
+
+  /**
+   * The poll-reaction arm (polls WI-4). The poll consumer debounces a vote burst, resolves the
+   * standings, and calls this with the poll guid + tally. Resolve the poll's thread + title from its
+   * `type='poll'` anchor row (WI-2), then run ONE objective-independent reaction turn (the chef reads
+   * the standings and reacts). The send rides the guid scope `poll:<guid>:<total-votes>`, so a
+   * re-fire with no new votes is swallowed by the sink's `alreadySent` guard. No commit, no cursor
+   * move — a poll reaction touches no objective and consumes no inbound.
+   */
+  async reactToPoll(pollMessageGuid: string, tally: OptionTally[]): Promise<void> {
+    const [anchor] = await this.db
+      .select({ threadId: threadMessages.threadId, body: threadMessages.body })
+      .from(threadMessages)
+      .where(and(eq(threadMessages.type, 'poll'), eq(threadMessages.externalId, pollMessageGuid)))
+      .limit(1);
+    if (!anchor) return; // unknown poll — no anchor row to thread the reaction to
+    const thread = await this.threads.findById(anchor.threadId);
+    if (!thread) return;
+
+    const title = anchor.body ? (JSON.parse(anchor.body).title ?? '') : '';
+    const options = tally.map((o) => ({ text: o.text, count: o.count, voters: o.voters }));
+    const totalVotes = tally.reduce((sum, o) => sum + o.count, 0);
+    // Scope the idempotency key by the per-option counts vector, not the total: a voter switching
+    // options (unvote A + vote B) leaves the total unchanged but the standings differ, and must still
+    // get a reaction. Identical standings (a redelivery) reuse the scope and are correctly swallowed.
+    const standings = tally.map((o) => o.count).join('-');
+    await this.lock.withThreadLock(thread.id, async () => {
+      const sink = new LiveOutboundSink(this.threads, this.sender, thread.id, thread.chatGuid, `poll:${pollMessageGuid}:${standings}`, null);
+      await this.sender.responding(thread.chatGuid, () => this.chef.respond(thread.id, sink, undefined, undefined, { title, options }));
+    });
+    console.info(JSON.stringify({ event: 'poll reaction fired', threadId: thread.id, pollMessageGuid, totalVotes }));
   }
 
   /**

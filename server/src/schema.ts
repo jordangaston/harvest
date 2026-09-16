@@ -216,7 +216,7 @@ export const threadMessages = sqliteTable(
       .notNull()
       .references(() => threads.id),
     direction: text('direction', { enum: ['inbound', 'outbound'] as const }).notNull(),
-    type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment'] as const }).notNull(),
+    type: text('type', { enum: ['text', 'reaction', 'reply', 'attachment', 'poll'] as const }).notNull(),
     senderUserId: text('sender_user_id').references(() => users.id),
     body: text('body'),
     // Reaction (tapback) substrate (WI-A): the emoji and the guid of the prior message
@@ -903,6 +903,40 @@ export const dynamicCronJobs = sqliteTable(
   ],
 );
 
+// Poll votes (WI-3): the self-managed tally. Votes arrive only on the advanced
+// `polls.subscribeEvents()` stream and `polls.get()` is empty on shared, so we bookkeep
+// each (poll, voter, option) selection ourselves. One row per (guid, voter, option) — the
+// unique index is the upsert key, so multi-select and multi-user fall out for free. `voter`
+// is the actor handle; `voter_user_id` is resolved when the handle is a known user (else null).
+// `sequence` guards idempotent replay: a catchUp/live-overlap event ≤ the stored sequence is a
+// no-op. Tally = `selected=true` rows grouped by `option_identifier`.
+export const pollVotes = sqliteTable(
+  'poll_votes',
+  {
+    id: uuidPk(),
+    pollMessageGuid: text('poll_message_guid').notNull(),
+    voter: text('voter').notNull(),
+    voterUserId: text('voter_user_id').references(() => users.id),
+    optionIdentifier: text('option_identifier').notNull(),
+    selected: integer('selected', { mode: 'boolean' }).notNull(),
+    sequence: integer('sequence').notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('poll_votes_guid_voter_option_uidx').on(t.pollMessageGuid, t.voter, t.optionIdentifier),
+    index('poll_votes_guid_idx').on(t.pollMessageGuid),
+  ],
+);
+
+// Poll stream cursor (WI-3): a single row (id=1) holding the last applied event sequence.
+// The loop-worker reads it on start to drive `catchUp`, then advances it as it applies deltas.
+export const pollStreamCursor = sqliteTable('poll_stream_cursor', {
+  id: integer('id').primaryKey(),
+  sequence: integer('sequence').notNull(),
+});
+
 export const schema = {
   users,
   recipes,
@@ -937,6 +971,8 @@ export const schema = {
   objectives,
   tasks,
   dynamicCronJobs,
+  pollVotes,
+  pollStreamCursor,
 };
 export type Schema = typeof schema;
 

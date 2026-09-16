@@ -21,6 +21,7 @@ function turn(overrides: Partial<ChefTurn> = {}): ChefTurn & { sent: ChatEvent[]
     ctx: overrides.ctx ?? ({} as TurnContext),
     triggerExternalId: overrides.triggerExternalId ?? null,
     messageTargets: overrides.messageTargets ?? {},
+    chatGuid: overrides.chatGuid ?? 'chat;+;test',
     send: overrides.send ?? (async (e) => { sent.push(e); }),
     sent,
   };
